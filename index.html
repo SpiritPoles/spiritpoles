@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>UCS Spirit — Coach Portal</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%;font-family:system-ui,-apple-system,sans-serif;background:#0e0b12}
+
+/* ── Gate ── */
+#gate{position:fixed;inset:0;z-index:999;background:#0e0b12;display:flex;align-items:center;justify-content:center;padding:24px}
+#gate-box{width:100%;max-width:340px;background:#141117;border:1px solid rgba(232,18,125,0.25);border-top-color:rgba(232,18,125,0.55);border-radius:20px;padding:36px 28px 28px;text-align:center}
+#gate-logo{display:block;margin:0 auto 20px;width:220px;height:auto}
+.gate-rule{height:1px;background:linear-gradient(90deg,transparent,#E8127D,transparent);margin-bottom:24px}
+#gate-box h2{font-size:11px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:rgba(232,18,125,0.6);margin-bottom:20px}
+#gate-inp{width:100%;background:rgba(16,13,20,0.9);border:1px solid rgba(255,255,255,0.1);border-top-color:rgba(255,255,255,0.18);border-radius:10px;padding:13px 16px;color:#ede6d8;font-size:16px;font-weight:700;outline:none;text-align:center;letter-spacing:.08em;margin-bottom:12px;font-family:inherit}
+#gate-inp:focus{border-color:rgba(232,18,125,0.5);box-shadow:0 0 0 2px rgba(232,18,125,0.12)}
+#gate-btn{width:100%;background:linear-gradient(135deg,#c40f6a 0%,#E8127D 42%,#f03a96 58%,#b00d60 100%);border:none;border-radius:10px;color:#fff;font-size:12px;font-weight:800;padding:13px;cursor:pointer;letter-spacing:.16em;text-transform:uppercase;font-family:inherit}
+#gate-btn:hover{opacity:.88}
+#gate-err{color:#ff8a8a;font-size:12px;font-weight:700;margin-top:10px;min-height:18px}
+#gate.hidden{display:none}
+
+/* ── Portal ── */
+body{background:#0e0b12}
+#portal{max-width:900px;margin:0 auto;padding:40px 20px 60px}
+.portal-hdr{text-align:center;margin-bottom:40px}
+#portal-logo{display:block;margin:0 auto 16px;width:240px;height:auto}
+.portal-rule{height:1px;background:linear-gradient(90deg,transparent,#E8127D,transparent);margin:0 auto 12px;max-width:300px}
+.portal-title{font-size:11px;font-weight:800;letter-spacing:.25em;text-transform:uppercase;color:rgba(232,18,125,0.5)}
+
+.section-label{font-size:10px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,0.25);margin-bottom:14px;padding-left:2px}
+.tile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-bottom:40px}
+
+.tile{background:#141117;border:1px solid rgba(255,255,255,0.07);border-top-color:rgba(255,255,255,0.13);border-radius:16px;padding:24px 20px 20px;cursor:pointer;text-decoration:none;display:block;transition:all .18s;position:relative;overflow:hidden}
+.tile:hover{border-color:rgba(232,18,125,0.35);transform:translateY(-2px);box-shadow:0 8px 32px rgba(232,18,125,0.1)}
+.tile-icon{font-size:28px;margin-bottom:14px;display:block}
+.tile-name{font-size:14px;font-weight:800;color:#ede6d8;margin-bottom:6px;letter-spacing:.01em}
+.tile-desc{font-size:12px;font-weight:600;color:rgba(255,255,255,0.35);line-height:1.45}
+.tile-badge{position:absolute;top:14px;right:14px;font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;background:rgba(232,18,125,0.12);color:rgba(232,18,125,0.7);border:1px solid rgba(232,18,125,0.2);border-radius:20px;padding:3px 8px}
+.tile-badge.new{background:rgba(61,196,164,0.12);color:rgba(61,196,164,0.8);border-color:rgba(61,196,164,0.25)}
+.tile-shine{position:absolute;top:0;left:-80%;width:50%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.035),transparent);animation:sh 4s infinite}
+@keyframes sh{0%{left:-80%}40%{left:130%}100%{left:130%}}
+
+/* Coming-soon tiles */
+.tile.soon{cursor:default;opacity:.5}
+.tile.soon:hover{border-color:rgba(255,255,255,0.07);transform:none;box-shadow:none}
+
+.footer{text-align:center;font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,0.15);padding-top:24px;border-top:1px solid rgba(255,255,255,0.05)}
+</style>
+</head>
+<body>
+
+<!-- Gate -->
+<div id="gate">
+  <div id="gate-box">
+    <img id="gate-logo" src="apps/flex-lookup/ucs-spirit-logo.png" alt="UCS Spirit">
+    <div class="gate-rule"></div>
+    <h2>UCS Spirit Portal Access</h2>
+    <input id="gate-inp" type="password" placeholder="Enter password" autocomplete="off">
+    <button id="gate-btn">Enter</button>
+    <div id="gate-err"></div>
+  </div>
+</div>
+
+<!-- Portal -->
+<div id="portal">
+  <div class="portal-hdr">
+    <img id="portal-logo" src="apps/flex-lookup/ucs-spirit-logo.png" alt="UCS Spirit">
+    <div class="portal-rule"></div>
+    <div class="portal-title">Coach Portal</div>
+  </div>
+
+  <div class="section-label">Tools</div>
+  <div class="tile-grid">
+
+    <a class="tile" href="apps/flex-lookup/">
+      <span class="tile-shine"></span>
+      <span class="tile-icon">🏋️</span>
+      <div class="tile-name">Pole Flex Lookup</div>
+      <div class="tile-desc">Look up model, weight rating, and tip size for any pole length and flex number.</div>
+    </a>
+
+    <!-- Placeholder tiles — wire up as apps are built -->
+    <div class="tile soon">
+      <span class="tile-icon">📦</span>
+      <div class="tile-badge">Coming Soon</div>
+      <div class="tile-name">Inventory Lookup</div>
+      <div class="tile-desc">Check live pole availability by length, flex, and weight rating.</div>
+    </div>
+
+    <div class="tile soon">
+      <span class="tile-icon">📋</span>
+      <div class="tile-badge">Coming Soon</div>
+      <div class="tile-name">Order Tracker</div>
+      <div class="tile-desc">Track inbound orders and shipment status for your account.</div>
+    </div>
+
+    <div class="tile soon">
+      <span class="tile-icon">📐</span>
+      <div class="tile-badge">Coming Soon</div>
+      <div class="tile-name">Pole Sizing Guide</div>
+      <div class="tile-desc">Recommended pole specs based on athlete weight and PR height.</div>
+    </div>
+
+  </div>
+
+  <div class="footer">UCS Spirit &nbsp;◆&nbsp; Trusted &nbsp;◆&nbsp; Dependable &nbsp;◆&nbsp; Proven</div>
+</div>
+
+<script>
+// ── Password gate ─────────────────────────────────────────────────────────────
+// PASS_HASH = SHA-256 of current password. Updated by scheduled task every 3 months.
+// Current password: Vault2026!
+var PASS_HASH = '81dd0c462e1406904039a3f46762ff3d4c7da325fd819c292f64a86875d1868e';
+
+async function sha256(str) {
+  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(function(b){return b.toString(16).padStart(2,'0');}).join('');
+}
+
+function sessionValid() {
+  try {
+    var s = JSON.parse(sessionStorage.getItem('ucspv'));
+    if (!s) return false;
+    return new Date(s.ts).toDateString() === new Date().toDateString();
+  } catch(e) { return false; }
+}
+
+function openSession() {
+  sessionStorage.setItem('ucspv', JSON.stringify({ts: Date.now()}));
+  document.getElementById('gate').classList.add('hidden');
+}
+
+function scheduleMidnightLock() {
+  var now = new Date();
+  var msUntilMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1) - now;
+  setTimeout(function() {
+    sessionStorage.removeItem('ucspv');
+    document.getElementById('gate').classList.remove('hidden');
+    document.getElementById('gate-inp').value = '';
+    document.getElementById('gate-err').textContent = 'Session expired — please re-enter the password.';
+    scheduleMidnightLock();
+  }, msUntilMidnight);
+}
+
+if (sessionValid()) {
+  document.getElementById('gate').classList.add('hidden');
+  scheduleMidnightLock();
+}
+
+document.getElementById('gate-btn').addEventListener('click', async function() {
+  var val = document.getElementById('gate-inp').value;
+  var hash = await sha256(val);
+  if (hash === PASS_HASH) {
+    openSession();
+    scheduleMidnightLock();
+  } else {
+    document.getElementById('gate-err').textContent = 'Incorrect password. Try again.';
+    document.getElementById('gate-inp').value = '';
+    document.getElementById('gate-inp').focus();
+  }
+});
+document.getElementById('gate-inp').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('gate-btn').click();
+});
+</script>
+</body>
+</html>
