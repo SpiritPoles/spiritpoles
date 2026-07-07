@@ -54,10 +54,10 @@ html,body{min-height:100%;font-family:system-ui,-apple-system,sans-serif;backgro
 .footer-brand{font-size:12px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:var(--footer-color);margin-bottom:8px;transition:color .25s}
 .footer-tagline{font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--footer-color);opacity:.65;margin-bottom:28px;transition:color .25s}
 .terms-rule{height:2px;background:linear-gradient(90deg,transparent,var(--rule-color),transparent);margin:0 auto 18px;max-width:500px}
-.terms{text-align:center}
-.terms-title{font-size:9px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--terms-title);margin-bottom:10px;transition:color .25s}
-.terms p{font-size:9px;font-weight:600;color:var(--terms-color);line-height:1.6;margin-bottom:6px;transition:color .25s}
-.terms p:last-child{margin-bottom:0}
+.terms{margin:0 auto;max-width:360px}
+.terms-title{font-size:9px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--terms-title);margin-bottom:10px;text-align:center;transition:color .25s}
+.terms p{font-size:9px;font-weight:600;color:var(--terms-color);line-height:1.6;margin-bottom:6px;text-align:justify;transition:color .25s}
+.terms p:last-child{margin-bottom:0;text-align:center}
 </style>
 </head>
 <body>
@@ -143,9 +143,4 @@ function toggleMode() {
 (function() {
   if (localStorage.getItem('spiritpoles-theme') === 'light') {
     document.body.classList.add('light');
-    document.getElementById('toggle-label').textContent = 'Dark';
-  }
-})();
-</script>
-</body>
-</html>
+    document.getElementById('toggle
