@@ -3,64 +3,41 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>UCS Spirit — SpiritPoles Apps</title>
+<title>UCS Spirit &mdash; SpiritPoles Apps</title>
 <style>
-/* Theme variables */
 :root{
-  --bg:#000000;
-  --tile-bg:#1c1c1c;
-  --tile-border:rgba(255,255,255,0.18);
-  --tile-border-top:rgba(255,255,255,0.28);
-  --tile-hover-border:rgba(232,18,125,0.55);
-  --text-primary:#ede6d8;
-  --text-secondary:rgba(255,255,255,0.35);
-  --section-label:rgba(255,255,255,0.25);
-  --footer-color:#9e9d9e;
-  --footer-border:rgba(158,157,158,0.2);
-  --rule-mid:#9e9d9e;
-  --soon-overlay:rgba(0,0,0,0.55);
-  --soon-hover-border:rgba(255,255,255,0.18);
-  --toggle-bg:rgba(255,255,255,0.08);
-  --toggle-color:rgba(255,255,255,0.5);
-  --toggle-hover:rgba(255,255,255,0.8);
+  --bg:#000000;--tile-bg:#1c1c1c;--tile-border:rgba(255,255,255,0.18);
+  --tile-border-top:rgba(255,255,255,0.28);--tile-hover-border:rgba(232,18,125,0.55);
+  --text-primary:#ede6d8;--text-secondary:rgba(255,255,255,0.35);
+  --section-label:rgba(255,255,255,0.25);--footer-color:#9e9d9e;
+  --rule-color:#9e9d9e;--soon-overlay:rgba(0,0,0,0.55);
+  --soon-hover-border:rgba(255,255,255,0.18);--toggle-bg:rgba(255,255,255,0.08);
+  --toggle-border:rgba(255,255,255,0.12);--toggle-color:rgba(255,255,255,0.5);
+  --toggle-hover:rgba(255,255,255,0.85);--terms-color:rgba(255,255,255,0.55);
+  --terms-title:rgba(232,18,125,0.5);
 }
 body.light{
-  --bg:#f4f4f4;
-  --tile-bg:#ffffff;
-  --tile-border:rgba(0,0,0,0.12);
-  --tile-border-top:rgba(0,0,0,0.22);
-  --tile-hover-border:rgba(232,18,125,0.55);
-  --text-primary:#1a1a1a;
-  --text-secondary:rgba(0,0,0,0.45);
-  --section-label:rgba(0,0,0,0.35);
-  --footer-color:#666666;
-  --footer-border:rgba(0,0,0,0.1);
-  --rule-mid:#9e9d9e;
-  --soon-overlay:rgba(240,240,240,0.65);
-  --soon-hover-border:rgba(0,0,0,0.12);
-  --toggle-bg:rgba(0,0,0,0.06);
-  --toggle-color:rgba(0,0,0,0.4);
-  --toggle-hover:rgba(0,0,0,0.75);
+  --bg:#f4f4f4;--tile-bg:#ffffff;--tile-border:rgba(0,0,0,0.12);
+  --tile-border-top:rgba(0,0,0,0.22);--tile-hover-border:rgba(232,18,125,0.55);
+  --text-primary:#1a1a1a;--text-secondary:rgba(0,0,0,0.45);
+  --section-label:rgba(0,0,0,0.35);--footer-color:#666666;
+  --rule-color:#9e9d9e;--soon-overlay:rgba(240,240,240,0.65);
+  --soon-hover-border:rgba(0,0,0,0.12);--toggle-bg:rgba(0,0,0,0.06);
+  --toggle-border:rgba(0,0,0,0.12);--toggle-color:rgba(0,0,0,0.4);
+  --toggle-hover:rgba(0,0,0,0.8);--terms-color:rgba(0,0,0,0.35);
+  --terms-title:rgba(232,18,125,0.55);
 }
-
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{min-height:100%;font-family:system-ui,-apple-system,sans-serif;background:var(--bg);transition:background .25s}
-
-/* Portal */
 #portal{max-width:900px;margin:0 auto;padding:40px 20px 60px;position:relative}
 .portal-hdr{text-align:center;margin-bottom:40px}
 #portal-logo{display:block;margin:0 auto 16px;width:240px;height:auto}
-.portal-rule{height:1px;background:linear-gradient(90deg,transparent,var(--rule-mid),transparent);margin:0 auto 12px;max-width:300px}
+.rule{height:2px;background:linear-gradient(90deg,transparent,var(--rule-color),transparent);margin:0 auto 12px;max-width:300px}
 .portal-title{font-size:14px;font-weight:800;letter-spacing:.25em;text-transform:uppercase;color:#E8127D}
-
-/* Mode toggle */
-#mode-toggle{position:absolute;top:40px;right:20px;background:var(--toggle-bg);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:6px 14px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--toggle-color);transition:all .2s}
+#mode-toggle{position:absolute;top:40px;right:20px;background:var(--toggle-bg);border:1px solid var(--toggle-border);border-radius:20px;padding:6px 14px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--toggle-color);transition:all .2s}
 #mode-toggle:hover{color:var(--toggle-hover)}
-
-/* Grid */
 .section-label{font-size:10px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--section-label);margin-bottom:14px;padding-left:2px;transition:color .25s}
 .tile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-bottom:40px}
-
 .tile{background:var(--tile-bg);border:2px solid var(--tile-border);border-top-color:var(--tile-border-top);border-radius:16px;padding:24px 20px 20px;cursor:pointer;text-decoration:none;display:block;transition:all .18s;position:relative;overflow:hidden}
 .tile:hover{border-color:var(--tile-hover-border);transform:translateY(-2px);box-shadow:0 8px 32px rgba(232,18,125,0.15)}
 .tile-icon{font-size:28px;margin-bottom:14px;display:block}
@@ -69,38 +46,30 @@ html,body{min-height:100%;font-family:system-ui,-apple-system,sans-serif;backgro
 .tile-badge{position:absolute;top:14px;right:14px;font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;background:rgba(232,18,125,0.12);color:rgba(232,18,125,0.7);border:1px solid rgba(232,18,125,0.2);border-radius:20px;padding:3px 8px}
 .tile-shine{position:absolute;top:0;left:-80%;width:50%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.035),transparent);animation:sh 4s infinite}
 @keyframes sh{0%{left:-80%}40%{left:130%}100%{left:130%}}
-
-/* Coming-soon tiles */
 .tile.soon{cursor:default}
 .tile.soon::after{content:'';position:absolute;inset:0;background:var(--soon-overlay);border-radius:14px;pointer-events:none;transition:background .25s}
 .tile.soon:hover{border-color:var(--soon-hover-border);transform:none;box-shadow:none}
-
-/* Terms */
-.terms{margin-top:0;margin-bottom:24px;padding:14px 16px;border-top:1px solid rgba(255,255,255,0.06);border-radius:8px}
-.terms-title{font-size:9px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:rgba(232,18,125,0.5);margin-bottom:8px}
-.terms p{font-size:9px;font-weight:600;color:rgba(255,255,255,0.55);line-height:1.6;margin-bottom:6px}
+.footer{text-align:center;margin-bottom:28px}
+.footer-rule{height:2px;background:linear-gradient(90deg,transparent,var(--rule-color),transparent);margin:0 auto 20px;max-width:500px}
+.footer-brand{font-size:12px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:var(--footer-color);margin-bottom:8px;transition:color .25s}
+.footer-tagline{font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--footer-color);opacity:.65;margin-bottom:28px;transition:color .25s}
+.terms-rule{height:2px;background:linear-gradient(90deg,transparent,var(--rule-color),transparent);margin:0 auto 18px;max-width:500px}
+.terms{text-align:center}
+.terms-title{font-size:9px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--terms-title);margin-bottom:10px;transition:color .25s}
+.terms p{font-size:9px;font-weight:600;color:var(--terms-color);line-height:1.6;margin-bottom:6px;transition:color .25s}
 .terms p:last-child{margin-bottom:0}
-body.light .terms{border-top-color:rgba(0,0,0,0.08)}
-body.light .terms p{color:rgba(0,0,0,0.3)}
-
-/* Footer */
-.footer{text-align:center;padding-top:0;transition:color .25s}
-.footer-rule{height:1px;background:linear-gradient(90deg,transparent,var(--footer-border),transparent);margin:0 auto 18px;max-width:500px}
-.footer-brand{font-size:12px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:var(--footer-color);margin-bottom:7px;transition:color .25s}
-.footer-tagline{font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--footer-color);opacity:.65;transition:color .25s}
 </style>
 </head>
 <body>
-
 <div id="portal">
 
-  <button id="mode-toggle" onclick="toggleMode()" title="Toggle light/dark mode">
+  <button id="mode-toggle" onclick="toggleMode()">
     <span id="toggle-label">Light</span>
   </button>
 
   <div class="portal-hdr">
     <img id="portal-logo" src="apps/flex-lookup/ucs-spirit-logo.png" alt="UCS Spirit">
-    <div class="portal-rule"></div>
+    <div class="rule"></div>
     <div class="portal-title">SpiritPoles Apps</div>
   </div>
 
@@ -139,14 +108,14 @@ body.light .terms p{color:rgba(0,0,0,0.3)}
       <span class="tile-icon">&#x1F3DF;</span>
       <div class="tile-badge">Coming Soon</div>
       <div class="tile-name">VaultDesk</div>
-      <div class="tile-desc">Officiating tool for pole vault competitions — manage attempts, heights, and post live results for athletes and spectators.</div>
+      <div class="tile-desc">Officiating tool for pole vault competitions &#8212; manage attempts, heights, and post live results for athletes and spectators.</div>
     </div>
 
     <div class="tile soon">
       <span class="tile-icon">&#x1F3C6;</span>
       <div class="tile-badge">Coming Soon</div>
       <div class="tile-name">Level UP</div>
-      <div class="tile-desc">Skill-based progression program for pole vaulters and coaches — track and certify athlete development across structured levels.</div>
+      <div class="tile-desc">Skill-based progression program for pole vaulters and coaches &#8212; track and certify athlete development across structured levels.</div>
     </div>
 
   </div>
@@ -155,17 +124,28 @@ body.light .terms p{color:rgba(0,0,0,0.3)}
     <div class="footer-rule"></div>
     <div class="footer-brand">UCS Spirit</div>
     <div class="footer-tagline">Trusted &nbsp;&#x25C6;&nbsp; Dependable &nbsp;&#x25C6;&nbsp; Proven</div>
-  </div>
-
-  <div class="terms">
-    <p class="terms-title">Terms of Use</p>
-    <p>All data, tools, and content accessible through this portal are the exclusive proprietary property and protected under applicable copyright and trade secret law. Access is granted to authorized users only.</p>
-    <p>Unauthorized use, reproduction, redistribution, or extraction of any data or content — in whole or in part — is strictly prohibited and may constitute theft of intellectual property. Violations may result in civil and/or criminal legal action.</p>
-    <p>By accessing this portal you acknowledge and agree to these terms.</p>
+    <div class="terms-rule"></div>
+    <div class="terms">
+      <p class="terms-title">Terms of Use</p>
+      <p>All data, tools, and content accessible through this portal are the exclusive proprietary property and protected under applicable copyright and trade secret law. Access is granted to authorized users only.</p>
+      <p>Unauthorized use, reproduction, redistribution, or extraction of any data or content &#8212; in whole or in part &#8212; is strictly prohibited and may constitute theft of intellectual property. Violations may result in civil and/or criminal legal action.</p>
+      <p>By accessing this portal you acknowledge and agree to these terms.</p>
+    </div>
   </div>
 
 </div>
-
 <script>
 function toggleMode() {
-  var isLight 
+  var isLight = document.body.classList.toggle('light');
+  document.getElementById('toggle-label').textContent = isLight ? 'Dark' : 'Light';
+  localStorage.setItem('spiritpoles-theme', isLight ? 'light' : 'dark');
+}
+(function() {
+  if (localStorage.getItem('spiritpoles-theme') === 'light') {
+    document.body.classList.add('light');
+    document.getElementById('toggle-label').textContent = 'Dark';
+  }
+})();
+</script>
+</body>
+</html>
