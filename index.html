@@ -77,7 +77,10 @@ html,body{min-height:100%;font-family:system-ui,-apple-system,sans-serif;backgro
 .tile.soon::after{content:'';position:absolute;inset:0;background:var(--soon-overlay);border-radius:14px;pointer-events:none;transition:background .25s}
 .tile.soon:hover{border-color:var(--soon-hover-border);transform:none;box-shadow:none}
 
-.footer{text-align:center;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--footer-color);padding-top:24px;border-top:1px solid var(--footer-border);transition:color .25s,border-color .25s}
+.footer{text-align:center;padding-top:0;transition:color .25s}
+.footer-rule{height:1px;background:linear-gradient(90deg,transparent,var(--footer-border),transparent);margin:0 auto 18px;max-width:500px}
+.footer-brand{font-size:12px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:var(--footer-color);margin-bottom:7px;transition:color .25s}
+.footer-tagline{font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--footer-color);opacity:.65;transition:color .25s}
 </style>
 </head>
 <body>
@@ -132,32 +135,28 @@ html,body{min-height:100%;font-family:system-ui,-apple-system,sans-serif;backgro
       <div class="tile-desc">Recommended pole specs based on athlete weight and PR height.</div>
     </div>
 
+    <div class="tile soon">
+      <span class="tile-icon">🏟️</span>
+      <div class="tile-badge">Coming Soon</div>
+      <div class="tile-name">VaultDesk</div>
+      <div class="tile-desc">Officiating tool for pole vault competitions — manage attempts, heights, and post live results for athletes and spectators.</div>
+    </div>
+
+    <div class="tile soon">
+      <span class="tile-icon">⬆️</span>
+      <div class="tile-badge">Coming Soon</div>
+      <div class="tile-name">Level UP</div>
+      <div class="tile-desc">Skill-based progression program for pole vaulters and coaches — track and certify athlete development across structured levels.</div>
+    </div>
+
   </div>
 
-  <div class="footer">UCS Spirit &nbsp;◆&nbsp; Trusted &nbsp;◆&nbsp; Dependable &nbsp;◆&nbsp; Proven</div>
+  <div class="footer">
+    <div class="footer-rule"></div>
+    <div class="footer-brand">UCS Spirit</div>
+    <div class="footer-tagline">Trusted &nbsp;◆&nbsp; Dependable &nbsp;◆&nbsp; Proven</div>
+  </div>
 </div>
 
 <script>
-const SUN = `<path d="M12 4.354a.75.75 0 0 1 .75.75V6a.75.75 0 0 1-1.5 0v-.896a.75.75 0 0 1 .75-.75zM5.05 5.05a.75.75 0 0 1 1.06 0l.635.634a.75.75 0 1 1-1.06 1.061l-.635-.635a.75.75 0 0 1 0-1.06zm13.9 0a.75.75 0 0 1 0 1.061l-.634.635a.75.75 0 1 1-1.061-1.06l.634-.636a.75.75 0 0 1 1.061 0zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM3.25 12a.75.75 0 0 1 .75-.75h.896a.75.75 0 0 1 0 1.5H4a.75.75 0 0 1-.75-.75zm15.854 0a.75.75 0 0 1 .75-.75H20.75a.75.75 0 0 1 0 1.5h-.896a.75.75 0 0 1-.75-.75zM5.684 17.255a.75.75 0 0 1 1.061-1.06l.635.634a.75.75 0 1 1-1.06 1.06l-.636-.634zm12.571 0l-.634-.636a.75.75 0 1 1 1.06-1.06l.635.634a.75.75 0 0 1-1.06 1.062zM12 18.25a.75.75 0 0 1 .75.75V20a.75.75 0 0 1-1.5 0v-.896a.75.75 0 0 1 .75-.75z"/>`;
-const MOON = `<path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>`;
-
-function toggleMode() {
-  const isLight = document.body.classList.toggle('light');
-  document.getElementById('toggle-icon').innerHTML = isLight ? SUN : MOON;
-  document.getElementById('toggle-label').textContent = isLight ? 'Dark' : 'Light';
-  localStorage.setItem('spiritpoles-theme', isLight ? 'light' : 'dark');
-}
-
-// Restore saved preference on load
-(function(){
-  if(localStorage.getItem('spiritpoles-theme') === 'light'){
-    document.body.classList.add('light');
-    document.getElementById('toggle-icon').innerHTML = SUN;
-    document.getElementById('toggle-label').textContent = 'Dark';
-  }
-})();
-</script>
-
-</body>
-</html>
-                                                                                                                                                                                                                                                                                         
+const SUN = `<path d="M12 4.354a.75.75 0 0 1 .75.75V6a.75.75 0 0 1-1.5 0v-.896a.75.75 0 0 1 .75-.75zM5.05 5.05a.75.75 0 0 1 1.06 0l.635.634a.75.75 0 1 1-1.06 1.061l-.635-.635a.75.75 0 0 1 0-1.06zm13.9 0a.75.75 0 0 1 0 1.061l-.634.635a.75.75 0 1 1-1.061-1.06l.634-.636a.75.75 0 0 1 1.061 0zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM3.25 12a.75.75 0 0 1 .75-.75h.896a.75.75 0 0 1 0 1.5H4a.75.75 0 0 1-.75-.75zm15.854 0a.75.75 0 0 1 .75-.75H20.75a.75.75 0 0 1 0 1.5h-.896a.75.75 0 0 1-.75-.75zM5.684 17.255a.75.75 0 0 1 1.061-1.06l.635.634a.75.75 0 1 1-1.06 1.06l-.636-.634zm12.571 0l-.634-.636a.75.75 0 1 1 1.06-1.06l.635.634a.75.75 0 0 1-1.06 1.062zM12 18.25a.75.
