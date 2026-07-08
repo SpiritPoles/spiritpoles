@@ -307,6 +307,7 @@ document.getElementById('lookupBtn').addEventListener('click', go);
 addRow();
 
 // ── Lookup & results ──────────────────────────────────────────────────────────
+function fmtFlex(f){return parseFloat(f).toFixed(1);}
 function lookup(c,fv){
   var rows=D[c]; if(!rows) return null;
   return rows.find(function(r){return r.n!==null&&fv>=r.n&&fv<=r.x;})||null;
@@ -325,11 +326,11 @@ function go(){
 
   if(queries.length===1){
     var fv=queries[0], mt=lookup(sel,fv);
-    if(!mt){err.textContent='No match — flex '+fv+' is outside the range for a '+lenLabel+' pole.';err.classList.add('show');return;}
+    if(!mt){err.textContent='No match — flex '+fmtFlex(fv)+' is outside the range for a '+lenLabel+' pole.';err.classList.add('show');return;}
     var kg=parseInt(mt.m.split('/')[1]);
     res.innerHTML='<div class="sep"><span>Result</span></div>'
       +'<div class="rmod"><div class="lbl">Model Number</div><div class="val">'+mt.m+'</div>'
-      +'<div class="sub">'+lenLabel+' – '+mt.b+' lbs &nbsp;\xb7&nbsp; Flex '+fv+'</div></div>'
+      +'<div class="sub">'+lenLabel+' – '+mt.b+' lbs &nbsp;\xb7&nbsp; Flex '+fmtFlex(fv)+'</div></div>'
       +'<div class="rrow">'
       +'<div class="rbox bl"><div class="lbl">Weight Rating</div><div class="val">'+mt.b+' lbs</div><div class="sub">'+kg+' kg</div></div>'
       +'<div class="rbox tl"><div class="lbl">Tip Size</div><div class="val">'+(mt.t!==null?mt.t:'—')+'</div><div class="sub">Tip sizes may<br>vary by 1</div></div>'
@@ -342,12 +343,12 @@ function go(){
     queries.forEach(function(fv){
       var mt=lookup(sel,fv);
       if(mt){anyMatch=true; var kg=parseInt(mt.m.split('/')[1]);
-        html+='<tr><td><span class="flex-val">'+fv+'</span></td>'
+        html+='<tr><td><span class="flex-val">'+fmtFlex(fv)+'</span></td>'
           +'<td><span class="model-val">'+mt.m+'</span></td>'
           +'<td><span class="wt-val">'+mt.b+' lbs</span><span class="kg-sub">'+kg+' kg</span></td>'
           +'<td><span class="tip-val">'+(mt.t!==null?mt.t:'—')+'</span></td></tr>';
       } else {
-        html+='<tr><td><span class="flex-val">'+fv+'</span></td>'
+        html+='<tr><td><span class="flex-val">'+fmtFlex(fv)+'</span></td>'
           +'<td colspan="3"><span class="no-match">No match for this length</span></td></tr>';
       }
     });
@@ -360,4 +361,4 @@ function go(){
 </script>
 </body>
 </html>
-                                                                                                                                                                                                                                         
+                                                                                                                                                                 
