@@ -133,6 +133,9 @@ body {
   gap: 8px;
   flex-wrap: wrap;
 }
+.length-header-kids {
+  background: linear-gradient(135deg, #4a90c4 0%, #6fb3e0 100%);
+}
 .length-header .lbadge {
   padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
 }
@@ -763,8 +766,9 @@ function renderAvailable() {
     const totalAvail = allPoles.reduce((s, p) => s + p.available, 0);
     const zeroCount  = allPoles.filter(p => p.available === 0 && !(orderMap[p.model]?.backOrdered > 0)).length;
     const hasBO      = allPoles.some(p => (orderMap[p.model]?.backOrdered || 0) > 0);
+    const isKids = ['235','275','305'].includes(prefix);
     html += `<div class="length-group" id="length-group-${prefix}">
-      <div class="length-header">
+      <div class="length-header${isKids ? ' length-header-kids' : ''}">
         <span>${prefix} — ${LENGTH_LABELS[prefix]}</span>
         <span class="lbadge lbadge-all ${filter==='all'?'lbadge-active':''}" onclick="setFilter('all')">${allPoles.length} All</span>
         <span class="lbadge lbadge-avail ${filter==='avail'?'lbadge-active':''}" onclick="setFilter(currentFilter==='avail'?'all':'avail')">${totalAvail} In Stock</span>
@@ -996,11 +1000,4 @@ function _boot() {
   }
 }
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', _boot);
-} else {
-  _boot();
-}
-document.getElementById('refreshBtn').addEventListener('click', triggerRefresh);
-</script>
-</body>
-</html>
+ 
