@@ -549,12 +549,14 @@ function renderAvailable() {
       if      (boQty > 0)      availPillStyle = 'background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;';
       else if (availQty === 0) availPillStyle = 'background:#f3e8ff;color:#6b21a8;border:1px solid #d8b4fe;';
       const availText = boQty > 0 ? `-${boQty}` : String(availQty);
-      const flexChips = (p.flexes && p.flexes.length > 0)
+      const isKids = ['235','275','305'].includes(p.prefix);
+      const flexChips = isKids ? `<span style="color:#94a3b8">—</span>`
+        : (p.flexes && p.flexes.length > 0)
         ? p.flexes.map(fx => {
             if (!fx.a) return `<span class="fx-chip on-so" onmouseenter="soIn(this,'${p.model}')" onmouseleave="soOut()" onclick="soIn(this,'${p.model}')">${Number(fx.f).toFixed(1)}</span>`;
             return `<span class="fx-chip">${Number(fx.f).toFixed(1)}</span>`;
           }).join('')
-        : `<span class="fx-none">no flex data</span>`;
+        : onHand === 0 ? `<span style="color:#94a3b8">—</span>` : `<span class="fx-none">no flex data</span>`;
       return `<div class="pole-row" ondblclick="jumpToFlex('${p.model}')" title="${p.model} | ${p.length} — ${p.weight} | On Hand: ${onHand} | On Order: ${openOrders} | Available: ${availQty} | BO: ${boQty}">
         <span class="pr-model">${p.model}</span>
         <span class="pr-dims">${p.length} &middot; ${p.weight}</span>
@@ -710,16 +712,20 @@ function renderNeedToMake() {
   <div class="ntm-wrap"><table class="ntm">
     <thead><tr><th>Model</th><th>Length</th><th>Description</th>
     <th style="text-align:center">In Stock</th><th style="text-align:center">Open Orders</th>
-    <th style="text-align:center">Back Ordered</th><th>Status</th></tr></thead><tbody>`;
+    <th style="text-align:center">Back Ordered</th><th>Flex on Order</th><th>Status</th></tr></thead><tbody>`;
   rows.forEach(r => {
     const dp = parseModelFromDisplay(r.display);
+    const flexNums = (r.soLines || [])
+      .filter(l => l.flex)
+      .map(l => `${l.flex} ×${l.qty}`);
     html += `<tr>
       <td><strong style="cursor:pointer;color:#1a4fa0" onclick="jumpToFlex('${r.name}')">${r.name}</strong></td>
       <td style="white-space:nowrap">${dp.length || '—'}</td>
       <td style="font-size:12px;color:#64748b">${r.description || '—'}</td>
       <td style="text-align:center">${r.stockAvail > 0 ? `<span class="badge badge-green">${r.stockAvail}</span>` : `<span style="color:#94a3b8">0</span>`}</td>
-      <td style="text-align:center;font-weight:700">${r.openOrders}</td>
+      <td style="text-align:center"><span class="badge badge-red">${r.openOrders}</span></td>
       <td style="text-align:center"><span class="badge badge-red">${r.backOrdered}</span></td>
+      <td style="font-size:11px;color:#64748b">${flexNums.length > 0 ? flexNums.join(', ') : '<span style="color:#cbd5e1">—</span>'}</td>
       <td><span class="badge badge-red">BACK ORDER</span></td>
     </tr>`;
   });
