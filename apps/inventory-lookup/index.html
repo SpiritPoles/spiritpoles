@@ -711,21 +711,33 @@ function renderNeedToMake() {
   let html = `<div class="section-title">⚠️ ${rows.length} Model${rows.length>1?'s':''} Needing Attention</div>
   <div class="ntm-wrap"><table class="ntm">
     <thead><tr><th>Model</th><th>Length</th><th>Description</th>
-    <th style="text-align:center">In Stock</th><th style="text-align:center">Open Orders</th>
-    <th style="text-align:center">Back Ordered</th><th>Flex on Order</th><th>Status</th></tr></thead><tbody>`;
+    <th style="text-align:center">On Hand</th><th>Flex On Hand</th>
+    <th style="text-align:center">Poles on Open Orders</th><th>Flex on Order</th><th style="text-align:center">Back Ordered</th><th>Status</th></tr></thead><tbody>`;
   rows.forEach(r => {
     const dp = parseModelFromDisplay(r.display);
+    const onHandCount = modelMap[r.name]?.onHand ?? r.stockAvail;
     const flexNums = (r.soLines || [])
       .filter(l => l.flex)
       .map(l => `${l.flex} ×${l.qty}`);
+    const isKidsNtm = ['235','275','305'].includes(getLengthPrefix(r.name));
+    const ntmFlexes = modelMap[r.name]?.flexes || [];
+    const flexOnHandHtml = isKidsNtm
+      ? `<span style="color:#94a3b8">—</span>`
+      : ntmFlexes.length > 0
+        ? ntmFlexes.map(fx => {
+            if (!fx.a) return `<span class="fx-chip on-so" style="font-size:11px">${Number(fx.f).toFixed(1)}</span>`;
+            return `<span class="fx-chip" style="font-size:11px">${Number(fx.f).toFixed(1)}</span>`;
+          }).join('')
+        : `<span style="color:#94a3b8">—</span>`;
     html += `<tr>
       <td><strong style="cursor:pointer;color:#1a4fa0" onclick="jumpToFlex('${r.name}')">${r.name}</strong></td>
       <td style="white-space:nowrap">${dp.length || '—'}</td>
       <td style="font-size:12px;color:#64748b">${r.description || '—'}</td>
-      <td style="text-align:center">${r.stockAvail > 0 ? `<span class="badge badge-green">${r.stockAvail}</span>` : `<span style="color:#94a3b8">0</span>`}</td>
-      <td style="text-align:center"><span class="badge badge-red">${r.openOrders}</span></td>
-      <td style="text-align:center"><span class="badge badge-red">${r.backOrdered}</span></td>
+      <td style="text-align:center">${onHandCount > 0 ? `<span class="badge badge-green">${onHandCount}</span>` : `<span style="color:#94a3b8">0</span>`}</td>
+      <td style="padding:4px 8px">${flexOnHandHtml}</td>
+      <td style="text-align:center"><span class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;">${r.openOrders}</span></td>
       <td style="font-size:11px;color:#64748b">${flexNums.length > 0 ? flexNums.join(', ') : '<span style="color:#cbd5e1">—</span>'}</td>
+      <td style="text-align:center"><span class="badge badge-red">${r.backOrdered}</span></td>
       <td><span class="badge badge-red">BACK ORDER</span></td>
     </tr>`;
   });
