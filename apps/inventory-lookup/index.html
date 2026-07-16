@@ -743,11 +743,32 @@ function renderNeedToMake() {
       </div>`;
     return;
   }
+
+  // Build reverse map: finishedModel → [{uf, type:'direct'|'cut', avail}]
+  const ufModels = (window.UCS_INV_DATA && window.UCS_INV_DATA.ufModels) || {};
+  const reverseMap = {};
+  Object.entries(UF_CD_MAP).forEach(([ufName, entry]) => {
+    const ufAvail = (ufModels[ufName] && ufModels[ufName].available) || 0;
+    // Direct finish
+    if (!reverseMap[entry.direct]) reverseMap[entry.direct] = [];
+    reverseMap[entry.direct].push({ uf: ufName, type: 'direct', avail: ufAvail });
+    // Cut-downs
+    (entry.cuts || []).forEach(cut => {
+      if (!reverseMap[cut]) reverseMap[cut] = [];
+      reverseMap[cut].push({ uf: ufName, type: 'cut', avail: ufAvail });
+    });
+  });
+
   let html = `<div class="section-title">⚠️ ${rows.length} Model${rows.length>1?'s':''} Needing Attention</div>
   <div class="ntm-wrap"><table class="ntm">
-    <thead><tr><th>Model</th><th>Length</th><th>Description</th>
-    <th style="text-align:center">On Hand</th><th>Flex On Hand</th>
-    <th style="text-align:center">Poles on Open Orders</th><th>Flex on Order</th><th style="text-align:center">Back Ordered</th><th>Status</th></tr></thead><tbody>`;
+    <thead><tr>
+      <th>Model</th><th>Length</th><th>Description</th>
+      <th style="text-align:center">On Hand</th><th>Flex On Hand</th>
+      <th style="text-align:center">Poles on Open Orders</th><th>Flex on Order</th>
+      <th style="text-align:center">Back Ordered</th><th>Status</th>
+      <th>Available from Unfinished</th>
+    </tr></thead><tbody>`;
+
   rows.forEach(r => {
     const dp = parseModelFromDisplay(r.display);
     const onHandCount = modelMap[r.name]?.onHand ?? r.stockAvail;
@@ -764,6 +785,22 @@ function renderNeedToMake() {
             return `<span class="fx-chip" style="font-size:11px">${Number(fx.f).toFixed(1)}</span>`;
           }).join('')
         : `<span style="color:#94a3b8">—</span>`;
+
+    // Available from Unfinished column
+    const ufSources = (reverseMap[r.name] || []).filter(s => s.avail > 0);
+    let ufCell;
+    if (ufSources.length > 0) {
+      ufCell = ufSources.map(s => {
+        const isDirect = s.type === 'direct';
+        const chipCls = isDirect ? 'uf-badge-direct' : 'uf-badge-cut';
+        const label   = isDirect ? s.uf : `${s.uf}-CD`;
+        const qtyClr  = isDirect ? '#166534' : '#3d5a45';
+        return `<span class="${chipCls}">${label}</span>&nbsp;<span style="font-weight:700;color:${qtyClr};font-size:12px">×${s.avail}</span>`;
+      }).join(' &nbsp;');
+    } else {
+      ufCell = `<span style="color:#94a3b8;font-style:italic;font-size:11px">none available</span>`;
+    }
+
     html += `<tr>
       <td><strong style="cursor:pointer;color:#1a4fa0" onclick="jumpToFlex('${r.name}')">${r.name}</strong></td>
       <td style="white-space:nowrap">${dp.length || '—'}</td>
@@ -774,11 +811,14 @@ function renderNeedToMake() {
       <td style="font-size:11px;color:#64748b">${flexNums.length > 0 ? flexNums.join(', ') : '<span style="color:#cbd5e1">—</span>'}</td>
       <td style="text-align:center"><span class="badge badge-red">${r.backOrdered}</span></td>
       <td><span class="badge badge-red">BACK ORDER</span></td>
+      <td style="min-width:180px">${ufCell}</td>
     </tr>`;
   });
+
   html += `</tbody></table></div>`;
   document.getElementById('tab-need-to-make').innerHTML = html;
 }
+
 
 function renderOpenSO() {
   const { orderMap, modelMap } = appData;
