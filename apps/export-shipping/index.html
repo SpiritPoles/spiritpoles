@@ -356,7 +356,8 @@ const MSAL_CONFIG = {
 };
 const SCOPES = ['https://graph.microsoft.com/Mail.ReadWrite'];
 const msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
-let currentAccount = null;
+let currentAccount  = null;
+let msalReady       = false;   // true once initialize() has resolved
 
 const SHIPPER = {
   company: 'UCS Spirit / New Nevada Plastics',
@@ -1177,6 +1178,7 @@ async function createDrafts() {
 async function initMsal() {
   try {
     await msalApp.initialize();
+    msalReady = true;
     const resp = await msalApp.handleRedirectPromise();
     if (resp) {
       currentAccount = resp.account;
@@ -1186,7 +1188,7 @@ async function initMsal() {
     }
     setAuthUI(currentAccount);
   } catch (e) {
-    // Non-fatal — MSAL session restore failed, but manual sign-in will still work
+    // Non-fatal — sign-in click will retry initialize()
     console.warn('MSAL init:', e.message);
     setAuthUI(null);
   }
@@ -1215,13 +1217,18 @@ async function handleSignIn() {
   btn.disabled = true;
   label.textContent = 'Opening sign-in window…';
   try {
+    // Retry initialize if it failed on page load
+    if (!msalReady) {
+      await msalApp.initialize();
+      msalReady = true;
+    }
     const resp = await msalApp.loginPopup({ scopes: SCOPES, loginHint: 'office@spiritpoles.com' });
     currentAccount = resp.account;
     setAuthUI(currentAccount);
   } catch(e) {
-    const msg = e.errorCode === 'popup_window_error' || (e.message || '').toLowerCase().includes('popup')
-      ? 'Pop-up blocked — allow pop-ups for this site in your browser and try again.'
-      : 'Sign-in error: ' + (e.message || e.errorCode || 'Unknown');
+    const msg = (e.errorCode === 'popup_window_error' || (e.message || '').toLowerCase().includes('popup'))
+      ? 'Pop-up blocked — allow pop-ups for this site in your browser, then try again.'
+      : 'Sign-in error: ' + (e.message || e.errorCode || 'Unknown error');
     label.textContent = msg;
     btn.disabled = false;
   }
