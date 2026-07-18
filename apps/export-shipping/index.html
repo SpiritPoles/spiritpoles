@@ -142,6 +142,9 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
 /* Info note */
 .note{font-size:11px;color:var(--ts);margin-top:8px}
 
+/* Inline action error */
+.action-err{font-size:12px;font-weight:600;color:var(--red);margin-top:10px;min-height:18px}
+
 @media(max-width:540px){.field-row,.field-row.tri{grid-template-columns:1fr}.pole-row{grid-template-columns:1fr 1fr 28px}.tabs{flex-direction:column}}
 </style>
 </head>
@@ -250,6 +253,7 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
       <button class="btn btn-green" onclick="downloadPackingListP1()">&#8595; Download Packing List (Excel)</button>
       <button class="btn btn-outline btn-sm" onclick="recalcPacking()">&#8635; Recalc Packing</button>
     </div>
+    <div class="action-err" id="action-err-p1"></div>
     <div class="log" id="log-p1"></div>
 
     <!-- Results -->
@@ -331,6 +335,7 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
       <button class="btn btn-outline" onclick="downloadSLI()">&#8595; Shipper's Letter of Instruction</button>
       <button class="btn btn-outline btn-sm" onclick="recalcPackingP2()">&#8635; Recalc Packing</button>
     </div>
+    <div class="action-err" id="action-err-p2"></div>
     <div class="log" id="log-p2"></div>
 
   </div><!-- /panel-2 -->
@@ -723,7 +728,7 @@ function getActiveFFs() {
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP1() {
   const rows = getPoleRows();
-  if (!rows.length) { alert('Add pole models first.'); return; }
+  if (!rows.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
 
   const pieces   = packPoles(rows);
   const soNum    = v('so')             || 'XXXXX';
@@ -808,7 +813,7 @@ function downloadPackingListP1() {
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP2() {
   const rows = getP2PoleRows();
-  if (!rows.length) { alert('Add pole models first.'); return; }
+  if (!rows.length) { setActionErr('p2', 'Add poles before downloading.'); return; }
 
   const pieces   = packPoles(rows);
   const ifNum    = v('if-num')           || 'XXXXX';
@@ -891,7 +896,7 @@ function downloadPackingListP2() {
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadSLI() {
   const rows = getP2PoleRows();
-  if (!rows.length) { alert('Add pole models first.'); return; }
+  if (!rows.length) { setActionErr('p2', 'Add poles before generating the SLI.'); return; }
 
   const pieces   = packPoles(rows);
   const ifNum    = v('if-num')            || 'XXXXX';
@@ -1115,10 +1120,10 @@ async function createDraftViaGraph(token, to, ccList, subject, body) {
 async function createDrafts() {
   const poleRows  = getPoleRows();
   const activeFFs = getActiveFFs();
-  if (!poleRows.length)  { alert('Add at least one pole model.'); return; }
-  if (!v('so'))          { alert('Enter a Sales Order number.'); return; }
-  if (!v('consignee'))   { alert('Enter a Consignee name.'); return; }
-  if (!activeFFs.length) { alert('Select at least one freight forwarder.'); return; }
+  if (!poleRows.length)  { setActionErr('p1', 'Add at least one pole model.'); return; }
+  if (!v('so'))          { setActionErr('p1', 'Enter a Sales Order number.'); return; }
+  if (!v('consignee'))   { setActionErr('p1', 'Enter a Consignee name.'); return; }
+  if (!activeFFs.length) { setActionErr('p1', 'Select at least one freight forwarder.'); return; }
 
   const pieces = packPoles(poleRows);
 
@@ -1170,15 +1175,21 @@ async function createDrafts() {
 // AUTH
 // ─────────────────────────────────────────────────────────────────────────────
 async function initMsal() {
-  await msalApp.initialize();
-  const resp = await msalApp.handleRedirectPromise();
-  if (resp) {
-    currentAccount = resp.account;
-  } else {
-    const accounts = msalApp.getAllAccounts();
-    if (accounts.length) currentAccount = accounts[0];
+  try {
+    await msalApp.initialize();
+    const resp = await msalApp.handleRedirectPromise();
+    if (resp) {
+      currentAccount = resp.account;
+    } else {
+      const accounts = msalApp.getAllAccounts();
+      if (accounts.length) currentAccount = accounts[0];
+    }
+    setAuthUI(currentAccount);
+  } catch (e) {
+    // Non-fatal — MSAL session restore failed, but manual sign-in will still work
+    console.warn('MSAL init:', e.message);
+    setAuthUI(null);
   }
-  setAuthUI(currentAccount);
 }
 
 function setAuthUI(account) {
@@ -1199,12 +1210,20 @@ function setAuthUI(account) {
 }
 
 async function handleSignIn() {
+  const label = document.getElementById('auth-label');
+  const btn   = document.getElementById('signin-btn');
+  btn.disabled = true;
+  label.textContent = 'Opening sign-in window…';
   try {
     const resp = await msalApp.loginPopup({ scopes: SCOPES, loginHint: 'office@spiritpoles.com' });
     currentAccount = resp.account;
     setAuthUI(currentAccount);
   } catch(e) {
-    logMsg('p1', 'Sign-in error: ' + e.message);
+    const msg = e.errorCode === 'popup_window_error' || (e.message || '').toLowerCase().includes('popup')
+      ? 'Pop-up blocked — allow pop-ups for this site in your browser and try again.'
+      : 'Sign-in error: ' + (e.message || e.errorCode || 'Unknown');
+    label.textContent = msg;
+    btn.disabled = false;
   }
 }
 
@@ -1219,6 +1238,14 @@ async function handleSignOut() {
 // ─────────────────────────────────────────────────────────────────────────────
 function v(id) { return document.getElementById(id)?.value?.trim() || ''; }
 function setVal(id, val) { const el = document.getElementById(id); if (el) el.value = val; }
+
+function setActionErr(phase, msg) {
+  const el = document.getElementById(`action-err-${phase}`);
+  if (!el) return;
+  el.textContent = msg;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.textContent = ''; }, 6000);
+}
 
 function logMsg(phase, msg) {
   const el = document.getElementById(`log-${phase}`);

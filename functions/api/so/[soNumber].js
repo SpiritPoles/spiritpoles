@@ -28,12 +28,13 @@ async function oauthHeader(method, url, env) {
     oauth_version:          '1.0',
   };
 
+  // Signature base string — sorted, percent-encoded
   const normalized = Object.entries(p)
     .sort(([a], [b]) => (a < b ? -1 : 1))
     .map(([k, v]) => `${pct(k)}=${pct(v)}`)
     .join('&');
 
-  const base = `${method.toUpperCase()}&${pct(url)}&${pct(normalized)}`;
+  const base   = `${method.toUpperCase()}&${pct(url)}&${pct(normalized)}`;
   const sigKey = `${pct(env.NS_CONSUMER_SECRET)}&${pct(env.NS_TOKEN_SECRET)}`;
 
   const enc = new TextEncoder();
@@ -44,11 +45,17 @@ async function oauthHeader(method, url, env) {
   const raw = await crypto.subtle.sign('HMAC', key, enc.encode(base));
   const sig = btoa(String.fromCharCode(...new Uint8Array(raw)));
 
-  const parts = Object.entries({ ...p, oauth_signature: sig })
-    .map(([k, v]) => `${k}="${pct(v)}"`)
-    .join(', ');
-
-  return `OAuth realm="${env.NS_ACCOUNT_ID}", ${parts}`;
+  // Authorization header — values are quoted strings, NOT percent-encoded
+  return [
+    `OAuth realm="${env.NS_ACCOUNT_ID}"`,
+    `oauth_consumer_key="${env.NS_CONSUMER_KEY}"`,
+    `oauth_token="${env.NS_TOKEN_ID}"`,
+    `oauth_signature_method="HMAC-SHA256"`,
+    `oauth_timestamp="${ts}"`,
+    `oauth_nonce="${nonce}"`,
+    `oauth_version="1.0"`,
+    `oauth_signature="${sig}"`,
+  ].join(', ');
 }
 
 // ── SuiteQL helper ─────────────────────────────────────────────────────────────
