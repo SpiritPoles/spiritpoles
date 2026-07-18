@@ -109,7 +109,7 @@ export async function onRequestGet({ params, env }) {
       JOIN entity e ON e.id = t.entity
       WHERE t.recordtype = 'itemfulfillment'
       AND   t.tranid = '${tranid}'
-      LIMIT 1
+      FETCH FIRST 1 ROWS ONLY
     `, env);
 
     const rows = hdr.items || [];
@@ -140,7 +140,7 @@ export async function onRequestGet({ params, env }) {
     if (ifRec.createdfrom) {
       try {
         const soRes = await suiteQL(`
-          SELECT tranid FROM transaction WHERE id = ${ifRec.createdfrom} LIMIT 1
+          SELECT tranid FROM transaction WHERE id = ${ifRec.createdfrom} FETCH FIRST 1 ROWS ONLY
         `, env);
         soNumber = ((soRes.items || [])[0] || {}).tranid || '';
       } catch (_) { /* non-fatal */ }
@@ -161,7 +161,7 @@ export async function onRequestGet({ params, env }) {
       AND   tl.taxline     = 'F'
       AND   tl.quantity    > 0
       ORDER BY tl.linesequencenumber
-      LIMIT 200
+      FETCH FIRST 200 ROWS ONLY
     `, env);
 
     const lineItems = (lines.items || []).map(l => ({
@@ -184,7 +184,7 @@ export async function onRequestGet({ params, env }) {
         JOIN inventorynumber sn ON sn.id = invn.inventorynumber
         WHERE invn.transaction = ${ifRec.id}
         ORDER BY invn.transactionline, sn.inventorynumber
-        LIMIT 500
+        FETCH FIRST 500 ROWS ONLY
       `, env);
 
       const snMap = {};

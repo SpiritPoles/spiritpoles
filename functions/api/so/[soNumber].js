@@ -109,7 +109,7 @@ export async function onRequestGet({ params, env }) {
       JOIN entity e ON e.id = t.entity
       WHERE t.recordtype = 'salesorder'
       AND   t.tranid = '${tranid}'
-      LIMIT 1
+      FETCH FIRST 1 ROWS ONLY
     `, env);
 
     const rows = hdr.items || [];
@@ -150,7 +150,7 @@ export async function onRequestGet({ params, env }) {
       AND   tl.taxline     = 'F'
       AND   tl.quantity    > 0
       ORDER BY tl.linesequencenumber
-      LIMIT 200
+      FETCH FIRST 200 ROWS ONLY
     `, env);
 
     const lineItems = (lines.items || []).map(l => ({
