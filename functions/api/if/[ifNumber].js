@@ -89,24 +89,18 @@ export async function onRequestGet({ params, env }) {
 
   try {
     // 1. Header
+    // Note: JOIN entity fails in SuiteQL; use LEFT JOIN customer instead.
+    // Note: ship address component fields are NOT_EXPOSED — use only t.shipaddress.
     const hdr = await suiteQL(`
       SELECT
         t.id,
         t.tranid,
         t.trandate,
-        t.entity,
-        e.companyname,
+        c.companyname,
         t.createdfrom,
-        t.shipaddress,
-        t.shipaddressee,
-        t.shipaddr1,
-        t.shipaddr2,
-        t.shipcity,
-        t.shipstate,
-        t.shipzip,
-        t.shipcountry
+        t.shipaddress
       FROM transaction t
-      JOIN entity e ON e.id = t.entity
+      LEFT JOIN customer c ON c.id = t.entity
       WHERE t.recordtype = 'itemfulfillment'
       AND   t.tranid = '${tranid}'
       FETCH FIRST 1 ROWS ONLY
@@ -122,18 +116,8 @@ export async function onRequestGet({ params, env }) {
 
     const ifRec = rows[0];
 
-    // Build ship address
-    let shipAddr = (ifRec.shipaddress || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
-    if (!shipAddr) {
-      const parts = [
-        ifRec.shipaddressee,
-        ifRec.shipaddr1,
-        ifRec.shipaddr2,
-        [ifRec.shipcity, ifRec.shipstate, ifRec.shipzip].filter(Boolean).join(', '),
-        ifRec.shipcountry,
-      ].filter(Boolean);
-      shipAddr = parts.join('\n');
-    }
+    // shipaddress is the pre-formatted multi-line field; strip any HTML tags
+    const shipAddr = (ifRec.shipaddress || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 
     // Resolve linked SO number from createdfrom (internal ID of parent SO)
     let soNumber = '';
@@ -159,17 +143,18 @@ export async function onRequestGet({ params, env }) {
       WHERE tl.transaction = ${ifRec.id}
       AND   tl.mainline    = 'F'
       AND   tl.taxline     = 'F'
-      AND   tl.quantity    > 0
+      AND   tl.item        IS NOT NULL
       ORDER BY tl.linesequencenumber
       FETCH FIRST 200 ROWS ONLY
     `, env);
 
+    // Note: SuiteQL returns IF line quantities as negative — use Math.abs()
     const lineItems = (lines.items || []).map(l => ({
       line_id:   l.line_id,
       item_id:   l.item,
       item_code: l.itemid    || '',
       item_name: l.displayname || l.itemid || '',
-      qty:       Math.round(parseFloat(l.quantity) || 0),
+      qty:       Math.abs(Math.round(parseFloat(l.quantity) || 0)),
       serials:   [],   // populated below if available
     }));
 
