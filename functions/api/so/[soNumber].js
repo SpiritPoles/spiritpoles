@@ -60,25 +60,31 @@ async function oauthHeader(method, url, env) {
 
 // ── SuiteQL helper ─────────────────────────────────────────────────────────────
 
-async function suiteQL(q, env) {
-  const url  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
-  const auth = await oauthHeader('POST', url, env);
+async function suiteQL(q, env, retries = 2) {
+  const url = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
 
-  const resp = await fetch(url, {
-    method:  'POST',
-    headers: {
-      'Authorization': auth,
-      'Content-Type':  'application/json',
-      'prefer':        'transient',
-    },
-    body: JSON.stringify({ q }),
-  });
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const auth = await oauthHeader('POST', url, env);  // fresh ts + nonce each attempt
+    const resp = await fetch(url, {
+      method:  'POST',
+      headers: {
+        'Authorization': auth,
+        'Content-Type':  'application/json',
+        'prefer':        'transient',
+      },
+      body: JSON.stringify({ q }),
+    });
 
-  if (!resp.ok) {
+    if (resp.ok) return resp.json();
+
     const txt = await resp.text();
+    // On 401, wait and retry with a fresh signature (clock drift fix)
+    if (resp.status === 401 && attempt < retries) {
+      await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+      continue;
+    }
     throw new Error(`NS ${resp.status}: ${txt.substring(0, 600)}`);
   }
-  return resp.json();
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────────
