@@ -59,7 +59,7 @@ async function oauthHeader(method, url, env) {
 
 // ── SuiteQL helper ─────────────────────────────────────────────────────────────
 
-async function suiteQL(q, env, retries = 2) {
+async function suiteQL(q, env, retries = 3) {
   const url = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -77,9 +77,11 @@ async function suiteQL(q, env, retries = 2) {
     if (resp.ok) return resp.json();
 
     const txt = await resp.text();
-    // On 401, wait and retry with a fresh signature (clock drift fix)
+    // On 401 INVALID_LOGIN, wait and retry with a fresh signature (NS clock drift / caching)
     if (resp.status === 401 && attempt < retries) {
-      await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+      const wait = 600 * (attempt + 1);   // 600ms, 1200ms, 1800ms
+      console.warn(`NS 401 on attempt ${attempt + 1} — retrying in ${wait}ms`);
+      await new Promise(r => setTimeout(r, wait));
       continue;
     }
     throw new Error(`NS ${resp.status}: ${txt.substring(0, 600)}`);
