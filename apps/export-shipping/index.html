@@ -425,9 +425,14 @@ const ALL_MODELS = Object.keys(POLE_LENGTH_IN).map(Number).sort((a,b)=>a-b);
 function parseModel(itemCode) {
   const m = String(itemCode || '').match(/(\d+)\//);
   if (m) return parseInt(m[1]);
-  // fallback: first run of digits
   const n = String(itemCode || '').match(/\d+/);
   return n ? parseInt(n[0]) : null;
+}
+
+// Parse flex from NetSuite item code like "SP400/40" → 40
+function parseFlex(itemCode) {
+  const m = String(itemCode || '').match(/\/(\d+)/);
+  return m ? parseInt(m[1]) : null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -466,8 +471,9 @@ async function fetchSO() {
     let polesAdded = 0;
     for (const line of (data.lines || [])) {
       const model = parseModel(line.item_code);
+      const flex  = parseFlex(line.item_code);
       if (model && POLE_LENGTH_IN[model] && line.qty > 0) {
-        addPoleRow(model, line.qty);
+        addPoleRow(model, line.qty, flex);
         polesAdded++;
       }
     }
@@ -558,6 +564,38 @@ function packPoles(poleList) {
   return pieces;
 }
 
+// Like packPoles but tracks model, flex, and sn per individual pole (for Excel)
+function packPolesDetailed(poleList) {
+  const expanded = [];
+  for (const item of poleList) {
+    const m = parseInt(item.model);
+    for (let i = 0; i < item.qty; i++) {
+      expanded.push({ model: m, flex: item.flex || '', sn: (item.serials || [])[i] || '' });
+    }
+  }
+  expanded.sort((a,b) => b.model - a.model);
+
+  const pieces = [];
+  let remaining = [...expanded];
+  while (remaining.length > 0) {
+    const tube  = remaining.length >= 5 ? LARGE_TUBE : SMALL_TUBE;
+    const batch = remaining.splice(0, tube.max);
+    const longestModel = batch[0].model;
+    const tubeLen   = (POLE_LENGTH_IN[longestModel] || 200) + tube.extra_len;
+    const poleWt    = batch.reduce((s,p) => s + (POLE_WEIGHT_LBS[p.model] || 10), 0);
+    const totalWtLbs = Math.round((poleWt + tube.extra_wt) * 10) / 10;
+    const totalWtKg  = Math.round(totalWtLbs * 0.453592 * 100) / 100;
+    const cuFt       = Math.round((tubeLen * tube.w * tube.h) / 1728 * 100) / 100;
+    pieces.push({
+      poles: batch,
+      tube_length_in: tubeLen, tube_width_in: tube.w, tube_height_in: tube.h,
+      weight_lbs: totalWtLbs, weight_kg: totalWtKg, cu_ft: cuFt,
+      type: tube === LARGE_TUBE ? 'Large' : 'Small',
+    });
+  }
+  return pieces;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PHASE 1 POLE UI
 // ─────────────────────────────────────────────────────────────────────────────
@@ -567,7 +605,8 @@ function getPoleRows() {
   rows.forEach(row => {
     const model = row.querySelector('.pole-model')?.value;
     const qty   = parseInt(row.querySelector('.pole-qty')?.value) || 0;
-    if (model && qty > 0) result.push({ model: parseInt(model), qty });
+    const flex  = row.querySelector('.pole-flex')?.value || '';
+    if (model && qty > 0) result.push({ model: parseInt(model), qty, flex });
   });
   return result;
 }
@@ -593,13 +632,14 @@ function recalcPacking() {
   ).join('');
 }
 
-function addPoleRow(model='', qty=1) {
+function addPoleRow(model='', qty=1, flex='') {
   const list = document.getElementById('pole-list');
   const row  = document.createElement('div');
   row.className = 'pole-row';
   const opts = ALL_MODELS.map(m => `<option value="${m}" ${m==model?'selected':''}>${m}</option>`).join('');
   row.innerHTML = `
     <select class="pole-model" onchange="recalcPacking()"><option value="">— Model —</option>${opts}</select>
+    <input type="hidden" class="pole-flex" value="${flex || ''}">
     <input class="pole-qty" type="number" min="1" max="99" value="${qty}" onchange="recalcPacking()" oninput="recalcPacking()">
     <button class="pole-del" onclick="this.closest('.pole-row').remove();recalcPacking()" title="Remove">&#x2715;</button>`;
   list.appendChild(row);
@@ -643,6 +683,7 @@ function addPoleRowP2(model=null, qty=1, itemCode='', serials=[]) {
         <select class="pole-model-p2" onchange="onP2ModelChange(this)">
           <option value="">— Select Model —</option>${opts}
         </select>
+        <input type="hidden" class="pole-flex-p2" value="${parseFlex(itemCode) || ''}">
         ${displayName ? `<div style="font-size:10px;color:var(--ts);margin-top:3px">${displayName}</div>` : ''}
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
@@ -685,12 +726,14 @@ function getP2PoleRows() {
   const rows = document.querySelectorAll('#pole-list-p2 .pole-row-p2');
   const result = [];
   rows.forEach(row => {
-    const modelSel = row.querySelector('.pole-model-p2');
-    const qtyInput = row.querySelector('.pole-qty-p2');
-    const model = modelSel?.value ? parseInt(modelSel.value) : null;
-    const qty   = parseInt(qtyInput?.value) || 0;
-    const serials = Array.from(row.querySelectorAll('.sn-input')).map(i => i.value.trim()).filter(Boolean);
-    if (model && qty > 0) result.push({ model, qty, serials });
+    const modelSel  = row.querySelector('.pole-model-p2');
+    const qtyInput  = row.querySelector('.pole-qty-p2');
+    const flexInput = row.querySelector('.pole-flex-p2');
+    const model   = modelSel?.value ? parseInt(modelSel.value) : null;
+    const qty     = parseInt(qtyInput?.value) || 0;
+    const flex    = flexInput?.value || '';
+    const serials = Array.from(row.querySelectorAll('.sn-input')).map(i => i.value.trim());
+    if (model && qty > 0) result.push({ model, qty, flex, serials });
   });
   return result;
 }
@@ -742,84 +785,65 @@ function getActiveFFs() {
 // EXCEL PACKING LIST — PHASE 1
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP1() {
-  const rows = getPoleRows();
-  if (!rows.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
+  const poleData = getPoleRows();
+  if (!poleData.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
 
-  const pieces   = packPoles(rows);
-  const soNum    = v('so')             || 'XXXXX';
-  const cons     = v('consignee')      || '(consignee)';
-  const consFull = v('consignee-full') || cons;
-  const shipDate = v('ship-date')      || '';
-  const method   = v('method');
+  const pieces   = packPolesDetailed(poleData);
+  const soNum    = v('so')        || 'XXXXX';
+  const cons     = v('consignee') || '(consignee)';
+  const shipDate = v('ship-date') || '';
   const inco     = v('incoterm');
-  const schedB   = v('schedule-b');
-  const goodsD   = v('goods-desc');
-  const goodsVal = v('goods-value');
 
-  const totalPieces = pieces.length;
-  const totalPoles  = pieces.reduce((s,p)=>s+p.poles.length,0);
-  const totalKg     = Math.round(pieces.reduce((s,p)=>s+p.weight_kg,0)*100)/100;
-  const totalLbs    = Math.round(pieces.reduce((s,p)=>s+p.weight_lbs,0)*10)/10;
+  const wb  = XLSX.utils.book_new();
+  const aoa = [];
 
-  const wb = XLSX.utils.book_new();
+  // ── Header ────────────────────────────────────────────────────────────────
+  aoa.push(['New Nevada Plastics dba UCS Spirit','','','','','','PACKING LIST','','','','','','']);
+  aoa.push(['2180 Meridian Blvd, Minden NV 89423','','','','','',`Sales Order: ${soNum}`,'','','','','','']);
+  aoa.push(['775-882-7114  ·  www.spiritpoles.com  ·  FED ID: 22-2768411','','','','','','','','','','','','']);
+  aoa.push([]);
 
-  // ── Sheet 1: Packing List ─────────────────────────────────────────────────
-  const plData = [
-    ['UCS Spirit / New Nevada Plastics'],
-    ['Export Packing List'],
-    [],
-    ['Sales Order:',  soNum,        'Date:',       shipDate],
-    ['Consignee:',    cons,         'Method:',     method],
-    ['Incoterms:',    inco,         'Sched B:',    schedB],
-    ['Declared Value:',goodsVal,    'Description:',goodsD],
-    ['Ship To:', consFull],
-    [],
-    ['Piece #','Type','Length (in)','Width (in)','Height (in)','Weight (lbs)','Weight (kg)','Cu Ft','Poles (qty)','Pole Models'],
-    ...pieces.map((p,i) => [
-      i+1, p.type, p.tube_length_in, p.tube_width_in, p.tube_height_in,
-      p.weight_lbs, p.weight_kg, p.cu_ft, p.poles.length,
-      p.poles.join(', '),
-    ]),
-    [],
-    ['TOTALS','','','','',totalLbs,totalKg,'',totalPoles,''],
-    [],
-    ['Shipper:', SHIPPER.company],
-    ['',         SHIPPER.address],
-    ['Phone:',   SHIPPER.phone, 'Email:', SHIPPER.email],
-    ['Contact:', SHIPPER.contact],
+  // ── Order info ────────────────────────────────────────────────────────────
+  aoa.push(['Date','Ultimate Consignee / Destination:','','','','','Carrier','','','','','','']);
+  aoa.push([shipDate, cons,'','','','',inco,'','','','','','']);
+  aoa.push([]);
+
+  // ── Column headers ────────────────────────────────────────────────────────
+  aoa.push(['Piece','Piece Type','Model','Flex','Note','Serial #\'s','Length (in)','x','Width (in)','x','Height (in)','Cu Ft','Weight (lbs)']);
+
+  // ── Pieces — one tube header row + one row per individual pole ────────────
+  for (let i = 0; i < pieces.length; i++) {
+    const p = pieces[i];
+    const typeLabel = p.type === 'Large' ? 'Large Super Tube' : 'Small Super Tube';
+    aoa.push([i+1, typeLabel,'','','','', p.tube_length_in,'x',p.tube_width_in,'x',p.tube_height_in, p.cu_ft, p.weight_lbs]);
+    for (const pole of p.poles) {
+      aoa.push(['','', pole.model, pole.flex||'','','','','','','','','','']);
+    }
+    aoa.push([]);
+  }
+
+  // ── Totals ────────────────────────────────────────────────────────────────
+  const totalPoles = pieces.reduce((s,p)=>s+p.poles.length,0);
+  const totalLbs   = Math.round(pieces.reduce((s,p)=>s+p.weight_lbs,0)*10)/10;
+  const totalCuFt  = Math.round(pieces.reduce((s,p)=>s+p.cu_ft,0)*100)/100;
+  aoa.push(['TOTALS','','','','',totalPoles,'','','','','',totalCuFt,totalLbs]);
+  aoa.push([]);
+
+  // ── Shipper footer ────────────────────────────────────────────────────────
+  aoa.push(['Shipper:', SHIPPER.company]);
+  aoa.push(['', SHIPPER.address]);
+  aoa.push(['Phone:', SHIPPER.phone,'','Email:', SHIPPER.email]);
+  aoa.push(['Contact:', SHIPPER.contact]);
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:8},{wch:18},{wch:8},{wch:6},{wch:14},{wch:14},{wch:10},{wch:3},{wch:10},{wch:3},{wch:10},{wch:9},{wch:13}];
+  ws['!merges'] = [
+    {s:{r:0,c:0},e:{r:0,c:5}}, {s:{r:0,c:6},e:{r:0,c:12}},
+    {s:{r:1,c:0},e:{r:1,c:5}}, {s:{r:1,c:6},e:{r:1,c:12}},
+    {s:{r:2,c:0},e:{r:2,c:12}},
+    {s:{r:4,c:1},e:{r:4,c:5}}, {s:{r:5,c:1},e:{r:5,c:5}},
   ];
-
-  const ws1 = XLSX.utils.aoa_to_sheet(plData);
-  ws1['!cols'] = [{wch:18},{wch:10},{wch:12},{wch:12},{wch:12},{wch:14},{wch:13},{wch:8},{wch:10},{wch:30}];
-  ws1['!merges'] = [
-    {s:{r:0,c:0},e:{r:0,c:9}},
-    {s:{r:1,c:0},e:{r:1,c:9}},
-  ];
-  XLSX.utils.book_append_sheet(wb, ws1, 'Packing List');
-
-  // ── Sheet 2: Summary ──────────────────────────────────────────────────────
-  const poleSummary = rows.map(r => [`Model ${r.model}`, r.qty]);
-  const sumData = [
-    ['EXPORT SHIPMENT SUMMARY'],
-    [],
-    ['SO Number',    soNum],
-    ['Date',         shipDate],
-    ['Customer',     cons],
-    ['Method',       method],
-    ['Incoterms',    inco],
-    ['Declared Value',goodsVal],
-    [],
-    ['Piece Count',  totalPieces],
-    ['Total Poles',  totalPoles],
-    ['Total Weight', `${totalKg} kg / ${totalLbs} lbs`],
-    [],
-    ['Pole Models Included:'],
-    ...poleSummary,
-  ];
-  const ws2 = XLSX.utils.aoa_to_sheet(sumData);
-  ws2['!cols'] = [{wch:20},{wch:30}];
-  XLSX.utils.book_append_sheet(wb, ws2, 'Summary');
-
+  XLSX.utils.book_append_sheet(wb, ws, 'Packing List');
   XLSX.writeFile(wb, `PackingList_${soNum}_${shipDate||'draft'}.xlsx`);
 }
 
@@ -827,82 +851,67 @@ function downloadPackingListP1() {
 // EXCEL PACKING LIST — PHASE 2 (with serial numbers)
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP2() {
-  const rows = getP2PoleRows();
-  if (!rows.length) { setActionErr('p2', 'Add poles before downloading.'); return; }
+  const poleData = getP2PoleRows();
+  if (!poleData.length) { setActionErr('p2', 'Add poles before downloading.'); return; }
 
-  const pieces   = packPoles(rows);
-  const ifNum    = v('if-num')           || 'XXXXX';
-  const soNum    = v('p2-so')            || '';
-  const cons     = v('p2-consignee')     || '(consignee)';
-  const consFull = v('p2-consignee-full')|| cons;
-  const shipDate = v('p2-ship-date')     || '';
-  const method   = v('p2-method');
+  const pieces   = packPolesDetailed(poleData);
+  const ifNum    = v('if-num')            || 'XXXXX';
+  const soNum    = v('p2-so')             || '';
+  const cons     = v('p2-consignee')      || '(consignee)';
+  const shipDate = v('p2-ship-date')      || '';
   const inco     = v('p2-incoterm');
-  const schedB   = v('p2-schedule-b');
-  const goodsVal = v('p2-goods-value');
 
-  // Collect all serials in order
-  const allSerials = [];
-  for (const r of rows) {
-    for (let i = 0; i < r.qty; i++) allSerials.push({ model: r.model, sn: r.serials[i] || '' });
+  const wb  = XLSX.utils.book_new();
+  const aoa = [];
+
+  // ── Header ────────────────────────────────────────────────────────────────
+  const soRef = soNum ? `Sales Order: ${soNum}${ifNum !== 'XXXXX' ? `  ·  IF: ${ifNum}` : ''}` : `IF: ${ifNum}`;
+  aoa.push(['New Nevada Plastics dba UCS Spirit','','','','','','PACKING LIST','','','','','','']);
+  aoa.push(['2180 Meridian Blvd, Minden NV 89423','','','','','',soRef,'','','','','','']);
+  aoa.push(['775-882-7114  ·  www.spiritpoles.com  ·  FED ID: 22-2768411','','','','','','','','','','','','']);
+  aoa.push([]);
+
+  // ── Order info ────────────────────────────────────────────────────────────
+  aoa.push(['Date','Ultimate Consignee / Destination:','','','','','Carrier','','','','','','']);
+  aoa.push([shipDate, cons,'','','','',inco,'','','','','','']);
+  aoa.push([]);
+
+  // ── Column headers ────────────────────────────────────────────────────────
+  aoa.push(['Piece','Piece Type','Model','Flex','Note','Serial #\'s','Length (in)','x','Width (in)','x','Height (in)','Cu Ft','Weight (lbs)']);
+
+  // ── Pieces ────────────────────────────────────────────────────────────────
+  for (let i = 0; i < pieces.length; i++) {
+    const p = pieces[i];
+    const typeLabel = p.type === 'Large' ? 'Large Super Tube' : 'Small Super Tube';
+    aoa.push([i+1, typeLabel,'','','','', p.tube_length_in,'x',p.tube_width_in,'x',p.tube_height_in, p.cu_ft, p.weight_lbs]);
+    for (const pole of p.poles) {
+      aoa.push(['','', pole.model, pole.flex||'','', pole.sn||'','','','','','','','']);
+    }
+    aoa.push([]);
   }
 
-  const totalPieces = pieces.length;
-  const totalPoles  = pieces.reduce((s,p)=>s+p.poles.length,0);
-  const totalKg     = Math.round(pieces.reduce((s,p)=>s+p.weight_kg,0)*100)/100;
-  const totalLbs    = Math.round(pieces.reduce((s,p)=>s+p.weight_lbs,0)*10)/10;
+  // ── Totals ────────────────────────────────────────────────────────────────
+  const totalPoles = pieces.reduce((s,p)=>s+p.poles.length,0);
+  const totalLbs   = Math.round(pieces.reduce((s,p)=>s+p.weight_lbs,0)*10)/10;
+  const totalCuFt  = Math.round(pieces.reduce((s,p)=>s+p.cu_ft,0)*100)/100;
+  aoa.push(['TOTALS','','','','',totalPoles,'','','','','',totalCuFt,totalLbs]);
+  aoa.push([]);
 
-  const wb = XLSX.utils.book_new();
+  // ── Shipper footer ────────────────────────────────────────────────────────
+  aoa.push(['Shipper:', SHIPPER.company]);
+  aoa.push(['', SHIPPER.address]);
+  aoa.push(['Phone:', SHIPPER.phone,'','Email:', SHIPPER.email]);
+  aoa.push(['Contact:', SHIPPER.contact]);
 
-  // ── Sheet 1: Final Packing List ───────────────────────────────────────────
-  const plData = [
-    ['UCS Spirit / New Nevada Plastics'],
-    ['FINAL Export Packing List'],
-    [],
-    ['IF Number:', ifNum, 'SO Number:', soNum],
-    ['Ship Date:', shipDate,'Incoterms:', inco],
-    ['Consignee:', cons, 'Method:', method],
-    ['Ship To:', consFull],
-    [],
-    ['Piece #','Type','Length (in)','Width (in)','Height (in)','Weight (lbs)','Weight (kg)','Cu Ft','Poles (qty)','Serial Numbers'],
-    ...pieces.map((p,i) => {
-      // Assign serials to this piece
-      const pieceSerials = p.poles.map((model, pi) => {
-        const idx = allSerials.findIndex(s => s.model === model && !s._used);
-        if (idx >= 0) { allSerials[idx]._used = true; return allSerials[idx].sn; }
-        return '';
-      });
-      return [
-        i+1, p.type, p.tube_length_in, p.tube_width_in, p.tube_height_in,
-        p.weight_lbs, p.weight_kg, p.cu_ft, p.poles.length,
-        pieceSerials.filter(Boolean).join(', ') || '(serials TBD)',
-      ];
-    }),
-    [],
-    ['TOTALS','','','','',totalLbs,totalKg,'',totalPoles,''],
-    [],
-    ['Shipper:', SHIPPER.company],
-    ['', SHIPPER.address],
-    ['Phone:', SHIPPER.phone, 'Email:', SHIPPER.email],
-    ['Contact:', SHIPPER.contact],
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:8},{wch:18},{wch:8},{wch:6},{wch:14},{wch:14},{wch:10},{wch:3},{wch:10},{wch:3},{wch:10},{wch:9},{wch:13}];
+  ws['!merges'] = [
+    {s:{r:0,c:0},e:{r:0,c:5}}, {s:{r:0,c:6},e:{r:0,c:12}},
+    {s:{r:1,c:0},e:{r:1,c:5}}, {s:{r:1,c:6},e:{r:1,c:12}},
+    {s:{r:2,c:0},e:{r:2,c:12}},
+    {s:{r:4,c:1},e:{r:4,c:5}}, {s:{r:5,c:1},e:{r:5,c:5}},
   ];
-
-  const ws1 = XLSX.utils.aoa_to_sheet(plData);
-  ws1['!cols'] = [{wch:18},{wch:10},{wch:12},{wch:12},{wch:12},{wch:14},{wch:13},{wch:8},{wch:10},{wch:40}];
-  XLSX.utils.book_append_sheet(wb, ws1, 'Final Packing List');
-
-  // ── Sheet 2: Serial Number List ───────────────────────────────────────────
-  const snData = [
-    ['Serial Number Register'],
-    ['IF:', ifNum, 'SO:', soNum, 'Customer:', cons],
-    [],
-    ['#','Model','Serial Number'],
-    ...allSerials.map((s,i) => [i+1, s.model, s.sn || '(missing)']),
-  ];
-  const ws2 = XLSX.utils.aoa_to_sheet(snData);
-  ws2['!cols'] = [{wch:6},{wch:12},{wch:25}];
-  XLSX.utils.book_append_sheet(wb, ws2, 'Serial Numbers');
-
+  XLSX.utils.book_append_sheet(wb, ws, 'Packing List');
   XLSX.writeFile(wb, `FinalPackingList_${ifNum}_${shipDate||'draft'}.xlsx`);
 }
 
