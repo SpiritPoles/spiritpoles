@@ -4,7 +4,23 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Export Shipping — UCS Spirit</title>
-<script src="https://alcdn.msauth.net/browser/2.39.0/js/msal-browser.min.js"></script>
+<script>
+// Load MSAL from primary CDN; fall back to secondary if primary fails
+(function() {
+  function loadScript(src, onok, onerr) {
+    var s = document.createElement('script');
+    s.src = src; s.onload = onok; s.onerror = onerr;
+    document.head.appendChild(s);
+  }
+  var primary   = 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.39.0/lib/msal-browser.min.js';
+  var secondary = 'https://unpkg.com/@azure/msal-browser@2.39.0/lib/msal-browser.min.js';
+  loadScript(primary, null, function() {
+    loadScript(secondary, null, function() {
+      window._msalLoadFailed = true;
+    });
+  });
+})();
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#000;--tb:#252525;--tbd:rgba(255,255,255,0.2);--tbt:rgba(255,255,255,0.32);--thb:rgba(232,18,125,0.55);--tp:#ede6d8;--ts:rgba(255,255,255,0.55);--sl:rgba(255,255,255,0.4);--fc:#aeacae;--rc:#aeacae;--so:rgba(0,0,0,0.55);--shb:rgba(255,255,255,0.2);--tgb:rgba(255,255,255,0.08);--tgbr:rgba(255,255,255,0.14);--tgc:rgba(255,255,255,0.5);--tgh:rgba(255,255,255,0.85);--tc:rgba(255,255,255,0.55);--tt:rgba(232,18,125,0.5);--bgo:.18;--bgf:none;--pink:#E8127D;--green:#4caf50;--red:#e53935;--card:#1a1a1a}
@@ -1217,6 +1233,9 @@ async function handleSignIn() {
   btn.disabled = true;
   label.textContent = 'Opening sign-in window…';
   try {
+    if (window._msalLoadFailed || typeof msal === 'undefined') {
+      throw new Error('Microsoft sign-in library failed to load — please reload the page and try again.');
+    }
     // Retry initialize if it failed on page load
     if (!msalReady) {
       if (!msalApp) msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
