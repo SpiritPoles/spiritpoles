@@ -374,7 +374,7 @@ const FREIGHT_FORWARDERS = [
   { name:'DSV',                    to:'dsv.chicago@dsv.com',               cc:[],                          active:true  },
   { name:'Global Shipping Services',to:'quotes@globalshippingservices.com',cc:[],                          active:true  },
   { name:'Dynasty / Erixmar',      to:'dynasty@erixmar.com',               cc:['erixmar@erixmar.com'],     active:true  },
-  { name:'SAIA',                   to:'quotes@saia.com',                   cc:[],                          active:false },
+  { name:'SAIA',                   to:'quotes@saia.com',                   cc:[],                          active:true  },
 ];
 const INTERNAL_CC = ['stevechappell@ucsspirit.com', 'chrischappell@ucsspirit.com'];
 
@@ -440,7 +440,6 @@ async function fetchSO() {
 
     // Populate Phase 1 fields
     setVal('so',             data.so_number || raw);
-    setVal('ship-date',      data.date ? data.date.split('T')[0] : '');
     setVal('consignee',      data.customer || '');
     setVal('consignee-full', data.ship_address || '');
     if (data.declared_value) setVal('goods-value', `$${data.declared_value.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`);
@@ -486,7 +485,6 @@ async function fetchIF() {
     // Populate Phase 2 fields
     setVal('if-num',          data.if_number || raw);
     setVal('p2-so',           data.so_number || '');
-    setVal('p2-ship-date',    data.date ? data.date.split('T')[0] : '');
     setVal('p2-consignee',    data.customer || '');
     setVal('p2-consignee-full', data.ship_address || '');
 
