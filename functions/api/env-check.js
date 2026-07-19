@@ -5,7 +5,8 @@ export async function onRequestGet({ env }) {
   const result = {};
   for (const k of keys) {
     if (!env[k]) { result[k] = 'MISSING'; continue; }
-    const preview = (k === 'NS_TOKEN_ID' || k === 'NS_TOKEN_SECRET')
+    const showPrefix = ['NS_TOKEN_ID', 'NS_TOKEN_SECRET', 'NS_CONSUMER_KEY'].includes(k);
+    const preview = showPrefix
       ? `set (${env[k].length} chars, starts: ${env[k].substring(0, 8)}...)`
       : `set (${env[k].length} chars)`;
     result[k] = preview;

@@ -355,7 +355,7 @@ const MSAL_CONFIG = {
   cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false },
 };
 const SCOPES = ['https://graph.microsoft.com/Mail.ReadWrite'];
-const msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
+let msalApp         = null;    // initialized lazily in initMsal()
 let currentAccount  = null;
 let msalReady       = false;   // true once initialize() has resolved
 
@@ -1082,6 +1082,7 @@ UCS Spirit | ${SHIPPER.phone} | ${SHIPPER.email}`;
 // GRAPH API
 // ─────────────────────────────────────────────────────────────────────────────
 async function getToken() {
+  if (!msalApp) throw new Error('Microsoft sign-in not available — reload the page');
   const accounts = msalApp.getAllAccounts();
   if (!accounts.length) throw new Error('Not signed in');
   try {
@@ -1177,6 +1178,7 @@ async function createDrafts() {
 // ─────────────────────────────────────────────────────────────────────────────
 async function initMsal() {
   try {
+    msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
     await msalApp.initialize();
     msalReady = true;
     const resp = await msalApp.handleRedirectPromise();
@@ -1219,6 +1221,7 @@ async function handleSignIn() {
   try {
     // Retry initialize if it failed on page load
     if (!msalReady) {
+      if (!msalApp) msalApp = new msal.PublicClientApplication(MSAL_CONFIG);
       await msalApp.initialize();
       msalReady = true;
     }
@@ -1235,6 +1238,7 @@ async function handleSignIn() {
 }
 
 async function handleSignOut() {
+  if (!msalApp) return;
   await msalApp.logoutPopup({ account: currentAccount });
   currentAccount = null;
   setAuthUI(null);
