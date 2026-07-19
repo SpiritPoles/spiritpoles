@@ -1246,6 +1246,19 @@ async function handleSignIn() {
     currentAccount = resp.account;
     setAuthUI(currentAccount);
   } catch(e) {
+    // Stale interaction state from a previously cancelled popup — clear it and let user retry
+    if (e.errorCode === 'interaction_in_progress') {
+      Object.keys(sessionStorage).filter(k => k.startsWith('msal.')).forEach(k => sessionStorage.removeItem(k));
+      label.textContent = 'Ready — click Sign in again.';
+      btn.disabled = false;
+      return;
+    }
+    // User closed the popup — just reset silently
+    if (e.errorCode === 'user_cancelled') {
+      label.textContent = 'Not signed in — required to create Outlook drafts';
+      btn.disabled = false;
+      return;
+    }
     const msg = (e.errorCode === 'popup_window_error' || (e.message || '').toLowerCase().includes('popup'))
       ? 'Pop-up blocked — allow pop-ups for this site in your browser, then try again.'
       : 'Sign-in error: ' + (e.message || e.errorCode || 'Unknown error');
