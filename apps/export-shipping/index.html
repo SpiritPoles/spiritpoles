@@ -22,17 +22,21 @@
 })();
 </script>
 <script>
-// Load xlsx-js-style (has border/style support); fall back to standard xlsx
+// Load xlsx-js-style (border support) with cdnjs standard xlsx as guaranteed fallback
 (function(){
-  function tryLoad(src, fallback){
-    var s=document.createElement('script'); s.src=src;
-    s.onerror=function(){ if(fallback){ tryLoad(fallback,null); } };
+  var srcs = [
+    'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx-js-style.min.js',
+    'https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx-js-style.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+  ];
+  function tryNext(i){
+    if(i >= srcs.length) return;
+    var s = document.createElement('script');
+    s.src = srcs[i];
+    s.onerror = function(){ tryNext(i+1); };
     document.head.appendChild(s);
   }
-  tryLoad(
-    'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx-js-style.min.js',
-    'https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx-js-style.min.js'
-  );
+  tryNext(0);
 })();
 </script>
 <style>
@@ -828,7 +832,7 @@ function applyPackingListStyles(ws, aoa, colHeaderRow, totalsRow) {
 // EXCEL PACKING LIST — PHASE 1
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP1() {
-  if (typeof XLSX === 'undefined') { setActionErr('p1', 'Excel library still loading — wait a moment and try again.'); return; }
+  if (typeof XLSX === 'undefined') { setActionErr('p1', 'Excel library failed to load — check your internet connection and reload the page.'); return; }
   const poleData = getPoleRows();
   if (!poleData.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
 
@@ -896,7 +900,7 @@ function downloadPackingListP1() {
 // EXCEL PACKING LIST — PHASE 2 (with serial numbers)
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP2() {
-  if (typeof XLSX === 'undefined') { setActionErr('p2', 'Excel library still loading — wait a moment and try again.'); return; }
+  if (typeof XLSX === 'undefined') { setActionErr('p2', 'Excel library failed to load — check your internet connection and reload the page.'); return; }
   const poleData = getP2PoleRows();
   if (!poleData.length) { setActionErr('p2', 'Add poles before downloading.'); return; }
 
