@@ -90,7 +90,7 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
 .field input,.field select,.field textarea{background:var(--tgb);border:1px solid var(--tgbr);border-radius:8px;padding:9px 12px;font-size:13px;font-weight:600;color:var(--tp);outline:none;transition:border-color .18s;font-family:inherit}
 .field input:focus,.field select:focus,.field textarea:focus{border-color:rgba(232,18,125,0.5)}
 .field select option{background:#252525;color:#ede6d8}
-.field textarea{resize:vertical;min-height:72px}
+.field textarea{resize:none;min-height:60px;overflow:hidden}
 
 /* Shared delete button */
 .pole-del{background:none;border:none;color:var(--ts);cursor:pointer;font-size:15px;padding:0;line-height:1;transition:color .18s;flex-shrink:0}
@@ -100,20 +100,22 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
 /* ── Phase 1 piece-grouped packing view ────────────────────────────────────── */
 #packing-list{display:flex;flex-direction:column;gap:10px;margin-bottom:4px}
 .piece-container{background:var(--card);border:1px solid var(--tgbr);border-radius:10px;overflow:hidden}
-.piece-header{display:grid;grid-template-columns:78px 1fr auto;gap:8px;align-items:center;padding:8px 12px;background:rgba(232,18,125,0.07);border-bottom:1px solid var(--tgbr)}
+.piece-header{display:grid;grid-template-columns:78px 145px 1fr;gap:10px;align-items:center;padding:8px 12px;background:rgba(232,18,125,0.07);border-bottom:1px solid var(--tgbr)}
 .piece-num-badge{background:var(--pink);color:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;text-align:center;white-space:nowrap}
-.piece-type-sel{background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;padding:5px 8px;font-size:12px;font-weight:700;color:var(--tp);outline:none;font-family:inherit;cursor:pointer;transition:border-color .18s}
+.piece-type-sel{background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:700;color:var(--tp);outline:none;font-family:inherit;cursor:pointer;transition:border-color .18s;width:100%}
 .piece-type-sel:focus{border-color:rgba(232,18,125,0.5)}
-.piece-dims-wt{font-size:10px;font-weight:600;color:var(--ts);text-align:right;white-space:nowrap}
-.piece-col-hdr{display:grid;grid-template-columns:66px 56px 1fr 148px 24px;gap:4px;padding:4px 10px 2px;border-bottom:1px solid rgba(255,255,255,0.05)}
+.piece-dims-wt{font-size:12px;font-weight:700;color:var(--tp);white-space:nowrap}
+/* Columns: Model | Flex Memo | Special Line Item Notes | Serial | Del */
+.piece-col-hdr{display:grid;grid-template-columns:90px 74px 104px 1fr 24px;gap:4px;padding:4px 10px 2px;border-bottom:1px solid rgba(255,255,255,0.05)}
 body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
-.piece-col-hdr span{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ts)}
-.piece-poles{padding:4px 8px;display:flex;flex-direction:column;gap:3px}
-.pole-row-p1{display:grid;grid-template-columns:66px 56px 1fr 148px 24px;gap:4px;align-items:center}
-.pole-row-p1 input{background:transparent;border:1px solid transparent;border-radius:5px;padding:4px 6px;font-size:12px;font-weight:600;color:var(--tp);outline:none;width:100%;font-family:inherit;transition:border-color .18s,background .18s}
+.piece-col-hdr span{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ts);line-height:1.3}
+.piece-poles{padding:4px 8px;display:flex;flex-direction:column;gap:4px}
+.pole-row-p1{display:grid;grid-template-columns:90px 74px 104px 1fr 24px;gap:4px;align-items:start}
+.pole-row-p1 input{background:transparent;border:1px solid transparent;border-radius:5px;padding:5px 6px;font-size:13px;font-weight:600;color:var(--tp);outline:none;width:100%;font-family:inherit;transition:border-color .18s,background .18s}
 .pole-row-p1 input:hover{background:var(--tgb);border-color:var(--tgbr)}
 .pole-row-p1 input:focus{background:var(--tgb);border-color:rgba(232,18,125,0.4)}
-.pr-serial{font-family:monospace;font-size:10px !important}
+.pr-note{font-size:12px !important}
+.pr-serial{font-family:monospace;font-size:11px !important}
 .piece-foot{padding:4px 10px 8px;display:flex;gap:6px}
 
 /* Pole rows Phase 2 — with serial numbers */
@@ -231,7 +233,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <div class="field"><label>Consignee (short name)</label><input id="consignee" type="text" placeholder="e.g. Aspire Academy"></div>
       </div>
       <div class="field-row solo">
-        <div class="field"><label>Consignee Full Address</label><textarea id="consignee-full" placeholder="Full name, address, city, country..."></textarea></div>
+        <div class="field"><label>Consignee Full Address</label><textarea id="consignee-full" placeholder="Full name, address, city, country..." oninput="autoResize(this)"></textarea></div>
       </div>
       <div class="field-row tri">
         <div class="field"><label>Shipping Method</label>
@@ -246,7 +248,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         </div>
         <div class="field"><label>Declared Value (USD)</label><input id="goods-value" type="text" placeholder="$8,516.00"></div>
       </div>
-      <div class="field-row">
+      <div class="field-row" style="grid-template-columns:170px 1fr">
         <div class="field"><label>Schedule B / HS Code</label><input id="schedule-b" type="text" value="9506.91.0000"></div>
         <div class="field"><label>Goods Description</label><input id="goods-desc" type="text" value="Articles and equipment for general physical exercise, gymnastics or athletics; parts and accessories thereof"></div>
       </div>
@@ -258,7 +260,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       <div id="packing-list"></div>
       <div style="display:flex;gap:8px;padding:6px 0 2px;border-top:1px solid var(--tgbr);margin-top:4px">
         <button class="btn btn-outline btn-sm" onclick="addBlankPoleRow()">+ Add Pole</button>
-        <button class="btn btn-outline btn-sm" onclick="recalcPacking()" title="Re-run auto-grouping algorithm">&#8635; Re-group</button>
+        <button class="btn btn-outline btn-sm" onclick="recalcPacking()" title="Re-run auto-grouping algorithm">&#8635; Re-calculate</button>
       </div>
       <div class="divider"></div>
       <div class="card-title">Packing Summary</div>
@@ -445,6 +447,12 @@ const PIECE_TYPES = {
 const htmlEsc = s => String(s==null?'':s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
+// Auto-size a textarea to fit its content (no scroll bar, no manual resize handle)
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = (el.scrollHeight) + 'px';
+}
+
 // Parse model number from NetSuite item code like "SP400/40" or "UF350/55"
 function parseModel(itemCode) {
   const m = String(itemCode || '').match(/(\d+)\//);
@@ -487,6 +495,9 @@ async function fetchSO() {
     setVal('so',             data.so_number || raw);
     setVal('consignee',      data.customer || '');
     setVal('consignee-full', data.ship_address || '');
+    // Auto-size address textarea to content
+    const addrEl = document.getElementById('consignee-full');
+    if (addrEl) autoResize(addrEl);
     if (data.declared_value) setVal('goods-value', `$${data.declared_value.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`);
 
     // Build packing view from individual poles
@@ -494,8 +505,16 @@ async function fetchSO() {
     for (const line of (data.lines || [])) {
       const model = parseModel(line.item_code || line.item_name || '');
       if (model && POLE_LENGTH_IN[model]) {
+        // Build clean display code: "490/82" style (no SP/UF/CF prefix)
+        // item_name = "490/82 | 16' 1\" - 180lb" → extract "490/82"
+        // item_code = "SP490/82"               → strip leading letters
+        const dispName = String(line.item_name || '');
+        const dispCode = dispName.includes('|')
+          ? dispName.split('|')[0].trim()
+          : (line.item_code || '').replace(/^[A-Za-z]+/, '') || String(model);
+
         poleData.push({
-          model:  String(model),
+          model:  dispCode,
           flex:   line.flex_memo || '',
           note:   line.note     || '',
           serial: line.serial   || '',
@@ -723,7 +742,7 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
       <span class="piece-dims-wt">—</span>
     </div>
     <div class="piece-col-hdr">
-      <span>Model</span><span>Flex</span><span>Note</span><span>Serial</span><span></span>
+      <span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span></span>
     </div>
     <div class="piece-poles"></div>
     <div class="piece-foot">
@@ -760,16 +779,21 @@ function recalcPacking() {
   const poles = [];
   document.querySelectorAll('#packing-list .piece-container').forEach(c => {
     c.querySelectorAll('.pole-row-p1').forEach(row => {
-      const m = row.querySelector('.pr-model')?.value?.trim();
+      const m = (row.querySelector('.pr-model')?.value || '').trim();
       if (m) poles.push({
         model:  m,
-        flex:   row.querySelector('.pr-flex')?.value?.trim()   || '',
-        note:   row.querySelector('.pr-note')?.value?.trim()   || '',
-        serial: row.querySelector('.pr-serial')?.value?.trim() || '',
+        flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
+        note:   (row.querySelector('.pr-note')?.value   || '').trim(),
+        serial: (row.querySelector('.pr-serial')?.value || '').trim(),
       });
     });
   });
+  if (!poles.length) { return; }
   buildPackingView(poles);
+  // Brief visual confirmation
+  const list = document.getElementById('packing-list');
+  list.style.opacity = '0.4';
+  setTimeout(() => { list.style.transition = 'opacity .25s'; list.style.opacity = '1'; }, 30);
 }
 
 // Add a blank pole — goes to last piece, or creates new piece if empty
@@ -1642,6 +1666,8 @@ if (localStorage.getItem('mode') === 'light') {
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('ship-date').valueAsDate    = new Date();
   document.getElementById('p2-ship-date').valueAsDate = new Date();
+  // Auto-size any pre-filled textareas
+  document.querySelectorAll('textarea[oninput*="autoResize"]').forEach(t => autoResize(t));
   buildFFList();
   await initMsal();
 });
