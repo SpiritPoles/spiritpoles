@@ -92,15 +92,29 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
 .field select option{background:#252525;color:#ede6d8}
 .field textarea{resize:vertical;min-height:72px}
 
-/* Pole rows */
-#pole-list,#pole-list-p2{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
-.pole-row{display:grid;grid-template-columns:2fr 1fr 28px;gap:8px;align-items:center}
-.pole-row input,.pole-row select{background:var(--tgb);border:1px solid var(--tgbr);border-radius:8px;padding:8px 10px;font-size:13px;font-weight:600;color:var(--tp);outline:none;transition:border-color .18s;font-family:inherit;width:100%}
-.pole-row input:focus,.pole-row select:focus{border-color:rgba(232,18,125,0.5)}
-.pole-del{background:none;border:none;color:var(--ts);cursor:pointer;font-size:16px;padding:0;line-height:1;transition:color .18s}
+/* Shared delete button */
+.pole-del{background:none;border:none;color:var(--ts);cursor:pointer;font-size:15px;padding:0;line-height:1;transition:color .18s;flex-shrink:0}
 .pole-del:hover{color:var(--red)}
-.pole-header{display:grid;grid-template-columns:2fr 1fr 28px;gap:8px;margin-bottom:4px}
-.pole-header span{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--ts)}
+/* Phase 2 pole list */
+#pole-list-p2{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+/* ── Phase 1 piece-grouped packing view ────────────────────────────────────── */
+#packing-list{display:flex;flex-direction:column;gap:10px;margin-bottom:4px}
+.piece-container{background:var(--card);border:1px solid var(--tgbr);border-radius:10px;overflow:hidden}
+.piece-header{display:grid;grid-template-columns:78px 1fr auto;gap:8px;align-items:center;padding:8px 12px;background:rgba(232,18,125,0.07);border-bottom:1px solid var(--tgbr)}
+.piece-num-badge{background:var(--pink);color:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;text-align:center;white-space:nowrap}
+.piece-type-sel{background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;padding:5px 8px;font-size:12px;font-weight:700;color:var(--tp);outline:none;font-family:inherit;cursor:pointer;transition:border-color .18s}
+.piece-type-sel:focus{border-color:rgba(232,18,125,0.5)}
+.piece-dims-wt{font-size:10px;font-weight:600;color:var(--ts);text-align:right;white-space:nowrap}
+.piece-col-hdr{display:grid;grid-template-columns:66px 56px 1fr 148px 24px;gap:4px;padding:4px 10px 2px;border-bottom:1px solid rgba(255,255,255,0.05)}
+body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
+.piece-col-hdr span{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ts)}
+.piece-poles{padding:4px 8px;display:flex;flex-direction:column;gap:3px}
+.pole-row-p1{display:grid;grid-template-columns:66px 56px 1fr 148px 24px;gap:4px;align-items:center}
+.pole-row-p1 input{background:transparent;border:1px solid transparent;border-radius:5px;padding:4px 6px;font-size:12px;font-weight:600;color:var(--tp);outline:none;width:100%;font-family:inherit;transition:border-color .18s,background .18s}
+.pole-row-p1 input:hover{background:var(--tgb);border-color:var(--tgbr)}
+.pole-row-p1 input:focus{background:var(--tgb);border-color:rgba(232,18,125,0.4)}
+.pr-serial{font-family:monospace;font-size:10px !important}
+.piece-foot{padding:4px 10px 8px;display:flex;gap:6px}
 
 /* Pole rows Phase 2 — with serial numbers */
 .pole-row-p2{background:var(--tgb);border:1px solid var(--tgbr);border-radius:10px;padding:12px;margin-bottom:8px}
@@ -238,21 +252,21 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
       </div>
     </div>
 
-    <!-- Poles -->
+    <!-- Poles & Packing -->
     <div class="card">
-      <div class="card-title">Poles</div>
-      <div class="pole-header"><span>Model</span><span>Qty</span><span></span></div>
-      <div id="pole-list"></div>
-      <button class="btn btn-outline btn-sm" onclick="addPoleRow()">+ Add Model</button>
-
+      <div class="card-title">Poles &amp; Packing</div>
+      <div id="packing-list"></div>
+      <div style="display:flex;gap:8px;padding:6px 0 2px;border-top:1px solid var(--tgbr);margin-top:4px">
+        <button class="btn btn-outline btn-sm" onclick="addBlankPoleRow()">+ Add Pole</button>
+        <button class="btn btn-outline btn-sm" onclick="recalcPacking()" title="Re-run auto-grouping algorithm">&#8635; Re-group</button>
+      </div>
       <div class="divider"></div>
-      <div class="card-title">Packing Preview</div>
+      <div class="card-title">Packing Summary</div>
       <div class="totals">
         <div class="total-box"><div class="total-val" id="t-pieces">—</div><div class="total-lbl">Pieces</div></div>
         <div class="total-box"><div class="total-val" id="t-poles">—</div><div class="total-lbl">Poles</div></div>
         <div class="total-box"><div class="total-val" id="t-weight">—</div><div class="total-lbl">Total kg</div></div>
       </div>
-      <div id="packing-preview"></div>
     </div>
 
     <!-- Freight Forwarders -->
@@ -265,8 +279,7 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
     <!-- Actions -->
     <div class="action-row">
       <button class="btn btn-primary" id="create-btn" onclick="createDrafts()" disabled>&#9993; Create Outlook Drafts</button>
-      <button class="btn btn-green" onclick="downloadPackingListP1()">&#8595; Download Packing List (Excel)</button>
-      <button class="btn btn-outline btn-sm" onclick="recalcPacking()">&#8635; Recalc Packing</button>
+      <button class="btn btn-green" onclick="downloadPackingListPDF()">&#8595; Download Packing List (PDF)</button>
     </div>
     <div class="action-err" id="action-err-p1"></div>
     <div class="log" id="log-p1"></div>
@@ -420,6 +433,18 @@ const LARGE_TUBE = { w:8, h:8, extra_wt:35, extra_len:6, max:8 };
 const SMALL_TUBE = { w:6, h:6, extra_wt:25, extra_len:6, max:4 };
 const ALL_MODELS = Object.keys(POLE_LENGTH_IN).map(Number).sort((a,b)=>a-b);
 
+// Piece type definitions: dims, extra weight, and max poles per piece
+const PIECE_TYPES = {
+  'large-tube': { label:'Large Super Tube', w:8,   h:8,   extra_wt:35, extra_len:6, max:8 },
+  'small-tube': { label:'Small Super Tube', w:6,   h:6,   extra_wt:25, extra_len:6, max:4 },
+  '1-pole':     { label:'1 Pole',           w:2.5, h:2.5, extra_wt:3,  extra_len:4, max:1 },
+  '2-poles':    { label:'2 Poles',          w:3,   h:3,   extra_wt:5,  extra_len:4, max:2 },
+  '3-4-poles':  { label:'3–4 Poles',        w:4,   h:4,   extra_wt:8,  extra_len:4, max:4 },
+  'x-bar-tube': { label:'X-Bar Tube',       w:6,   h:6,   extra_wt:20, extra_len:6, max:6 },
+};
+const htmlEsc = s => String(s==null?'':s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
 // Parse model number from NetSuite item code like "SP400/40" or "UF350/55"
 function parseModel(itemCode) {
   const m = String(itemCode || '').match(/(\d+)\//);
@@ -464,22 +489,22 @@ async function fetchSO() {
     setVal('consignee-full', data.ship_address || '');
     if (data.declared_value) setVal('goods-value', `$${data.declared_value.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`);
 
-    // Populate poles
-    const poleList = document.getElementById('pole-list');
-    poleList.innerHTML = '';
-    let polesAdded = 0;
+    // Build packing view from individual poles
+    const poleData = [];
     for (const line of (data.lines || [])) {
-      const model = parseModel(line.item_code);
-      const flex  = parseFlex(line.item_code);
-      if (model && POLE_LENGTH_IN[model] && line.qty > 0) {
-        addPoleRow(model, line.qty, flex);
-        polesAdded++;
+      const model = parseModel(line.item_code || line.item_name || '');
+      if (model && POLE_LENGTH_IN[model]) {
+        poleData.push({
+          model:  String(model),
+          flex:   line.flex_memo || '',
+          note:   line.note     || '',
+          serial: line.serial   || '',
+        });
       }
     }
-    if (!polesAdded) addPoleRow();
+    buildPackingView(poleData);
 
-    recalcPacking();
-    setFetchStatus('p1', `✓ Loaded ${data.so_number} — ${data.customer}`, 'ok');
+    setFetchStatus('p1', `✓ Loaded ${data.so_number} — ${data.customer}${poleData.length ? ` (${poleData.length} poles)` : ' — no poles found'}`, 'ok');
   } catch (err) {
     setFetchStatus('p1', `Error: ${err.message}`, 'err');
   } finally {
@@ -596,52 +621,168 @@ function packPolesDetailed(poleList) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PHASE 1 POLE UI
+// PHASE 1 — GROUPED PACKING VIEW
 // ─────────────────────────────────────────────────────────────────────────────
-function getPoleRows() {
-  const rows = document.querySelectorAll('#pole-list .pole-row');
-  const result = [];
-  rows.forEach(row => {
-    const model = row.querySelector('.pole-model')?.value;
-    const qty   = parseInt(row.querySelector('.pole-qty')?.value) || 0;
-    const flex  = row.querySelector('.pole-flex')?.value || '';
-    if (model && qty > 0) result.push({ model: parseInt(model), qty, flex });
-  });
-  return result;
+
+// Recalculate dims/weight label for a single piece container
+function calcPieceDims(container) {
+  const typeKey = container.querySelector('.piece-type-sel')?.value || 'large-tube';
+  const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+  const models  = Array.from(container.querySelectorAll('.pr-model'))
+    .map(i => parseInt(i.value) || 0).filter(Boolean);
+  const el = container.querySelector('.piece-dims-wt');
+  if (!el) return;
+  if (!models.length) { el.textContent = '—'; return; }
+  const longest = Math.max(...models);
+  const lenIn   = (POLE_LENGTH_IN[longest] || 200) + pt.extra_len;
+  const wtPoles = models.reduce((s,m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
+  const wtLbs   = Math.round((wtPoles + pt.extra_wt) * 10) / 10;
+  const wtKg    = Math.round(wtLbs * 0.453592 * 100) / 100;
+  el.textContent = `${lenIn}" × ${pt.w}" × ${pt.h}" · ${wtLbs} lbs · ${wtKg} kg`;
 }
 
-function recalcPacking() {
-  const rows = getPoleRows();
-  if (!rows.length) {
-    document.getElementById('packing-preview').innerHTML = '';
-    document.getElementById('t-pieces').textContent = '—';
-    document.getElementById('t-poles').textContent  = '—';
-    document.getElementById('t-weight').textContent = '—';
-    return;
+function onPieceTypeChange(sel) {
+  calcPieceDims(sel.closest('.piece-container'));
+  updatePackingTotals();
+}
+
+function delPoleRow(btn) {
+  const container = btn.closest('.piece-container');
+  btn.closest('.pole-row-p1').remove();
+  if (!container.querySelectorAll('.pole-row-p1').length) {
+    container.remove();
+    renumberPieces();
+  } else {
+    calcPieceDims(container);
   }
-  const pieces = packPoles(rows);
-  document.getElementById('t-pieces').textContent = pieces.length;
-  document.getElementById('t-poles').textContent  = pieces.reduce((s,p)=>s+p.poles.length,0);
-  document.getElementById('t-weight').textContent = Math.round(pieces.reduce((s,p)=>s+p.weight_kg,0)*100)/100 + ' kg';
-  document.getElementById('packing-preview').innerHTML = pieces.map((p,i) =>
-    `<div class="piece-row">
-      <span class="piece-tag">Piece ${i+1} · ${p.type}</span>
-      <span class="piece-detail">${p.tube_length_in}" × ${p.tube_width_in}" × ${p.tube_height_in}" &nbsp;|&nbsp; ${p.weight_lbs} lbs · ${p.weight_kg} kg &nbsp;|&nbsp; ${p.poles.length} pole${p.poles.length>1?'s':''}</span>
-    </div>`
-  ).join('');
+  updatePackingTotals();
 }
 
-function addPoleRow(model='', qty=1, flex='') {
-  const list = document.getElementById('pole-list');
-  const row  = document.createElement('div');
-  row.className = 'pole-row';
-  const opts = ALL_MODELS.map(m => `<option value="${m}" ${m==model?'selected':''}>${m}</option>`).join('');
+function renumberPieces() {
+  document.querySelectorAll('#packing-list .piece-container').forEach((c, i) => {
+    const b = c.querySelector('.piece-num-badge');
+    if (b) b.textContent = `Piece ${i + 1}`;
+  });
+}
+
+function updatePackingTotals() {
+  const containers = document.querySelectorAll('#packing-list .piece-container');
+  let totalPoles = 0, totalKg = 0;
+  containers.forEach(c => {
+    const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const models  = Array.from(c.querySelectorAll('.pr-model'))
+      .map(i => parseInt(i.value) || 0).filter(Boolean);
+    totalPoles += models.length;
+    if (models.length) {
+      const wtPoles = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
+      totalKg += (wtPoles + pt.extra_wt) * 0.453592;
+    }
+  });
+  const n = containers.length;
+  document.getElementById('t-pieces').textContent = n    || '—';
+  document.getElementById('t-poles').textContent  = totalPoles || '—';
+  document.getElementById('t-weight').textContent = totalPoles
+    ? (Math.round(totalKg * 100) / 100) + ' kg' : '—';
+}
+
+// Add a single pole row to an existing piece container
+function addPoleRowToContainer(container, pole = {}) {
+  const { model = '', flex = '', note = '', serial = '' } = pole;
+  const row = document.createElement('div');
+  row.className = 'pole-row-p1';
   row.innerHTML = `
-    <select class="pole-model" onchange="recalcPacking()"><option value="">— Model —</option>${opts}</select>
-    <input type="hidden" class="pole-flex" value="${flex || ''}">
-    <input class="pole-qty" type="number" min="1" max="99" value="${qty}" onchange="recalcPacking()" oninput="recalcPacking()">
-    <button class="pole-del" onclick="this.closest('.pole-row').remove();recalcPacking()" title="Remove">&#x2715;</button>`;
-  list.appendChild(row);
+    <input class="pr-model" type="text" value="${htmlEsc(String(model))}" placeholder="Model"
+      oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals()">
+    <input class="pr-flex"   type="text" value="${htmlEsc(flex)}"   placeholder="Flex">
+    <input class="pr-note"   type="text" value="${htmlEsc(note)}"   placeholder="Note">
+    <input class="pr-serial" type="text" value="${htmlEsc(serial)}" placeholder="Serial">
+    <button class="pole-del" onclick="delPoleRow(this)" title="Remove">&#x2715;</button>`;
+  container.querySelector('.piece-poles').appendChild(row);
+}
+
+// Add a blank pole to a specific piece (called from per-piece button)
+function addPoleToPiece(btn) {
+  const c = btn.closest('.piece-container');
+  addPoleRowToContainer(c, {});
+  calcPieceDims(c);
+  updatePackingTotals();
+}
+
+// Build a piece container DOM element with given poles
+function createPieceContainer(pieceNum, typeKey, poles = []) {
+  const typeOpts = Object.entries(PIECE_TYPES)
+    .map(([k, v]) => `<option value="${k}"${k === typeKey ? ' selected' : ''}>${v.label}</option>`)
+    .join('');
+  const div = document.createElement('div');
+  div.className = 'piece-container';
+  div.innerHTML = `
+    <div class="piece-header">
+      <span class="piece-num-badge">Piece ${pieceNum}</span>
+      <select class="piece-type-sel" onchange="onPieceTypeChange(this)">${typeOpts}</select>
+      <span class="piece-dims-wt">—</span>
+    </div>
+    <div class="piece-col-hdr">
+      <span>Model</span><span>Flex</span><span>Note</span><span>Serial</span><span></span>
+    </div>
+    <div class="piece-poles"></div>
+    <div class="piece-foot">
+      <button class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 9px" onclick="addPoleToPiece(this)">+ Add Pole</button>
+    </div>`;
+  for (const p of poles) addPoleRowToContainer(div, p);
+  return div;
+}
+
+// Main builder: takes flat array of pole objects, groups into pieces, renders DOM
+function buildPackingView(polesArray) {
+  const list = document.getElementById('packing-list');
+  list.innerHTML = '';
+  if (!polesArray.length) { updatePackingTotals(); return; }
+
+  // Sort descending by model# (largest → smallest) for optimal packing
+  const sorted = [...polesArray].sort((a, b) => (parseInt(b.model) || 0) - (parseInt(a.model) || 0));
+
+  const pieces = [];
+  let rem = [...sorted];
+  while (rem.length) {
+    const typeKey = rem.length >= 5 ? 'large-tube' : 'small-tube';
+    const pt      = PIECE_TYPES[typeKey];
+    pieces.push({ typeKey, poles: rem.splice(0, pt.max) });
+  }
+
+  pieces.forEach((p, i) => list.appendChild(createPieceContainer(i + 1, p.typeKey, p.poles)));
+  document.querySelectorAll('.piece-container').forEach(c => calcPieceDims(c));
+  updatePackingTotals();
+}
+
+// Re-run packing algorithm from current DOM state (preserves pole data, regroups)
+function recalcPacking() {
+  const poles = [];
+  document.querySelectorAll('#packing-list .piece-container').forEach(c => {
+    c.querySelectorAll('.pole-row-p1').forEach(row => {
+      const m = row.querySelector('.pr-model')?.value?.trim();
+      if (m) poles.push({
+        model:  m,
+        flex:   row.querySelector('.pr-flex')?.value?.trim()   || '',
+        note:   row.querySelector('.pr-note')?.value?.trim()   || '',
+        serial: row.querySelector('.pr-serial')?.value?.trim() || '',
+      });
+    });
+  });
+  buildPackingView(poles);
+}
+
+// Add a blank pole — goes to last piece, or creates new piece if empty
+function addBlankPoleRow() {
+  const containers = [...document.querySelectorAll('#packing-list .piece-container')];
+  if (containers.length) {
+    const last = containers[containers.length - 1];
+    addPoleRowToContainer(last, {});
+    calcPieceDims(last);
+    updatePackingTotals();
+  } else {
+    buildPackingView([{ model: '', flex: '', note: '', serial: '' }]);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -863,56 +1004,169 @@ function xlsDownload(aoa, filename, colPts, mergeSpecs, colHdrRow, totalsRow) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXCEL PACKING LIST — PHASE 1
+// PDF PACKING LIST — PHASE 1  (opens print-ready HTML in new window)
 // ─────────────────────────────────────────────────────────────────────────────
-function downloadPackingListP1() {
-  const poleData = getPoleRows();
-  if (!poleData.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
+function downloadPackingListPDF() {
+  const containers = [...document.querySelectorAll('#packing-list .piece-container')];
+  if (!containers.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
 
-  const pieces   = packPolesDetailed(poleData);
-  const soNum    = v('so')        || 'XXXXX';
-  const cons     = v('consignee') || '(consignee)';
-  const shipDate = v('ship-date') || '';
-  const inco     = v('incoterm');
+  const soNum    = v('so')             || 'XXXXX';
+  const cons     = v('consignee')      || '(consignee)';
+  const consFull = v('consignee-full') || cons;
+  const shipDate = v('ship-date')      || '';
+  const inco     = v('incoterm')       || '';
+  const goodsVal = v('goods-value')    || '';
 
-  const aoa = [];
-  aoa.push(['New Nevada Plastics dba UCS Spirit','','','','','','PACKING LIST','','','','','','']);
-  aoa.push(['2180 Meridian Blvd, Minden NV 89423','','','','','',`Sales Order: ${soNum}`,'','','','','','']);
-  aoa.push(['775-882-7114  ·  www.spiritpoles.com  ·  FED ID: 22-2768411','','','','','','','','','','','','']);
-  aoa.push([]);
-  aoa.push(['Date','Ultimate Consignee / Destination:','','','','','Carrier','','','','','','']);
-  aoa.push([shipDate, cons,'','','','',inco,'','','','','','']);
-  aoa.push([]);
-  aoa.push(["Piece","Piece Type","Model","Flex","Note","Serial #'s","Length (in)","x","Width (in)","x","Height (in)","Cu Ft","Weight (lbs)"]);
+  const fmtDate = shipDate
+    ? new Date(shipDate + 'T00:00:00').toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})
+    : '';
 
-  for (let i = 0; i < pieces.length; i++) {
-    const p = pieces[i];
-    const typeLabel = p.type === 'Large' ? 'Large Super Tube' : 'Small Super Tube';
-    aoa.push([i+1, typeLabel,'','','','', p.tube_length_in,'x',p.tube_width_in,'x',p.tube_height_in, p.cu_ft, p.weight_lbs]);
-    for (const pole of p.poles) {
-      aoa.push(['','', pole.model, pole.flex||'','','','','','','','','','']);
+  let totalPoles = 0, totalLbs = 0, totalCuFt = 0;
+  let bodyRows = '';
+
+  containers.forEach((c, i) => {
+    const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const poles   = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
+      model:  row.querySelector('.pr-model')?.value  || '',
+      flex:   row.querySelector('.pr-flex')?.value   || '',
+      note:   row.querySelector('.pr-note')?.value   || '',
+      serial: row.querySelector('.pr-serial')?.value || '',
+    })).filter(p => p.model);
+
+    const models  = poles.map(p => parseInt(p.model) || 0).filter(Boolean);
+    const longest = models.length ? Math.max(...models) : 0;
+    const lenIn   = longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0;
+    const wtPoles = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
+    const wtLbs   = Math.round((wtPoles + pt.extra_wt) * 10) / 10;
+    const cuFt    = lenIn ? Math.round(lenIn * pt.w * pt.h / 1728 * 100) / 100 : 0;
+
+    totalPoles += poles.length;
+    totalLbs   += wtLbs;
+    totalCuFt  += cuFt;
+
+    // Tube/piece header row
+    bodyRows += `<tr class="tube-row">
+      <td>${i + 1}</td><td>${pt.label}</td>
+      <td></td><td></td><td></td><td></td>
+      <td>${lenIn ? lenIn + '"' : ''}</td><td style="text-align:center">×</td>
+      <td>${pt.w}"</td><td style="text-align:center">×</td><td>${pt.h}"</td>
+      <td style="text-align:right">${cuFt || ''}</td>
+      <td style="text-align:right">${wtLbs || ''}</td>
+    </tr>`;
+
+    // Individual pole rows
+    for (const pole of poles) {
+      bodyRows += `<tr>
+        <td></td><td></td>
+        <td>${htmlEsc(pole.model)}</td>
+        <td>${htmlEsc(pole.flex)}</td>
+        <td>${htmlEsc(pole.note)}</td>
+        <td style="font-family:monospace;font-size:7.5pt">${htmlEsc(pole.serial)}</td>
+        <td colspan="7"></td>
+      </tr>`;
     }
-    aoa.push([]);
-  }
+  });
 
-  const totalPoles = pieces.reduce((s,p)=>s+p.poles.length,0);
-  const totalLbs   = Math.round(pieces.reduce((s,p)=>s+p.weight_lbs,0)*10)/10;
-  const totalCuFt  = Math.round(pieces.reduce((s,p)=>s+p.cu_ft,0)*100)/100;
-  aoa.push(['TOTALS','','','','',totalPoles,'','','','','',totalCuFt,totalLbs]);
-  aoa.push([]);
-  aoa.push(['Shipper:', SHIPPER.company]);
-  aoa.push(['', SHIPPER.address]);
-  aoa.push(['Phone:', SHIPPER.phone,'','Email:', SHIPPER.email]);
-  aoa.push(['Contact:', SHIPPER.contact]);
+  const totLbs  = Math.round(totalLbs  * 10)  / 10;
+  const totCuFt = Math.round(totalCuFt * 100) / 100;
 
-  const colPts = [56,126,56,42,98,98,70,21,70,21,70,63,91];
-  const merges = [
-    {r:0,c:0,across:5},{r:0,c:6,across:6},
-    {r:1,c:0,across:5},{r:1,c:6,across:6},
-    {r:2,c:0,across:12},
-    {r:4,c:1,across:4},{r:5,c:1,across:4},
-  ];
-  xlsDownload(aoa, `PackingList_${soNum}_${shipDate||'draft'}.xls`, colPts, merges, 7, aoa.length - 6);
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>Packing List — ${soNum}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:9pt;color:#000;padding:16px 20px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:10px}
+.co-name{font-size:12pt;font-weight:bold;margin-bottom:2px}
+.co-info{font-size:7.5pt;color:#444}
+.doc-title{font-size:16pt;font-weight:bold;margin-bottom:2px;text-align:right}
+.doc-so{font-size:10pt;text-align:right;color:#222}
+.info-bar{display:flex;gap:0;border:1px solid #ccc;margin-bottom:10px}
+.info-cell{flex:1;padding:5px 9px;border-right:1px solid #ccc}
+.info-cell:last-child{border-right:none}
+.info-lbl{font-size:7pt;font-weight:bold;color:#666;text-transform:uppercase;margin-bottom:2px}
+.info-val{font-size:9pt;white-space:pre-line}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid #bbb;padding:3px 5px;font-size:8pt;vertical-align:middle}
+th{background:#e8e8e8;font-weight:bold;font-size:7.5pt;text-align:left}
+.tube-row td{background:#dde;font-weight:bold;border-top:2px solid #888}
+.totals-row td{background:#ccd;font-weight:bold;border-top:2px solid #666}
+.footer{margin-top:10px;font-size:7.5pt;color:#555;border-top:1px solid #ddd;padding-top:6px}
+.print-btn{margin-top:14px;text-align:center}
+.print-btn button{padding:8px 22px;font-size:12px;cursor:pointer;background:#222;color:#fff;border:none;border-radius:5px}
+@media print{.print-btn{display:none}body{padding:8px 12px}}
+</style></head><body>
+<div class="top">
+  <div>
+    <div class="co-name">New Nevada Plastics dba UCS Spirit</div>
+    <div class="co-info">2180 Meridian Blvd, Minden, NV 89423 &nbsp;·&nbsp; 775-882-7114 &nbsp;·&nbsp; www.spiritpoles.com &nbsp;·&nbsp; FED ID: 22-2768411</div>
+  </div>
+  <div>
+    <div class="doc-title">PACKING LIST</div>
+    <div class="doc-so">Sales Order: ${htmlEsc(soNum)}</div>
+  </div>
+</div>
+<div class="info-bar">
+  <div class="info-cell" style="flex:0 0 90px">
+    <div class="info-lbl">Date</div>
+    <div class="info-val">${htmlEsc(fmtDate)}</div>
+  </div>
+  <div class="info-cell" style="flex:2">
+    <div class="info-lbl">Ultimate Consignee / Destination</div>
+    <div class="info-val">${htmlEsc(consFull || cons)}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-lbl">Incoterms / Carrier</div>
+    <div class="info-val">${htmlEsc(inco)}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-lbl">Declared Value</div>
+    <div class="info-val">${htmlEsc(goodsVal)}</div>
+  </div>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th style="width:28px">#</th>
+      <th style="width:108px">Piece Type</th>
+      <th style="width:46px">Model</th>
+      <th style="width:40px">Flex</th>
+      <th>Note</th>
+      <th>Serial</th>
+      <th style="width:52px">L (in)</th>
+      <th style="width:12px"></th>
+      <th style="width:42px">W (in)</th>
+      <th style="width:12px"></th>
+      <th style="width:42px">H (in)</th>
+      <th style="width:44px;text-align:right">Cu Ft</th>
+      <th style="width:58px;text-align:right">Wt (lbs)</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${bodyRows}
+    <tr class="totals-row">
+      <td colspan="5"><strong>TOTALS</strong></td>
+      <td><strong>${totalPoles} poles</strong></td>
+      <td colspan="5"></td>
+      <td style="text-align:right">${totCuFt}</td>
+      <td style="text-align:right">${totLbs}</td>
+    </tr>
+  </tbody>
+</table>
+<div class="footer">
+  <strong>Shipper:</strong> ${htmlEsc(SHIPPER.company)} &nbsp;·&nbsp; ${htmlEsc(SHIPPER.address)}
+  &nbsp;·&nbsp; ${htmlEsc(SHIPPER.phone)} &nbsp;·&nbsp; Contact: ${htmlEsc(SHIPPER.contact)}
+</div>
+<div class="print-btn">
+  <button onclick="window.print()">&#128438; Print / Save as PDF</button>
+</div>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=960,height=720');
+  if (!win) { setActionErr('p1', 'Pop-up blocked — allow pop-ups for this site and try again.'); return; }
+  win.document.write(html);
+  win.document.close();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1199,9 +1453,14 @@ async function createDraftViaGraph(token, to, ccList, subject, body) {
 // CREATE DRAFTS
 // ─────────────────────────────────────────────────────────────────────────────
 async function createDrafts() {
-  const poleRows  = getPoleRows();
+  // Read individual poles from the new packing view (each row is qty=1)
+  const poleRows = [];
+  document.querySelectorAll('#packing-list .pole-row-p1').forEach(row => {
+    const m = parseInt(row.querySelector('.pr-model')?.value) || 0;
+    if (m) poleRows.push({ model: m, qty: 1, flex: row.querySelector('.pr-flex')?.value || '' });
+  });
   const activeFFs = getActiveFFs();
-  if (!poleRows.length)  { setActionErr('p1', 'Add at least one pole model.'); return; }
+  if (!poleRows.length)  { setActionErr('p1', 'Add at least one pole before creating drafts.'); return; }
   if (!v('so'))          { setActionErr('p1', 'Enter a Sales Order number.'); return; }
   if (!v('consignee'))   { setActionErr('p1', 'Enter a Consignee name.'); return; }
   if (!activeFFs.length) { setActionErr('p1', 'Select at least one freight forwarder.'); return; }
@@ -1383,7 +1642,6 @@ if (localStorage.getItem('mode') === 'light') {
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('ship-date').valueAsDate    = new Date();
   document.getElementById('p2-ship-date').valueAsDate = new Date();
-  addPoleRow();
   buildFFList();
   await initMsal();
 });

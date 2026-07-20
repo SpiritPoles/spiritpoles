@@ -15,7 +15,10 @@ function pct(str) {
     .replace(/\*/g, '%2A');
 }
 
-async function oauthHeader(method, url, env) {
+// oauthHeader: signs method + base URL (without query string).
+// For GET requests with query params, pass the base URL only; the caller
+// appends ?... to the fetch URL separately.
+async function oauthHeader(method, baseUrl, env) {
   const ts    = Math.floor(Date.now() / 1000).toString();
   const nonce = crypto.randomUUID().replace(/-/g, '');
 
@@ -28,13 +31,12 @@ async function oauthHeader(method, url, env) {
     oauth_version:          '1.0',
   };
 
-  // Signature base string — sorted, percent-encoded
   const normalized = Object.entries(p)
     .sort(([a], [b]) => (a < b ? -1 : 1))
     .map(([k, v]) => `${pct(k)}=${pct(v)}`)
     .join('&');
 
-  const base   = `${method.toUpperCase()}&${pct(url)}&${pct(normalized)}`;
+  const base   = `${method.toUpperCase()}&${pct(baseUrl)}&${pct(normalized)}`;
   const sigKey = `${pct(env.NS_CONSUMER_SECRET)}&${pct(env.NS_TOKEN_SECRET)}`;
 
   const enc = new TextEncoder();
@@ -45,7 +47,6 @@ async function oauthHeader(method, url, env) {
   const raw = await crypto.subtle.sign('HMAC', key, enc.encode(base));
   const sig = btoa(String.fromCharCode(...new Uint8Array(raw)));
 
-  // Authorization header — values are quoted strings, NOT percent-encoded
   return [
     `OAuth realm="${env.NS_ACCOUNT_ID}"`,
     `oauth_consumer_key="${env.NS_CONSUMER_KEY}"`,
@@ -64,7 +65,7 @@ async function suiteQL(q, env, retries = 3) {
   const url = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const auth = await oauthHeader('POST', url, env);  // fresh ts + nonce each attempt
+    const auth = await oauthHeader('POST', url, env);
     const resp = await fetch(url, {
       method:  'POST',
       headers: {
@@ -78,15 +79,45 @@ async function suiteQL(q, env, retries = 3) {
     if (resp.ok) return resp.json();
 
     const txt = await resp.text();
-    // On 401 INVALID_LOGIN, wait and retry with a fresh signature (NS clock drift / caching)
     if (resp.status === 401 && attempt < retries) {
-      const wait = 600 * (attempt + 1);   // 600ms, 1200ms, 1800ms
+      const wait = 600 * (attempt + 1);
       console.warn(`NS 401 on attempt ${attempt + 1} — retrying in ${wait}ms`);
       await new Promise(r => setTimeout(r, wait));
       continue;
     }
     throw new Error(`NS ${resp.status}: ${txt.substring(0, 600)}`);
   }
+}
+
+// ── REST Record API GET helper ─────────────────────────────────────────────────
+// Signs the base URL (without query string) per NS TBA requirements.
+
+async function nsGet(fullUrl, env, retries = 2) {
+  const baseUrl = fullUrl.split('?')[0];
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const auth = await oauthHeader('GET', baseUrl, env);
+    const resp = await fetch(fullUrl, {
+      method:  'GET',
+      headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
+    });
+
+    if (resp.ok) return resp.json();
+
+    const txt = await resp.text();
+    if (resp.status === 401 && attempt < retries) {
+      await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      continue;
+    }
+    throw new Error(`NS REST ${resp.status}: ${txt.substring(0, 400)}`);
+  }
+}
+
+// ── Parse model number from item code like "SP490/82" or display name ─────────
+
+function parseModelNum(str) {
+  const m = String(str || '').match(/(\d{3,})\//);
+  return m ? parseInt(m[1]) : null;
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────────
@@ -96,17 +127,14 @@ export async function onRequestGet({ params, env }) {
   const tranid = raw.toUpperCase().startsWith('SO') ? raw.toUpperCase() : `SO${raw}`;
 
   try {
-    // 1. Header — get transaction record
-    // Note: JOIN entity fails in SuiteQL; use LEFT JOIN customer instead.
-    // Note: ship address component fields (shipaddr1/2, shipcity, etc.) are NOT_EXPOSED
-    //       in SuiteQL search — use only the pre-formatted t.shipaddress field.
+    // 1. Header via SuiteQL — finds SO internal ID, customer, ship address
+    // Note: ship address component fields are NOT_EXPOSED in SuiteQL; use t.shipaddress only.
     const hdr = await suiteQL(`
       SELECT
         t.id,
         t.tranid,
         t.trandate,
         c.companyname,
-        t.total,
         t.shipaddress
       FROM transaction t
       LEFT JOIN customer c ON c.id = t.entity
@@ -124,37 +152,59 @@ export async function onRequestGet({ params, env }) {
     }
 
     const so = rows[0];
-
-    // shipaddress is the pre-formatted multi-line field; strip any HTML tags
     const shipAddr = (so.shipaddress || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 
-    // 2. Line items
-    // Note: SuiteQL returns SO line quantities as negative — use Math.abs().
-    // Omit quantity > 0 filter (all item lines have qty < 0 in SuiteQL for SOs).
-    const lines = await suiteQL(`
-      SELECT
-        tl.item,
-        i.itemid,
-        i.displayname,
-        tl.quantity,
-        tl.rate
-      FROM transactionline tl
-      JOIN item i ON i.id = tl.item
-      WHERE tl.transaction = ${so.id}
-      AND   tl.mainline    = 'F'
-      AND   tl.taxline     = 'F'
-      AND   tl.item        IS NOT NULL
-      ORDER BY tl.linesequencenumber
-      FETCH FIRST 200 ROWS ONLY
-    `, env);
+    // 2. REST Record API — gets subtotal + full line items with custom fields & serials
+    // expandSubResources=true inlines inventoryDetail subrecords per line.
+    const recUrl  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/salesorder/${so.id}?expandSubResources=true`;
+    const rec     = await nsGet(recUrl, env);
+    const subtotal = parseFloat(rec.subtotal ?? rec.total ?? 0);
 
-    const lineItems = (lines.items || []).map(l => ({
-      item_id:   l.item,
-      item_code: l.itemid   || '',
-      item_name: l.displayname || l.itemid || '',
-      qty:       Math.abs(Math.round(parseFloat(l.quantity) || 0)),
-      rate:      parseFloat(l.rate) || 0,
-    }));
+    // Parse individual pole lines from item sublist
+    const rawItems = rec.item?.items || rec.item || [];
+    const lineItems = [];
+
+    for (const li of rawItems) {
+      // item field may be object {id, refName} or a string
+      const itemRef  = typeof li.item === 'object' ? (li.item?.refName || '') : String(li.item || '');
+      const dispName = typeof li.custcol_ucs_display_name === 'string' ? li.custcol_ucs_display_name : '';
+
+      // Only include actual pole items (model number parseable)
+      const model = parseModelNum(itemRef) || parseModelNum(dispName);
+      if (!model) continue;
+
+      // CrossFlex flex memo (absent on standard poles)
+      const flexMemo = li.custcol_ucs_flex_memo?.refName
+        ?? (typeof li.custcol_ucs_flex_memo === 'string' ? li.custcol_ucs_flex_memo : '')
+        ?? '';
+
+      // Special instructions (line-item note field)
+      const note = typeof li.custcol_nssc_notes === 'string' ? li.custcol_nssc_notes.trim() : '';
+
+      // Serial numbers from inventory detail
+      const invDetail  = li.inventoryDetail  || li.inventorydetail;
+      const invAssign  = invDetail?.inventoryAssignment || invDetail?.inventoryassignment;
+      const assignments = invAssign?.items || [];
+      const serials    = assignments
+        .map(a => a.issueInventoryNumber?.refName || a.inventorynumber?.refName || '')
+        .filter(Boolean);
+
+      // qty on SOs is typically 1 per serialized pole; normalize and expand
+      const qty = Math.max(1, Math.abs(Math.round(parseFloat(li.quantity) || 1)));
+      const rate = parseFloat(li.rate) || 0;
+
+      for (let i = 0; i < qty; i++) {
+        lineItems.push({
+          item_code:  itemRef,
+          item_name:  dispName || itemRef,
+          flex_memo:  flexMemo,
+          serial:     serials[i] || '',
+          note:       note,
+          qty:        1,
+          rate:       rate,
+        });
+      }
+    }
 
     return new Response(JSON.stringify({
       so_number:      so.tranid,
@@ -162,7 +212,7 @@ export async function onRequestGet({ params, env }) {
       date:           so.trandate,
       customer:       so.companyname || '',
       ship_address:   shipAddr,
-      declared_value: Math.round((parseFloat(so.total) || 0) * 100) / 100,
+      declared_value: Math.round(subtotal * 100) / 100,
       lines:          lineItems,
     }), { status: 200, headers: CORS });
 
