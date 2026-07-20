@@ -21,24 +21,6 @@
   });
 })();
 </script>
-<script>
-// Load xlsx-js-style (border support) with cdnjs standard xlsx as guaranteed fallback
-(function(){
-  var srcs = [
-    'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx-js-style.min.js',
-    'https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx-js-style.min.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
-  ];
-  function tryNext(i){
-    if(i >= srcs.length) return;
-    var s = document.createElement('script');
-    s.src = srcs[i];
-    s.onerror = function(){ tryNext(i+1); };
-    document.head.appendChild(s);
-  }
-  tryNext(0);
-})();
-</script>
 <style>
 :root{--bg:#000;--tb:#252525;--tbd:rgba(255,255,255,0.2);--tbt:rgba(255,255,255,0.32);--thb:rgba(232,18,125,0.55);--tp:#ede6d8;--ts:rgba(255,255,255,0.55);--sl:rgba(255,255,255,0.4);--fc:#aeacae;--rc:#aeacae;--so:rgba(0,0,0,0.55);--shb:rgba(255,255,255,0.2);--tgb:rgba(255,255,255,0.08);--tgbr:rgba(255,255,255,0.14);--tgc:rgba(255,255,255,0.5);--tgh:rgba(255,255,255,0.85);--tc:rgba(255,255,255,0.55);--tt:rgba(232,18,125,0.5);--bgo:.18;--bgf:none;--pink:#E8127D;--green:#4caf50;--red:#e53935;--card:#1a1a1a}
 body.light{--bg:#f4f4f4;--tb:#fff;--tbd:rgba(0,0,0,0.12);--tbt:rgba(0,0,0,0.22);--tp:#1a1a1a;--ts:rgba(0,0,0,0.45);--sl:rgba(0,0,0,0.35);--fc:#666;--so:rgba(240,240,240,0.65);--shb:rgba(0,0,0,0.12);--tgb:rgba(0,0,0,0.06);--tgbr:rgba(0,0,0,0.12);--tgc:rgba(0,0,0,0.4);--tgh:rgba(0,0,0,0.8);--tc:rgba(0,0,0,0.35);--tt:rgba(232,18,125,0.55);--bgo:.09;--bgf:invert(1);--card:#fff}
@@ -799,40 +781,91 @@ function getActiveFFs() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXCEL STYLE HELPERS (xlsx-js-style)
+// EXCEL XML DOWNLOAD  (Excel 2003 SpreadsheetML — no external library needed)
+// Produces a .xls file that Excel opens natively with full borders + bold.
 // ─────────────────────────────────────────────────────────────────────────────
-function mkBorder() {
-  const b = { style:'thin', color:{ rgb:'000000' } };
-  return { top:b, bottom:b, left:b, right:b };
-}
+function xlsDownload(aoa, filename, colPts, mergeSpecs, colHdrRow, totalsRow) {
+  const esc = s => String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-function applyPackingListStyles(ws, aoa, colHeaderRow, totalsRow) {
-  // Guard: xlsx-js-style required for cell styles; standard xlsx silently ignores .s
-  if (typeof XLSX === 'undefined') return;
-  for (let r = colHeaderRow; r <= totalsRow; r++) {
-    const row = aoa[r] || [];
-    if (!row.some(v => v !== '' && v !== undefined && v !== null)) continue;
-    const isPieceRow = typeof row[1] === 'string' && row[1].includes('Super Tube');
-    const isHeader   = r === colHeaderRow;
-    const isTotals   = r === totalsRow;
-    const bold = isHeader || isPieceRow || isTotals;
-    for (let c = 0; c < 13; c++) {
-      const addr = XLSX.utils.encode_cell({r, c});
-      if (!ws[addr]) ws[addr] = { v:'', t:'s' };
-      ws[addr].s = { font:{ bold, sz: isHeader ? 10 : 9 }, border: mkBorder() };
-    }
+  // Build skip-set from merge specs
+  const skipCells = new Set();
+  const mergeAt   = {};
+  for (const m of mergeSpecs) {
+    mergeAt[`${m.r},${m.c}`] = m.across;
+    for (let d = 1; d <= m.across; d++) skipCells.add(`${m.r},${m.c+d}`);
   }
-  const setS = (addr, s) => { if (ws[addr]) ws[addr].s = s; };
-  setS('A1', { font:{ bold:true, sz:13 } });
-  setS('G1', { font:{ bold:true, sz:18 }, alignment:{ horizontal:'center' } });
-  setS('G2', { font:{ bold:true, sz:12 }, alignment:{ horizontal:'center' } });
+
+  const BD = ['Bottom','Left','Right','Top']
+    .map(p=>`<Border ss:Position="${p}" ss:LineStyle="Continuous" ss:Weight="1"/>`)
+    .join('');
+  const BORDERS = `<Borders>${BD}</Borders>`;
+
+  const styleXml = `<Styles>
+  <Style ss:ID="Default"><Font ss:FontName="Calibri" ss:Size="9"/></Style>
+  <Style ss:ID="h1"><Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1"/></Style>
+  <Style ss:ID="hPL"><Alignment ss:Horizontal="Center"/><Font ss:FontName="Calibri" ss:Size="18" ss:Bold="1"/></Style>
+  <Style ss:ID="hSO"><Alignment ss:Horizontal="Center"/><Font ss:FontName="Calibri" ss:Size="12" ss:Bold="1"/></Style>
+  <Style ss:ID="chdr"><Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1"/>${BORDERS}</Style>
+  <Style ss:ID="cb"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1"/>${BORDERS}</Style>
+  <Style ss:ID="cn"><Font ss:FontName="Calibri" ss:Size="9"/>${BORDERS}</Style>
+</Styles>`;
+
+  const colsXml = colPts.map(w=>`<Column ss:Width="${w}"/>`).join('');
+
+  let rowsXml = '';
+  for (let r = 0; r < aoa.length; r++) {
+    const row = aoa[r] || [];
+    const hasData = row.some(v => v !== '' && v !== undefined && v !== null);
+    if (!hasData) { rowsXml += '<Row/>'; continue; }
+
+    const inTable = r >= colHdrRow && r <= totalsRow;
+    const isTube  = inTable && typeof row[1] === 'string' && row[1].includes('Super Tube');
+    const rowSid  = !inTable ? null
+      : r === colHdrRow                ? 'chdr'
+      : (r === totalsRow || isTube)    ? 'cb'
+      : 'cn';
+
+    rowsXml += '<Row>';
+    for (let c = 0; c < 13; c++) {
+      if (skipCells.has(`${r},${c}`)) continue;
+      const val = row[c];
+      const ma  = mergeAt[`${r},${c}`];
+
+      let sid = rowSid;
+      if      (r === 0 && c === 0) sid = 'h1';
+      else if (r === 0 && c === 6) sid = 'hPL';
+      else if (r === 1 && c === 6) sid = 'hSO';
+
+      const sAttr = sid  ? ` ss:StyleID="${sid}"` : '';
+      const mAttr = ma   ? ` ss:MergeAcross="${ma}"` : '';
+      const isNum = typeof val === 'number';
+      const data  = (val !== '' && val !== undefined && val !== null)
+        ? `<Data ss:Type="${isNum?'Number':'String'}">${esc(val)}</Data>` : '';
+      rowsXml += `<Cell${sAttr}${mAttr}>${data}</Cell>`;
+    }
+    rowsXml += '</Row>';
+  }
+
+  const xml = `<?xml version="1.0"?>\n<?mso-application progid="Excel.Sheet"?>\n` +
+    `<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" ` +
+    `xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n` +
+    `${styleXml}\n<Worksheet ss:Name="Packing List"><Table>\n` +
+    `${colsXml}\n${rowsXml}\n</Table></Worksheet>\n</Workbook>`;
+
+  const blob = new Blob([xml], {type:'application/vnd.ms-excel'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 100);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EXCEL PACKING LIST — PHASE 1
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP1() {
-  if (typeof XLSX === 'undefined') { setActionErr('p1', 'Excel library failed to load — check your internet connection and reload the page.'); return; }
   const poleData = getPoleRows();
   if (!poleData.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
 
@@ -842,24 +875,16 @@ function downloadPackingListP1() {
   const shipDate = v('ship-date') || '';
   const inco     = v('incoterm');
 
-  const wb  = XLSX.utils.book_new();
   const aoa = [];
-
-  // ── Header ────────────────────────────────────────────────────────────────
   aoa.push(['New Nevada Plastics dba UCS Spirit','','','','','','PACKING LIST','','','','','','']);
   aoa.push(['2180 Meridian Blvd, Minden NV 89423','','','','','',`Sales Order: ${soNum}`,'','','','','','']);
   aoa.push(['775-882-7114  ·  www.spiritpoles.com  ·  FED ID: 22-2768411','','','','','','','','','','','','']);
   aoa.push([]);
-
-  // ── Order info ────────────────────────────────────────────────────────────
   aoa.push(['Date','Ultimate Consignee / Destination:','','','','','Carrier','','','','','','']);
   aoa.push([shipDate, cons,'','','','',inco,'','','','','','']);
   aoa.push([]);
+  aoa.push(["Piece","Piece Type","Model","Flex","Note","Serial #'s","Length (in)","x","Width (in)","x","Height (in)","Cu Ft","Weight (lbs)"]);
 
-  // ── Column headers ────────────────────────────────────────────────────────
-  aoa.push(['Piece','Piece Type','Model','Flex','Note','Serial #\'s','Length (in)','x','Width (in)','x','Height (in)','Cu Ft','Weight (lbs)']);
-
-  // ── Pieces — one tube header row + one row per individual pole ────────────
   for (let i = 0; i < pieces.length; i++) {
     const p = pieces[i];
     const typeLabel = p.type === 'Large' ? 'Large Super Tube' : 'Small Super Tube';
@@ -870,66 +895,52 @@ function downloadPackingListP1() {
     aoa.push([]);
   }
 
-  // ── Totals ────────────────────────────────────────────────────────────────
   const totalPoles = pieces.reduce((s,p)=>s+p.poles.length,0);
   const totalLbs   = Math.round(pieces.reduce((s,p)=>s+p.weight_lbs,0)*10)/10;
   const totalCuFt  = Math.round(pieces.reduce((s,p)=>s+p.cu_ft,0)*100)/100;
   aoa.push(['TOTALS','','','','',totalPoles,'','','','','',totalCuFt,totalLbs]);
   aoa.push([]);
-
-  // ── Shipper footer ────────────────────────────────────────────────────────
   aoa.push(['Shipper:', SHIPPER.company]);
   aoa.push(['', SHIPPER.address]);
   aoa.push(['Phone:', SHIPPER.phone,'','Email:', SHIPPER.email]);
   aoa.push(['Contact:', SHIPPER.contact]);
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:8},{wch:18},{wch:8},{wch:6},{wch:14},{wch:14},{wch:10},{wch:3},{wch:10},{wch:3},{wch:10},{wch:9},{wch:13}];
-  ws['!merges'] = [
-    {s:{r:0,c:0},e:{r:0,c:5}}, {s:{r:0,c:6},e:{r:0,c:12}},
-    {s:{r:1,c:0},e:{r:1,c:5}}, {s:{r:1,c:6},e:{r:1,c:12}},
-    {s:{r:2,c:0},e:{r:2,c:12}},
-    {s:{r:4,c:1},e:{r:4,c:5}}, {s:{r:5,c:1},e:{r:5,c:5}},
+  const colPts = [56,126,56,42,98,98,70,21,70,21,70,63,91];
+  const merges = [
+    {r:0,c:0,across:5},{r:0,c:6,across:6},
+    {r:1,c:0,across:5},{r:1,c:6,across:6},
+    {r:2,c:0,across:12},
+    {r:4,c:1,across:4},{r:5,c:1,across:4},
   ];
-  try { applyPackingListStyles(ws, aoa, 7, aoa.length - 6); } catch(e) { console.warn('Style pass failed:', e); }
-  XLSX.utils.book_append_sheet(wb, ws, 'Packing List');
-  XLSX.writeFile(wb, `PackingList_${soNum}_${shipDate||'draft'}.xlsx`);
+  xlsDownload(aoa, `PackingList_${soNum}_${shipDate||'draft'}.xls`, colPts, merges, 7, aoa.length - 6);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EXCEL PACKING LIST — PHASE 2 (with serial numbers)
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP2() {
-  if (typeof XLSX === 'undefined') { setActionErr('p2', 'Excel library failed to load — check your internet connection and reload the page.'); return; }
   const poleData = getP2PoleRows();
   if (!poleData.length) { setActionErr('p2', 'Add poles before downloading.'); return; }
 
   const pieces   = packPolesDetailed(poleData);
-  const ifNum    = v('if-num')            || 'XXXXX';
-  const soNum    = v('p2-so')             || '';
-  const cons     = v('p2-consignee')      || '(consignee)';
-  const shipDate = v('p2-ship-date')      || '';
+  const ifNum    = v('if-num')       || 'XXXXX';
+  const soNum    = v('p2-so')        || '';
+  const cons     = v('p2-consignee') || '(consignee)';
+  const shipDate = v('p2-ship-date') || '';
   const inco     = v('p2-incoterm');
 
-  const wb  = XLSX.utils.book_new();
-  const aoa = [];
-
-  // ── Header ────────────────────────────────────────────────────────────────
   const soRef = soNum ? `Sales Order: ${soNum}${ifNum !== 'XXXXX' ? `  ·  IF: ${ifNum}` : ''}` : `IF: ${ifNum}`;
+
+  const aoa = [];
   aoa.push(['New Nevada Plastics dba UCS Spirit','','','','','','PACKING LIST','','','','','','']);
   aoa.push(['2180 Meridian Blvd, Minden NV 89423','','','','','',soRef,'','','','','','']);
   aoa.push(['775-882-7114  ·  www.spiritpoles.com  ·  FED ID: 22-2768411','','','','','','','','','','','','']);
   aoa.push([]);
-
-  // ── Order info ────────────────────────────────────────────────────────────
   aoa.push(['Date','Ultimate Consignee / Destination:','','','','','Carrier','','','','','','']);
   aoa.push([shipDate, cons,'','','','',inco,'','','','','','']);
   aoa.push([]);
+  aoa.push(["Piece","Piece Type","Model","Flex","Note","Serial #'s","Length (in)","x","Width (in)","x","Height (in)","Cu Ft","Weight (lbs)"]);
 
-  // ── Column headers ────────────────────────────────────────────────────────
-  aoa.push(['Piece','Piece Type','Model','Flex','Note','Serial #\'s','Length (in)','x','Width (in)','x','Height (in)','Cu Ft','Weight (lbs)']);
-
-  // ── Pieces ────────────────────────────────────────────────────────────────
   for (let i = 0; i < pieces.length; i++) {
     const p = pieces[i];
     const typeLabel = p.type === 'Large' ? 'Large Super Tube' : 'Small Super Tube';
@@ -940,30 +951,24 @@ function downloadPackingListP2() {
     aoa.push([]);
   }
 
-  // ── Totals ────────────────────────────────────────────────────────────────
   const totalPoles = pieces.reduce((s,p)=>s+p.poles.length,0);
   const totalLbs   = Math.round(pieces.reduce((s,p)=>s+p.weight_lbs,0)*10)/10;
   const totalCuFt  = Math.round(pieces.reduce((s,p)=>s+p.cu_ft,0)*100)/100;
   aoa.push(['TOTALS','','','','',totalPoles,'','','','','',totalCuFt,totalLbs]);
   aoa.push([]);
-
-  // ── Shipper footer ────────────────────────────────────────────────────────
   aoa.push(['Shipper:', SHIPPER.company]);
   aoa.push(['', SHIPPER.address]);
   aoa.push(['Phone:', SHIPPER.phone,'','Email:', SHIPPER.email]);
   aoa.push(['Contact:', SHIPPER.contact]);
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:8},{wch:18},{wch:8},{wch:6},{wch:14},{wch:14},{wch:10},{wch:3},{wch:10},{wch:3},{wch:10},{wch:9},{wch:13}];
-  ws['!merges'] = [
-    {s:{r:0,c:0},e:{r:0,c:5}}, {s:{r:0,c:6},e:{r:0,c:12}},
-    {s:{r:1,c:0},e:{r:1,c:5}}, {s:{r:1,c:6},e:{r:1,c:12}},
-    {s:{r:2,c:0},e:{r:2,c:12}},
-    {s:{r:4,c:1},e:{r:4,c:5}}, {s:{r:5,c:1},e:{r:5,c:5}},
+  const colPts = [56,126,56,42,98,98,70,21,70,21,70,63,91];
+  const merges = [
+    {r:0,c:0,across:5},{r:0,c:6,across:6},
+    {r:1,c:0,across:5},{r:1,c:6,across:6},
+    {r:2,c:0,across:12},
+    {r:4,c:1,across:4},{r:5,c:1,across:4},
   ];
-  try { applyPackingListStyles(ws, aoa, 7, aoa.length - 6); } catch(e) { console.warn('Style pass failed:', e); }
-  XLSX.utils.book_append_sheet(wb, ws, 'Packing List');
-  XLSX.writeFile(wb, `FinalPackingList_${ifNum}_${shipDate||'draft'}.xlsx`);
+  xlsDownload(aoa, `FinalPackingList_${ifNum}_${shipDate||'draft'}.xls`, colPts, merges, 7, aoa.length - 6);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
