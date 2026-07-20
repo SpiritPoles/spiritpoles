@@ -15,14 +15,16 @@ function pct(str) {
     .replace(/\*/g, '%2A');
 }
 
-// oauthHeader: signs method + base URL (without query string).
-// For GET requests with query params, pass the base URL only; the caller
-// appends ?... to the fetch URL separately.
-async function oauthHeader(method, baseUrl, env) {
+// oauthHeader: signs method + base URL (no query string in URL arg).
+// extraParams: any query-string key/value pairs to merge into the OAuth
+// normalized-parameters string (required by OAuth 1.0a for GET requests).
+async function oauthHeader(method, baseUrl, env, extraParams = {}) {
   const ts    = Math.floor(Date.now() / 1000).toString();
   const nonce = crypto.randomUUID().replace(/-/g, '');
 
+  // Merge oauth_ params with any request query params — all get sorted together
   const p = {
+    ...extraParams,
     oauth_consumer_key:     env.NS_CONSUMER_KEY,
     oauth_nonce:            nonce,
     oauth_signature_method: 'HMAC-SHA256',
@@ -90,13 +92,28 @@ async function suiteQL(q, env, retries = 3) {
 }
 
 // ── REST Record API GET helper ─────────────────────────────────────────────────
-// Signs the base URL (without query string) per NS TBA requirements.
+// Per OAuth 1.0a spec, query-string params must be included in the signature
+// base string alongside the oauth_* params. We split the URL, parse query
+// params, pass them to oauthHeader as extraParams, then fetch the full URL.
 
 async function nsGet(fullUrl, env, retries = 2) {
-  const baseUrl = fullUrl.split('?')[0];
+  const qIdx    = fullUrl.indexOf('?');
+  const baseUrl = qIdx >= 0 ? fullUrl.slice(0, qIdx) : fullUrl;
+  const qs      = qIdx >= 0 ? fullUrl.slice(qIdx + 1) : '';
+
+  // Parse query string into key/value pairs for OAuth signature
+  const queryParams = {};
+  if (qs) {
+    for (const pair of qs.split('&')) {
+      const eq = pair.indexOf('=');
+      const k  = eq >= 0 ? decodeURIComponent(pair.slice(0, eq)) : decodeURIComponent(pair);
+      const v  = eq >= 0 ? decodeURIComponent(pair.slice(eq + 1)) : '';
+      if (k) queryParams[k] = v;
+    }
+  }
 
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const auth = await oauthHeader('GET', baseUrl, env);
+    const auth = await oauthHeader('GET', baseUrl, env, queryParams);
     const resp = await fetch(fullUrl, {
       method:  'GET',
       headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
