@@ -100,11 +100,25 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
 /* ── Phase 1 piece-grouped packing view ────────────────────────────────────── */
 #packing-list{display:flex;flex-direction:column;gap:10px;margin-bottom:4px}
 .piece-container{background:var(--card);border:1px solid var(--tgbr);border-radius:10px;overflow:hidden}
-.piece-header{display:grid;grid-template-columns:78px 145px 1fr;gap:10px;align-items:center;padding:8px 12px;background:rgba(232,18,125,0.07);border-bottom:1px solid var(--tgbr)}
-.piece-num-badge{background:var(--pink);color:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;text-align:center;white-space:nowrap}
-.piece-type-sel{background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:700;color:var(--tp);outline:none;font-family:inherit;cursor:pointer;transition:border-color .18s;width:100%}
+.piece-header{padding:8px 12px 0;background:rgba(232,18,125,0.07);border-bottom:1px solid var(--tgbr)}
+.piece-header-top{display:flex;gap:10px;align-items:center;margin-bottom:7px}
+.piece-num-badge{background:var(--pink);color:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;text-align:center;white-space:nowrap;flex-shrink:0}
+.piece-type-sel{background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:700;color:var(--tp);outline:none;font-family:inherit;cursor:pointer;transition:border-color .18s;flex:1;max-width:175px}
 .piece-type-sel:focus{border-color:rgba(232,18,125,0.5)}
-.piece-dims-wt{font-size:12px;font-weight:700;color:var(--tp);white-space:nowrap}
+/* Dims bar — prominent full-width display */
+.piece-dims-bar{background:rgba(232,18,125,0.13);border-radius:6px;padding:5px 10px;margin-bottom:8px;text-align:center}
+.piece-dims-wt{font-size:15px;font-weight:800;color:var(--pink);letter-spacing:.02em;white-space:nowrap}
+/* Drag-and-drop */
+.pole-row-p1[draggable]{cursor:grab}
+.pole-row-p1.dragging{opacity:.35}
+.piece-poles.drag-over{background:rgba(232,18,125,0.06);border-radius:6px}
+/* Packing breakdown table */
+.breakdown-table{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
+.breakdown-table th{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ts);padding:4px 6px;text-align:left;border-bottom:1px solid var(--tgbr)}
+.breakdown-table td{padding:4px 6px;color:var(--tp);border-bottom:1px solid rgba(255,255,255,0.04)}
+body.light .breakdown-table td{border-bottom-color:rgba(0,0,0,0.05)}
+.breakdown-table td:not(:first-child){font-size:11px;font-weight:600}
+.breakdown-table .bd-dims{font-family:monospace;font-size:10px;color:var(--ts)}
 /* Columns: Model | Flex Memo | Special Line Item Notes | Serial | Del */
 .piece-col-hdr{display:grid;grid-template-columns:90px 74px 104px 1fr 24px;gap:4px;padding:4px 10px 2px;border-bottom:1px solid rgba(255,255,255,0.05)}
 body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
@@ -269,6 +283,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <div class="total-box"><div class="total-val" id="t-poles">—</div><div class="total-lbl">Poles</div></div>
         <div class="total-box"><div class="total-val" id="t-weight">—</div><div class="total-lbl">Total kg</div></div>
       </div>
+      <div id="packing-breakdown"></div>
     </div>
 
     <!-- Freight Forwarders -->
@@ -435,14 +450,19 @@ const LARGE_TUBE = { w:8, h:8, extra_wt:35, extra_len:6, max:8 };
 const SMALL_TUBE = { w:6, h:6, extra_wt:25, extra_len:6, max:4 };
 const ALL_MODELS = Object.keys(POLE_LENGTH_IN).map(Number).sort((a,b)=>a-b);
 
-// Piece type definitions: dims, extra weight, and max poles per piece
+// Piece type definitions: dims, extra weight, max poles per piece.
+// fixedLen: for X-bar box types that have a fixed length regardless of pole model.
+// Source: Reference Sheet in Packing List and SO Worksheet Template.xlsx
 const PIECE_TYPES = {
-  'large-tube': { label:'Large Super Tube', w:8,   h:8,   extra_wt:35, extra_len:6, max:8 },
-  'small-tube': { label:'Small Super Tube', w:6,   h:6,   extra_wt:25, extra_len:6, max:4 },
-  '1-pole':     { label:'1 Pole',           w:2.5, h:2.5, extra_wt:3,  extra_len:4, max:1 },
-  '2-poles':    { label:'2 Poles',          w:3,   h:3,   extra_wt:5,  extra_len:4, max:2 },
-  '3-4-poles':  { label:'3–4 Poles',        w:4,   h:4,   extra_wt:8,  extra_len:4, max:4 },
-  'x-bar-tube': { label:'X-Bar Tube',       w:6,   h:6,   extra_wt:20, extra_len:6, max:6 },
+  'large-tube': { label:'Large Super Tube', w:8,  h:8,  extra_wt:35, extra_len:6,  max:8,  fixedLen:null },
+  'small-tube': { label:'Small Super Tube', w:6,  h:6,  extra_wt:25, extra_len:6,  max:4,  fixedLen:null },
+  '1-pole':     { label:'1 Pole',           w:3,  h:3,  extra_wt:0,  extra_len:0,  max:1,  fixedLen:null },
+  '2-poles':    { label:'2 Poles',          w:5,  h:3,  extra_wt:0,  extra_len:0,  max:2,  fixedLen:null },
+  '3-4-poles':  { label:'3–4 Poles',        w:5,  h:5,  extra_wt:0,  extra_len:0,  max:4,  fixedLen:null },
+  '5-poles':    { label:'5 Poles',          w:8,  h:5,  extra_wt:0,  extra_len:0,  max:5,  fixedLen:null },
+  'x-bar-tube': { label:'X-Bar Tube',       w:4,  h:4,  extra_wt:3,  extra_len:0,  max:4,  fixedLen:null },
+  'x-bars-hj':  { label:'X-Bars HJ Box',   w:15, h:4,  extra_wt:5,  extra_len:0,  max:25, fixedLen:158  },
+  'x-bars-pv':  { label:'X-Bars PV Box',   w:15, h:4,  extra_wt:5,  extra_len:0,  max:25, fixedLen:180  },
 };
 const htmlEsc = s => String(s==null?'':s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -653,7 +673,8 @@ function calcPieceDims(container) {
   if (!el) return;
   if (!models.length) { el.textContent = '—'; return; }
   const longest = Math.max(...models);
-  const lenIn   = (POLE_LENGTH_IN[longest] || 200) + pt.extra_len;
+  // For X-bar boxes with a fixed length, use that; otherwise compute from longest pole
+  const lenIn   = pt.fixedLen !== null ? pt.fixedLen : (POLE_LENGTH_IN[longest] || 200) + pt.extra_len;
   const wtPoles = models.reduce((s,m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
   const wtLbs   = Math.round((wtPoles + pt.extra_wt) * 10) / 10;
   const wtKg    = Math.round(wtLbs * 0.453592 * 100) / 100;
@@ -661,8 +682,17 @@ function calcPieceDims(container) {
 }
 
 function onPieceTypeChange(sel) {
-  calcPieceDims(sel.closest('.piece-container'));
-  updatePackingTotals();
+  const container = sel.closest('.piece-container');
+  const typeKey   = sel.value;
+  const pt        = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+  const poleCount = container.querySelectorAll('.pole-row-p1').length;
+  // If piece now has more poles than the new type's max, re-run full grouping algorithm
+  if (poleCount > pt.max) {
+    recalcPacking();
+  } else {
+    calcPieceDims(container);
+    updatePackingTotals();
+  }
 }
 
 function delPoleRow(btn) {
@@ -684,25 +714,122 @@ function renumberPieces() {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAG-AND-DROP — move poles between piece containers
+// ─────────────────────────────────────────────────────────────────────────────
+let _dragRow = null;  // the .pole-row-p1 being dragged
+
+function onPoleRowDragStart(e) {
+  _dragRow = e.currentTarget;
+  _dragRow.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', ''); // required for Firefox
+}
+
+function onPoleRowDragEnd(e) {
+  if (_dragRow) _dragRow.classList.remove('dragging');
+  document.querySelectorAll('.piece-poles.drag-over')
+    .forEach(el => el.classList.remove('drag-over'));
+  _dragRow = null;
+}
+
+function onPolesDragOver(e) {
+  if (!_dragRow) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+
+function onPolesDragLeave(e) {
+  // Only remove highlight if leaving the element itself (not a child)
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+}
+
+function onPolesDrop(e) {
+  e.preventDefault();
+  const targetPolesDiv = e.currentTarget;
+  targetPolesDiv.classList.remove('drag-over');
+  if (!_dragRow) return;
+
+  const srcContainer = _dragRow.closest('.piece-container');
+  const tgtContainer = targetPolesDiv.closest('.piece-container');
+  if (!srcContainer || !tgtContainer) return;
+
+  // Move the row
+  targetPolesDiv.appendChild(_dragRow);
+
+  // If source piece is now empty, remove it
+  if (!srcContainer.querySelectorAll('.pole-row-p1').length) {
+    srcContainer.remove();
+    renumberPieces();
+  } else {
+    calcPieceDims(srcContainer);
+  }
+  calcPieceDims(tgtContainer);
+  updatePackingTotals();
+}
+
 function updatePackingTotals() {
   const containers = document.querySelectorAll('#packing-list .piece-container');
-  let totalPoles = 0, totalKg = 0;
-  containers.forEach(c => {
+  let totalPoles = 0, totalKg = 0, totalLbs = 0;
+  const pieceRows = [];
+
+  containers.forEach((c, i) => {
     const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
     const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
     const models  = Array.from(c.querySelectorAll('.pr-model'))
-      .map(i => parseInt(i.value) || 0).filter(Boolean);
+      .map(inp => parseInt(inp.value) || 0).filter(Boolean);
     totalPoles += models.length;
     if (models.length) {
-      const wtPoles = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
-      totalKg += (wtPoles + pt.extra_wt) * 0.453592;
+      const longest   = Math.max(...models);
+      const lenIn     = pt.fixedLen !== null ? pt.fixedLen : (POLE_LENGTH_IN[longest] || 200) + pt.extra_len;
+      const wtPolesLbs = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
+      const wtLbs      = Math.round((wtPolesLbs + pt.extra_wt) * 10) / 10;
+      const wtKg       = Math.round(wtLbs * 0.453592 * 100) / 100;
+      totalKg  += wtKg;
+      totalLbs += wtLbs;
+      pieceRows.push({ num: i+1, label: pt.label, lenIn, w: pt.w, h: pt.h, wtLbs, wtKg, poleCount: models.length });
     }
   });
+
   const n = containers.length;
-  document.getElementById('t-pieces').textContent = n    || '—';
+  document.getElementById('t-pieces').textContent = n         || '—';
   document.getElementById('t-poles').textContent  = totalPoles || '—';
   document.getElementById('t-weight').textContent = totalPoles
     ? (Math.round(totalKg * 100) / 100) + ' kg' : '—';
+
+  // Per-piece breakdown table
+  const bd = document.getElementById('packing-breakdown');
+  if (!bd) return;
+  if (!pieceRows.length) { bd.innerHTML = ''; return; }
+  bd.innerHTML = `
+    <table class="breakdown-table">
+      <thead>
+        <tr>
+          <th>#</th><th>Type</th><th>Poles</th>
+          <th>Dimensions (L × W × H)</th>
+          <th>Weight</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${pieceRows.map(r => `
+          <tr>
+            <td><strong>${r.num}</strong></td>
+            <td>${r.label}</td>
+            <td style="text-align:center">${r.poleCount}</td>
+            <td class="bd-dims">${r.lenIn}" × ${r.w}" × ${r.h}"</td>
+            <td>${r.wtLbs} lbs &nbsp;·&nbsp; ${r.wtKg} kg</td>
+          </tr>`).join('')}
+        <tr style="font-weight:800;border-top:1px solid var(--tgbr)">
+          <td colspan="2">Totals</td>
+          <td style="text-align:center">${totalPoles}</td>
+          <td></td>
+          <td>${Math.round(totalLbs*10)/10} lbs &nbsp;·&nbsp; ${Math.round(totalKg*100)/100} kg</td>
+        </tr>
+      </tbody>
+    </table>`;
 }
 
 // Add a single pole row to an existing piece container
@@ -710,6 +837,7 @@ function addPoleRowToContainer(container, pole = {}) {
   const { model = '', flex = '', note = '', serial = '' } = pole;
   const row = document.createElement('div');
   row.className = 'pole-row-p1';
+  row.draggable = true;
   row.innerHTML = `
     <input class="pr-model" type="text" value="${htmlEsc(String(model))}" placeholder="Model"
       oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals()">
@@ -717,6 +845,9 @@ function addPoleRowToContainer(container, pole = {}) {
     <input class="pr-note"   type="text" value="${htmlEsc(note)}"   placeholder="Note">
     <input class="pr-serial" type="text" value="${htmlEsc(serial)}" placeholder="Serial">
     <button class="pole-del" onclick="delPoleRow(this)" title="Remove">&#x2715;</button>`;
+  // Drag-and-drop handlers
+  row.addEventListener('dragstart', onPoleRowDragStart);
+  row.addEventListener('dragend',   onPoleRowDragEnd);
   container.querySelector('.piece-poles').appendChild(row);
 }
 
@@ -737,9 +868,13 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
   div.className = 'piece-container';
   div.innerHTML = `
     <div class="piece-header">
-      <span class="piece-num-badge">Piece ${pieceNum}</span>
-      <select class="piece-type-sel" onchange="onPieceTypeChange(this)">${typeOpts}</select>
-      <span class="piece-dims-wt">—</span>
+      <div class="piece-header-top">
+        <span class="piece-num-badge">Piece ${pieceNum}</span>
+        <select class="piece-type-sel" onchange="onPieceTypeChange(this)">${typeOpts}</select>
+      </div>
+      <div class="piece-dims-bar">
+        <span class="piece-dims-wt">—</span>
+      </div>
     </div>
     <div class="piece-col-hdr">
       <span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span></span>
@@ -748,6 +883,11 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
     <div class="piece-foot">
       <button class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 9px" onclick="addPoleToPiece(this)">+ Add Pole</button>
     </div>`;
+  // Wire drop zone on piece-poles
+  const polesDiv = div.querySelector('.piece-poles');
+  polesDiv.addEventListener('dragover',  onPolesDragOver);
+  polesDiv.addEventListener('dragleave', onPolesDragLeave);
+  polesDiv.addEventListener('drop',      onPolesDrop);
   for (const p of poles) addPoleRowToContainer(div, p);
   return div;
 }
