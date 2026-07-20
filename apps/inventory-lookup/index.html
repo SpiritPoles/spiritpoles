@@ -397,6 +397,10 @@ function processAndRenderCompact(models, orders, catalog) {
   } else if (window.UCS_INV_DATA && window.UCS_INV_DATA.ufModels) {
     appData.ufModelMap = window.UCS_INV_DATA.ufModels;
   }
+  // Update UF stat tile now that ufModelMap is populated
+  const _ufTotal2 = Object.values(appData.ufModelMap || {}).reduce((s,m)=>s+(m.onHand||0),0);
+  const _ufEl2 = document.getElementById('stat-uf');
+  if (_ufEl2) _ufEl2.textContent = _ufTotal2 > 0 ? _ufTotal2 : '—';
   renderUnfinished();
 }
 
@@ -423,11 +427,7 @@ function _finishRender(modelMap, orderMap, allFlexPoles) {
   document.getElementById('stat-zero').textContent        = modelsZero;
   document.getElementById('stat-bo').textContent          = totalBO;
   document.getElementById('stat-so').textContent          = totalSO;
-  // UF tile count
-  const _ufData = window.UCS_INV_DATA && window.UCS_INV_DATA.ufModels;
-  const _ufTotal = _ufData ? Object.values(_ufData).reduce((s,m)=>s+(m.onHand||0),0) : 0;
-  const _ufEl = document.getElementById('stat-uf');
-  if (_ufEl) _ufEl.textContent = _ufTotal > 0 ? _ufTotal : '—';
+
   renderAvailable();
   renderNeedToMake();
   renderOpenSO();
@@ -1050,7 +1050,10 @@ function renderUnfinished() {
 
   // Sort rows within each group by weight (numeric part after /)
   function wt(name) { return parseInt(name.replace(/^UF\d+S?\//,'')) || 0; }
-  Object.values(byPfx).forEach(arr => arr.sort((a,b) => wt(a.name) - wt(b.name)));
+  Object.values(byPfx).forEach(arr => arr.sort((a, b) => {
+    if (a.sglass !== b.sglass) return a.sglass ? 1 : -1; // normal before S-Glass
+    return wt(a.name) - wt(b.name);
+  }));
 
   // Build length nav — show "UF235", "UF275" etc.
   const activePfxs = LENGTH_ORDER.filter(p => byPfx[p] && byPfx[p].length > 0);
@@ -1119,7 +1122,12 @@ function renderUnfinished() {
         </thead>
         <tbody>`;
 
+    let _sglassDividerShown = false;
     rows.forEach(r => {
+      if (r.sglass && !_sglassDividerShown) {
+        _sglassDividerShown = true;
+        html += `<tr><td colspan="4" style="padding:5px 10px;background:#dbeffe;font-size:10px;font-weight:700;color:#0369a1;letter-spacing:.6px;text-transform:uppercase;border-top:2px solid #93c5fd;border-bottom:1px solid #bae6fd">&#9670; S-Glass Models</td></tr>`;
+      }
       const oh = r.onHand||0;
       const av = r.available||0;
       const ohCell = oh > 0
@@ -1139,7 +1147,7 @@ function renderUnfinished() {
         cdEntry.cuts.forEach(c => { usedFor += `<span class="uf-badge-cut">${c}</span>`; });
       }
 
-      const rowClass = r.sglass ? ' class="uf-sglass-row"' : '';
+      const rowClass = '';
       html += `<tr${rowClass}>
         <td class="uf-model-name">${r.name}</td>
         <td>${ohCell}</td>
