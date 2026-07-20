@@ -1241,7 +1241,7 @@ function downloadPackingListPDF() {
   if (!containers.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
 
   const soNum    = v('so')             || 'XXXXX';
-  const cons     = v('consignee')      || '(consignee)';
+  const cons     = v('consignee')      || '';
   const consFull = v('consignee-full') || cons;
   const shipDate = v('ship-date')      || '';
   const inco     = v('incoterm')       || '';
@@ -1252,7 +1252,7 @@ function downloadPackingListPDF() {
   const printedDate = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
 
   let totalPoles = 0, totalLbs = 0, totalCuFt = 0;
-  let bodyRows = '';
+  let pieceSections = '';
 
   containers.forEach((c, i) => {
     const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
@@ -1269,35 +1269,49 @@ function downloadPackingListPDF() {
     const lenIn   = pt.fixedLen || (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
     const wtPoles = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
     const wtLbs   = Math.round((wtPoles + pt.extra_wt) * 10) / 10;
+    const wtKgs   = Math.round(wtLbs * 0.453592 * 100) / 100;
     const cuFt    = lenIn ? Math.round(lenIn * pt.w * pt.h / 1728 * 100) / 100 : 0;
 
     totalPoles += poles.length;
     totalLbs   += wtLbs;
     totalCuFt  += cuFt;
 
-    // Piece header row
-    const dimsStr = lenIn ? `${lenIn}" &times; ${pt.w}" &times; ${pt.h}"` : '';
-    bodyRows += `<tr class="piece-row">
-      <td style="text-align:center">${i + 1}</td>
-      <td>${htmlEsc(pt.label)}</td>
-      <td></td><td></td><td></td><td></td>
-      <td style="text-align:center;white-space:nowrap">${dimsStr}</td>
-      <td style="text-align:right">${cuFt || ''}</td>
-      <td style="text-align:right">${wtLbs || ''}</td>
-    </tr>`;
-
-    // Pole sub-rows
-    for (const pole of poles) {
+    let poleRows = '';
+    poles.forEach((pole, j) => {
+      const serialDisplay = pole.serial
+        ? `<span class="mono">${htmlEsc(pole.serial)}</span>`
+        : `<span class="serial-blank"></span>`;
       const flexDisplay = pole.flex ? `<strong>${htmlEsc(pole.flex)}</strong>` : '';
-      bodyRows += `<tr class="pole-row">
-        <td></td><td></td>
-        <td style="text-align:center;font-weight:bold">${htmlEsc(pole.model)}</td>
-        <td style="text-align:center">${flexDisplay}</td>
-        <td style="font-size:7.5pt">${htmlEsc(pole.note)}</td>
-        <td style="font-family:monospace;font-size:7.5pt">${htmlEsc(pole.serial)}</td>
-        <td colspan="3"></td>
-      </tr>`;
-    }
+      poleRows += `<tr>
+          <td class="tc">${j + 1}</td>
+          <td class="model-cell">${htmlEsc(pole.model)}</td>
+          <td class="tc">${flexDisplay}</td>
+          <td class="note-cell">${htmlEsc(pole.note)}</td>
+          <td>${serialDisplay}</td>
+        </tr>`;
+    });
+
+    const dimsStr = lenIn ? `${lenIn}" &times; ${pt.w}" &times; ${pt.h}"` : '';
+
+    pieceSections += `<div class="piece-block">
+      <div class="piece-hdr">
+        <span class="piece-badge">PIECE ${i + 1}</span>
+        <span class="piece-type-lbl">${htmlEsc(pt.label)}</span>
+        <span class="piece-dims-lbl">${dimsStr}</span>
+        <span class="piece-wt-lbl">${wtLbs} lbs &ndash; ${wtKgs} kg</span>
+        <span class="piece-cuft-lbl">${cuFt} cu ft</span>
+      </div>
+      <table class="pole-tbl">
+        <thead><tr>
+          <th style="width:30px">#</th>
+          <th style="width:80px">Model</th>
+          <th style="width:90px">Flex Memo</th>
+          <th>Special Line Item Notes</th>
+          <th style="width:210px">Serial #</th>
+        </tr></thead>
+        <tbody>${poleRows}</tbody>
+      </table>
+    </div>`;
   });
 
   const totLbs  = Math.round(totalLbs  * 10)  / 10;
@@ -1310,146 +1324,109 @@ function downloadPackingListPDF() {
 
   const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
-<title>Packing List — ${htmlEsc(soNum)}</title>
+<title>Packing List DRAFT — ${htmlEsc(soNum)}</title>
 <style>
-@page{margin:0.55in 0.65in 0.5in}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;font-size:9pt;color:#000;background:#fff}
-/* Header */
-.ph{display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;margin-bottom:8px}
-.lh-img{height:90px;width:auto}
-.doc-block{text-align:right}
-.doc-title{font-size:22pt;font-weight:bold;letter-spacing:1px;line-height:1.1}
-.doc-so{font-size:11pt;margin-top:4px}
-/* Info bar */
-.ib{border-collapse:collapse;width:100%;margin-bottom:10px}
-.ib th,.ib td{border:1px solid #888;padding:4px 8px;font-size:8.5pt}
-.ib th{font-weight:bold;background:#fff;text-align:left}
-.ib td{text-align:center;font-weight:bold;font-size:9pt}
-/* Main table */
-.mt{border-collapse:collapse;width:100%;margin-bottom:0}
-.mt th,.mt td{border:1px solid #888;padding:3px 5px;font-size:8pt;vertical-align:middle}
-.mt th{background:#e0e0e0;font-weight:bold;font-size:7.5pt;text-align:center}
-.mt .piece-row td{background:#e8e8f2;font-weight:bold;border-top:2px solid #555}
-.mt .pole-row td{background:#fff}
-/* Totals bar */
-.tots{display:flex;border-top:2px solid #000;border-bottom:1px solid #aaa;padding:6px 0;margin-bottom:16px;gap:0}
-.tot-item{flex:1;text-align:center;border-right:1px solid #ccc;padding:4px 0}
-.tot-item:last-child{border-right:none}
-.tot-num{font-size:13pt;font-weight:bold;display:block}
-.tot-lbl{font-size:7.5pt;text-transform:uppercase;font-weight:bold;color:#555}
-/* Bottom section */
-.bsec{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px}
-.made-usa{font-size:8pt;line-height:1.7;color:#222}
-.seal-img{height:90px;width:auto}
-.sig-block{text-align:center;font-size:8.5pt;line-height:1.6}
-.sig-line{border-top:1px solid #000;width:180px;margin:30px auto 4px}
-/* Page footer */
-.pgfoot{display:flex;justify-content:space-between;font-size:7.5pt;color:#666;margin-top:12px;padding-top:4px;border-top:1px solid #ddd}
-/* Print button */
-.print-btn{margin-top:16px;text-align:center}
-.print-btn button{padding:9px 26px;font-size:12px;cursor:pointer;background:#1a1a1a;color:#fff;border:none;border-radius:5px}
-@media print{.print-btn{display:none}}
-</style>
-</head><body>
+@page { size:letter portrait; margin:1.85in 0.65in 0.7in; }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background:#fff}
+.doc-header{display:flex;justify-content:space-between;align-items:center;padding-bottom:7px;border-bottom:2px solid #111;margin-bottom:0}
+.lh-img{height:82px;width:auto}
+.doc-right{text-align:right;line-height:1.2}
+.doc-title{font-size:22pt;font-weight:900;letter-spacing:1px}
+.draft-tag{display:inline-block;background:#222;color:#fff;font-size:8pt;font-weight:800;padding:2px 7px;border-radius:3px;letter-spacing:1.5px;vertical-align:middle;margin-left:7px}
+.doc-so{font-size:11pt;font-weight:bold;margin-top:3px}
+.info-bar{display:flex;border:1.5px solid #666;border-top:none;margin-bottom:16px;background:#fff}
+.ib-cell{flex:1;padding:5px 10px;border-right:1px solid #bbb}
+.ib-cell:first-child{flex:0 0 105px}
+.ib-cell:last-child{flex:0 0 155px;border-right:none}
+.ib-label{font-size:6.5pt;font-weight:bold;text-transform:uppercase;color:#777;margin-bottom:2px}
+.ib-value{font-size:10pt;font-weight:bold}
+.piece-block{break-inside:avoid;page-break-inside:avoid;border:1.5px solid #444;border-radius:3px;margin-bottom:16px;overflow:hidden}
+.piece-hdr{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 12px;background:#ececec;border-bottom:1.5px solid #444}
+.piece-badge{background:#222;color:#fff;font-size:9.5pt;font-weight:900;padding:3px 11px;border-radius:3px;white-space:nowrap;letter-spacing:.5px}
+.piece-type-lbl{font-size:11pt;font-weight:bold;flex:1;min-width:120px}
+.piece-dims-lbl{font-size:9.5pt;color:#444;white-space:nowrap}
+.piece-wt-lbl{font-size:9.5pt;font-weight:bold;white-space:nowrap}
+.piece-cuft-lbl{font-size:8.5pt;color:#666;white-space:nowrap}
+.pole-tbl{width:100%;border-collapse:collapse}
+.pole-tbl th{background:#e4e4e4;padding:4px 8px;font-size:7pt;font-weight:bold;text-transform:uppercase;letter-spacing:.4px;text-align:left;border-bottom:1.5px solid #888;border-right:1px solid #ccc}
+.pole-tbl th:last-child{border-right:none}
+.pole-tbl td{padding:5px 8px;vertical-align:middle;border-bottom:1px solid #e0e0e0;border-right:1px solid #eee;font-size:9.5pt}
+.pole-tbl td:last-child{border-right:none}
+.pole-tbl tbody tr:last-child td{border-bottom:none}
+.pole-tbl tbody tr:nth-child(even){background:#f8f8f8}
+.tc{text-align:center}
+.model-cell{font-weight:bold}
+.note-cell{color:#555;font-size:8.5pt}
+.mono{font-family:'Courier New',monospace;font-size:8.5pt;color:#333}
+.serial-blank{display:block;border-bottom:1px solid #aaa;height:1.1em;width:85%;margin:1px 0}
+.totals-bar{display:flex;border:1.5px solid #444;border-radius:3px;overflow:hidden;margin-bottom:22px}
+.tot-cell{flex:1;padding:10px 6px;text-align:center;border-right:1px solid #ccc}
+.tot-cell:last-child{border-right:none}
+.tot-num{font-size:16pt;font-weight:900;display:block;line-height:1.1}
+.tot-lbl{font-size:7pt;text-transform:uppercase;font-weight:bold;color:#666;letter-spacing:.5px}
+.bottom-sec{display:flex;justify-content:space-between;align-items:center;padding-top:12px;border-top:1.5px solid #bbb;margin-top:6px}
+.made-usa{font-size:8pt;line-height:1.8;color:#333}
+.seal-img{height:88px;width:auto}
+.sig-block{text-align:center;font-size:9pt;line-height:1.5}
+.sig-line{border-top:1px solid #000;width:180px;margin:38px auto 5px}
+.page-foot{display:flex;justify-content:space-between;font-size:7.5pt;color:#999;margin-top:10px;padding-top:4px;border-top:1px solid #e8e8e8}
+.no-print{margin-top:20px;text-align:center}
+.no-print button{padding:10px 30px;font-size:12px;cursor:pointer;background:#222;color:#fff;border:none;border-radius:4px}
+@media print{
+  .doc-header{position:fixed;top:0.15in;left:0.65in;right:0.65in;background:#fff;border-bottom:2px solid #111;z-index:1000}
+  .info-bar{position:fixed;top:1.2in;left:0.65in;right:0.65in;background:#fff;margin-bottom:0;border-top:none;z-index:999}
+  .no-print{display:none}
+  .piece-block{break-inside:avoid;page-break-inside:avoid}
+}
+</style></head><body>
 
-<!-- HEADER -->
-<div class="ph">
+<div class="doc-header">
   <img src="data:image/png;base64,${LH_B64}" class="lh-img" alt="UCS Spirit">
-  <div class="doc-block">
-    <div class="doc-title">PACKING LIST</div>
-    <div class="doc-so">Sales Order: ${htmlEsc(soNum)}</div>
+  <div class="doc-right">
+    <div><span class="doc-title">PACKING LIST</span><span class="draft-tag">DRAFT</span></div>
+    <div class="doc-so">Sales Order:&nbsp;${htmlEsc(soNum)}</div>
   </div>
 </div>
 
-<!-- INFO BAR -->
-<table class="ib">
-  <tr>
-    <th style="width:100px">Date</th>
-    <th style="flex:2">Ultimate Consignee / Destination:</th>
-    <th style="width:140px">Carrier</th>
-  </tr>
-  <tr>
-    <td>${htmlEsc(fmtDate)}</td>
-    <td>${htmlEsc(consFull || cons)}</td>
-    <td>${htmlEsc(inco)}</td>
-  </tr>
-</table>
-
-<!-- MAIN TABLE -->
-<table class="mt">
-  <thead>
-    <tr>
-      <th style="width:34px">Piece</th>
-      <th style="width:110px">Piece Type</th>
-      <th style="width:70px">Model</th>
-      <th style="width:60px">Flex Memo</th>
-      <th>Notes</th>
-      <th style="width:140px">Serial</th>
-      <th style="width:140px">Dimensions</th>
-      <th style="width:58px;text-align:right">Cubic Feet</th>
-      <th style="width:62px;text-align:right">Weight</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${bodyRows}
-  </tbody>
-</table>
-
-<!-- TOTALS BAR -->
-<div class="tots">
-  <div class="tot-item">
-    <span class="tot-num">${totalPoles}</span>
-    <span class="tot-lbl">Poles</span>
-  </div>
-  <div class="tot-item">
-    <span class="tot-num">${totPcs}</span>
-    <span class="tot-lbl">Total Pieces</span>
-  </div>
-  <div class="tot-item">
-    <span class="tot-num">${totKgs}</span>
-    <span class="tot-lbl">kgs.</span>
-  </div>
-  <div class="tot-item">
-    <span class="tot-num">${totCuFt}</span>
-    <span class="tot-lbl">Cubic Feet</span>
-  </div>
-  <div class="tot-item">
-    <span class="tot-num">${totLbs}</span>
-    <span class="tot-lbl">lbs.</span>
-  </div>
+<div class="info-bar">
+  <div class="ib-cell"><div class="ib-label">Date</div><div class="ib-value">${htmlEsc(fmtDate)}</div></div>
+  <div class="ib-cell"><div class="ib-label">Ultimate Consignee / Destination</div><div class="ib-value">${htmlEsc(consFull || cons)}</div></div>
+  <div class="ib-cell"><div class="ib-label">Carrier</div><div class="ib-value">${htmlEsc(inco)}</div></div>
 </div>
 
-<!-- BOTTOM SECTION -->
-<div class="bsec">
-  <div class="made-usa">
-    ALL PRODUCTS MADE IN THE USA<br>
-    SCHEDULE B: 9506.91.0000<br>
-    ${htmlEsc(fmtDate)}
-  </div>
+${pieceSections}
+
+<div class="totals-bar">
+  <div class="tot-cell"><span class="tot-num">${totalPoles}</span><span class="tot-lbl">Poles</span></div>
+  <div class="tot-cell"><span class="tot-num">${totPcs}</span><span class="tot-lbl">Total Pieces</span></div>
+  <div class="tot-cell"><span class="tot-num">${totKgs}</span><span class="tot-lbl">kgs.</span></div>
+  <div class="tot-cell"><span class="tot-num">${totCuFt}</span><span class="tot-lbl">Cubic Feet</span></div>
+  <div class="tot-cell"><span class="tot-num">${totLbs}</span><span class="tot-lbl">lbs.</span></div>
+</div>
+
+<div class="bottom-sec">
+  <div class="made-usa">ALL PRODUCTS MADE IN THE USA<br>SCHEDULE B: 9506.91.0000<br>${htmlEsc(fmtDate)}</div>
   <img src="data:image/png;base64,${SEAL_B64}" class="seal-img" alt="">
-  <div class="sig-block">
-    <div class="sig-line"></div>
-    Austin Tilley<br>Office Assistant
-  </div>
+  <div class="sig-block"><div class="sig-line"></div>Austin Tilley<br>Office Assistant</div>
 </div>
 
-<!-- PAGE FOOTER -->
-<div class="pgfoot">
-  <span>Printed: ${printedDate}</span>
+<div class="page-foot">
+  <span>Printed:&nbsp;${printedDate}</span>
   <span>Page 1 of 1</span>
 </div>
 
-<div class="print-btn">
-  <button onclick="window.print()">&#128438; Print / Save as PDF</button>
+<div class="no-print">
+  <button onclick="window.print()">&#128438;&nbsp; Print / Save as PDF</button>
 </div>
 </body></html>`;
 
-  const win = window.open('', '_blank', 'width=980,height=760');
+  const win = window.open('', '_blank', 'width=920,height=820');
   if (!win) { setActionErr('p1', 'Pop-up blocked — allow pop-ups for this site and try again.'); return; }
   win.document.write(html);
   win.document.close();
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EXCEL PACKING LIST — PHASE 2 (with serial numbers)
