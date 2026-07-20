@@ -100,14 +100,14 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
 /* ── Phase 1 piece-grouped packing view ────────────────────────────────────── */
 #packing-list{display:flex;flex-direction:column;gap:10px;margin-bottom:4px}
 .piece-container{background:var(--card);border:1px solid var(--tgbr);border-radius:10px;overflow:hidden}
-.piece-header{padding:8px 12px 0;background:rgba(232,18,125,0.07);border-bottom:1px solid var(--tgbr)}
-.piece-header-top{display:flex;gap:10px;align-items:center;margin-bottom:7px}
+.piece-header{display:flex;gap:8px;align-items:center;padding:8px 12px;background:rgba(232,18,125,0.07);border-bottom:1px solid var(--tgbr);flex-wrap:wrap}
 .piece-num-badge{background:var(--pink);color:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;text-align:center;white-space:nowrap;flex-shrink:0}
-.piece-type-sel{background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:700;color:var(--tp);outline:none;font-family:inherit;cursor:pointer;transition:border-color .18s;flex:1;max-width:175px}
+.piece-type-sel{background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:700;color:var(--tp);outline:none;font-family:inherit;cursor:pointer;transition:border-color .18s;flex-shrink:0;max-width:170px}
 .piece-type-sel:focus{border-color:rgba(232,18,125,0.5)}
-/* Dims bar — prominent full-width display */
-.piece-dims-bar{background:rgba(232,18,125,0.13);border-radius:6px;padding:5px 10px;margin-bottom:8px;text-align:center}
-.piece-dims-wt{font-size:15px;font-weight:800;color:var(--pink);letter-spacing:.02em;white-space:nowrap}
+/* Dims inline box — magenta border, bright text */
+.piece-dims-box{flex:1;border:1px solid var(--pink);border-radius:6px;padding:4px 10px;min-width:0}
+.piece-dims-wt{font-size:13px;font-weight:800;color:#fff;white-space:nowrap;display:block}
+body.light .piece-dims-wt{color:#111}
 /* Drag-and-drop */
 .pole-row-p1[draggable]{cursor:grab}
 .pole-row-p1.dragging{opacity:.35}
@@ -277,7 +277,10 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <button class="btn btn-outline btn-sm" onclick="recalcPacking()" title="Re-run auto-grouping algorithm">&#8635; Re-calculate</button>
       </div>
       <div class="divider"></div>
-      <div class="card-title">Packing Summary</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:0">Packing Summary</div>
+        <button class="btn btn-outline btn-sm" onclick="recalcPacking()" title="Re-run packing algorithm from current poles">&#8635; Recalc</button>
+      </div>
       <div class="totals">
         <div class="total-box"><div class="total-val" id="t-pieces">—</div><div class="total-lbl">Pieces</div></div>
         <div class="total-box"><div class="total-val" id="t-poles">—</div><div class="total-lbl">Poles</div></div>
@@ -682,17 +685,36 @@ function calcPieceDims(container) {
 }
 
 function onPieceTypeChange(sel) {
-  const container = sel.closest('.piece-container');
-  const typeKey   = sel.value;
-  const pt        = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
-  const poleCount = container.querySelectorAll('.pole-row-p1').length;
-  // If piece now has more poles than the new type's max, re-run full grouping algorithm
-  if (poleCount > pt.max) {
-    recalcPacking();
-  } else {
-    calcPieceDims(container);
-    updatePackingTotals();
+  const newTypeKey = sel.value;
+  const pt = PIECE_TYPES[newTypeKey] || PIECE_TYPES['large-tube'];
+
+  // Collect ALL poles from every piece, sorted largest→smallest
+  const allPoles = [];
+  document.querySelectorAll('#packing-list .piece-container').forEach(c => {
+    c.querySelectorAll('.pole-row-p1').forEach(row => {
+      const m = (row.querySelector('.pr-model')?.value || '').trim();
+      if (m) allPoles.push({
+        model:  m,
+        flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
+        note:   (row.querySelector('.pr-note')?.value   || '').trim(),
+        serial: (row.querySelector('.pr-serial')?.value || '').trim(),
+      });
+    });
+  });
+  if (!allPoles.length) return;
+
+  // Re-pack all poles into pieces of the new type
+  allPoles.sort((a, b) => (parseInt(b.model)||0) - (parseInt(a.model)||0));
+  const list = document.getElementById('packing-list');
+  list.innerHTML = '';
+  let rem = [...allPoles], num = 1;
+  while (rem.length) {
+    list.appendChild(createPieceContainer(num++, newTypeKey, rem.splice(0, pt.max)));
   }
+  document.querySelectorAll('.piece-container').forEach(c => calcPieceDims(c));
+  updatePackingTotals();
+  list.style.opacity = '0.4';
+  setTimeout(() => { list.style.transition = 'opacity .25s'; list.style.opacity = '1'; }, 30);
 }
 
 function delPoleRow(btn) {
@@ -757,18 +779,34 @@ function onPolesDrop(e) {
   const tgtContainer = targetPolesDiv.closest('.piece-container');
   if (!srcContainer || !tgtContainer) return;
 
-  // Move the row
+  // Move the row then sort destination by size (largest→smallest)
   targetPolesDiv.appendChild(_dragRow);
+  sortPolesBySize(tgtContainer);
 
-  // If source piece is now empty, remove it
+  // If source piece is now empty, remove it; otherwise sort + recalc it too
   if (!srcContainer.querySelectorAll('.pole-row-p1').length) {
     srcContainer.remove();
     renumberPieces();
   } else {
+    sortPolesBySize(srcContainer);
     calcPieceDims(srcContainer);
   }
   calcPieceDims(tgtContainer);
   updatePackingTotals();
+}
+
+// Sort poles within a piece container largest→smallest by model number
+function sortPolesBySize(container) {
+  const polesDiv = container.querySelector('.piece-poles');
+  if (!polesDiv) return;
+  const rows = [...polesDiv.querySelectorAll('.pole-row-p1')];
+  if (rows.length < 2) return;
+  rows.sort((a, b) => {
+    const ma = parseInt(a.querySelector('.pr-model')?.value) || 0;
+    const mb = parseInt(b.querySelector('.pr-model')?.value) || 0;
+    return mb - ma; // largest first
+  });
+  rows.forEach(r => polesDiv.appendChild(r)); // re-append in sorted order
 }
 
 function updatePackingTotals() {
@@ -868,13 +906,9 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
   div.className = 'piece-container';
   div.innerHTML = `
     <div class="piece-header">
-      <div class="piece-header-top">
-        <span class="piece-num-badge">Piece ${pieceNum}</span>
-        <select class="piece-type-sel" onchange="onPieceTypeChange(this)">${typeOpts}</select>
-      </div>
-      <div class="piece-dims-bar">
-        <span class="piece-dims-wt">—</span>
-      </div>
+      <span class="piece-num-badge">Piece ${pieceNum}</span>
+      <select class="piece-type-sel" onchange="onPieceTypeChange(this)">${typeOpts}</select>
+      <div class="piece-dims-box"><span class="piece-dims-wt">—</span></div>
     </div>
     <div class="piece-col-hdr">
       <span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span></span>
