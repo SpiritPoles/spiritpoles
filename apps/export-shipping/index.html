@@ -21,7 +21,20 @@
   });
 })();
 </script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx-js-style.min.js"></script>
+<script>
+// Load xlsx-js-style (has border/style support); fall back to standard xlsx
+(function(){
+  function tryLoad(src, fallback){
+    var s=document.createElement('script'); s.src=src;
+    s.onerror=function(){ if(fallback){ tryLoad(fallback,null); } };
+    document.head.appendChild(s);
+  }
+  tryLoad(
+    'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx-js-style.min.js',
+    'https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx-js-style.min.js'
+  );
+})();
+</script>
 <style>
 :root{--bg:#000;--tb:#252525;--tbd:rgba(255,255,255,0.2);--tbt:rgba(255,255,255,0.32);--thb:rgba(232,18,125,0.55);--tp:#ede6d8;--ts:rgba(255,255,255,0.55);--sl:rgba(255,255,255,0.4);--fc:#aeacae;--rc:#aeacae;--so:rgba(0,0,0,0.55);--shb:rgba(255,255,255,0.2);--tgb:rgba(255,255,255,0.08);--tgbr:rgba(255,255,255,0.14);--tgc:rgba(255,255,255,0.5);--tgh:rgba(255,255,255,0.85);--tc:rgba(255,255,255,0.55);--tt:rgba(232,18,125,0.5);--bgo:.18;--bgf:none;--pink:#E8127D;--green:#4caf50;--red:#e53935;--card:#1a1a1a}
 body.light{--bg:#f4f4f4;--tb:#fff;--tbd:rgba(0,0,0,0.12);--tbt:rgba(0,0,0,0.22);--tp:#1a1a1a;--ts:rgba(0,0,0,0.45);--sl:rgba(0,0,0,0.35);--fc:#666;--so:rgba(240,240,240,0.65);--shb:rgba(0,0,0,0.12);--tgb:rgba(0,0,0,0.06);--tgbr:rgba(0,0,0,0.12);--tgc:rgba(0,0,0,0.4);--tgh:rgba(0,0,0,0.8);--tc:rgba(0,0,0,0.35);--tt:rgba(232,18,125,0.55);--bgo:.09;--bgf:invert(1);--card:#fff}
@@ -784,13 +797,17 @@ function getActiveFFs() {
 // ─────────────────────────────────────────────────────────────────────────────
 // EXCEL STYLE HELPERS (xlsx-js-style)
 // ─────────────────────────────────────────────────────────────────────────────
-const _BORDER = { style:'thin', color:{ rgb:'000000' } };
-const _BORDER_CELL = { top:_BORDER, bottom:_BORDER, left:_BORDER, right:_BORDER };
+function mkBorder() {
+  const b = { style:'thin', color:{ rgb:'000000' } };
+  return { top:b, bottom:b, left:b, right:b };
+}
 
 function applyPackingListStyles(ws, aoa, colHeaderRow, totalsRow) {
+  // Guard: xlsx-js-style required for cell styles; standard xlsx silently ignores .s
+  if (typeof XLSX === 'undefined') return;
   for (let r = colHeaderRow; r <= totalsRow; r++) {
     const row = aoa[r] || [];
-    if (!row.some(v => v !== '' && v !== undefined && v !== null)) continue; // skip blank separators
+    if (!row.some(v => v !== '' && v !== undefined && v !== null)) continue;
     const isPieceRow = typeof row[1] === 'string' && row[1].includes('Super Tube');
     const isHeader   = r === colHeaderRow;
     const isTotals   = r === totalsRow;
@@ -798,10 +815,9 @@ function applyPackingListStyles(ws, aoa, colHeaderRow, totalsRow) {
     for (let c = 0; c < 13; c++) {
       const addr = XLSX.utils.encode_cell({r, c});
       if (!ws[addr]) ws[addr] = { v:'', t:'s' };
-      ws[addr].s = { font:{ bold, sz: isHeader ? 10 : 9 }, border: _BORDER_CELL };
+      ws[addr].s = { font:{ bold, sz: isHeader ? 10 : 9 }, border: mkBorder() };
     }
   }
-  // Header block styles (no borders, but bold / large text)
   const setS = (addr, s) => { if (ws[addr]) ws[addr].s = s; };
   setS('A1', { font:{ bold:true, sz:13 } });
   setS('G1', { font:{ bold:true, sz:18 }, alignment:{ horizontal:'center' } });
@@ -812,6 +828,7 @@ function applyPackingListStyles(ws, aoa, colHeaderRow, totalsRow) {
 // EXCEL PACKING LIST — PHASE 1
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP1() {
+  if (typeof XLSX === 'undefined') { setActionErr('p1', 'Excel library still loading — wait a moment and try again.'); return; }
   const poleData = getPoleRows();
   if (!poleData.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
 
@@ -870,7 +887,7 @@ function downloadPackingListP1() {
     {s:{r:2,c:0},e:{r:2,c:12}},
     {s:{r:4,c:1},e:{r:4,c:5}}, {s:{r:5,c:1},e:{r:5,c:5}},
   ];
-  applyPackingListStyles(ws, aoa, 7, aoa.length - 6);
+  try { applyPackingListStyles(ws, aoa, 7, aoa.length - 6); } catch(e) { console.warn('Style pass failed:', e); }
   XLSX.utils.book_append_sheet(wb, ws, 'Packing List');
   XLSX.writeFile(wb, `PackingList_${soNum}_${shipDate||'draft'}.xlsx`);
 }
@@ -879,6 +896,7 @@ function downloadPackingListP1() {
 // EXCEL PACKING LIST — PHASE 2 (with serial numbers)
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP2() {
+  if (typeof XLSX === 'undefined') { setActionErr('p2', 'Excel library still loading — wait a moment and try again.'); return; }
   const poleData = getP2PoleRows();
   if (!poleData.length) { setActionErr('p2', 'Add poles before downloading.'); return; }
 
@@ -939,7 +957,7 @@ function downloadPackingListP2() {
     {s:{r:2,c:0},e:{r:2,c:12}},
     {s:{r:4,c:1},e:{r:4,c:5}}, {s:{r:5,c:1},e:{r:5,c:5}},
   ];
-  applyPackingListStyles(ws, aoa, 7, aoa.length - 6);
+  try { applyPackingListStyles(ws, aoa, 7, aoa.length - 6); } catch(e) { console.warn('Style pass failed:', e); }
   XLSX.utils.book_append_sheet(wb, ws, 'Packing List');
   XLSX.writeFile(wb, `FinalPackingList_${ifNum}_${shipDate||'draft'}.xlsx`);
 }
