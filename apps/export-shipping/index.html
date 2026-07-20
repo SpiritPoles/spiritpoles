@@ -101,11 +101,13 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
 #packing-list{display:flex;flex-direction:column;gap:10px;margin-bottom:4px}
 .piece-container{background:var(--card);border:1px solid var(--tgbr);border-radius:10px;overflow:hidden}
 .piece-header{display:flex;gap:8px;align-items:center;padding:8px 12px;background:rgba(232,18,125,0.07);border-bottom:1px solid var(--tgbr);flex-wrap:wrap}
-.piece-num-badge{background:var(--pink);color:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;text-align:center;white-space:nowrap;flex-shrink:0}
+.piece-num-badge{background:rgba(232,18,125,0.45);color:rgba(255,255,255,0.92);border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;text-align:center;white-space:nowrap;flex-shrink:0}
+body.light .piece-num-badge{background:rgba(232,18,125,0.35);color:#fff}
 .piece-type-sel{background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:700;color:var(--tp);outline:none;font-family:inherit;cursor:pointer;transition:border-color .18s;flex-shrink:0;max-width:170px}
 .piece-type-sel:focus{border-color:rgba(232,18,125,0.5)}
-/* Dims inline box — magenta border, bright text */
-.piece-dims-box{flex:1;border:1px solid var(--pink);border-radius:6px;padding:4px 10px;min-width:0}
+/* Dims inline box — grey border, dark fill, bright text */
+.piece-dims-box{flex:1;border:1px solid var(--tbd);border-radius:6px;padding:4px 10px;min-width:0;background:rgba(0,0,0,0.18)}
+body.light .piece-dims-box{background:rgba(0,0,0,0.06)}
 .piece-dims-wt{font-size:13px;font-weight:800;color:#fff;white-space:nowrap;display:block}
 body.light .piece-dims-wt{color:#111}
 /* Drag-and-drop */
@@ -684,35 +686,66 @@ function calcPieceDims(container) {
   el.textContent = `${lenIn}" × ${pt.w}" × ${pt.h}" · ${wtLbs} lbs · ${wtKg} kg`;
 }
 
-function onPieceTypeChange(sel) {
-  const newTypeKey = sel.value;
-  const pt = PIECE_TYPES[newTypeKey] || PIECE_TYPES['large-tube'];
+// ── Shared cascade helper ─────────────────────────────────────────────────────
+// If 'startContainer' is over its type's max, trims it, then pushes the excess
+// forward into subsequent pieces (cascading if they overflow too). Creates new
+// pieces at the end if needed. Caller must call renumberPieces / updatePackingTotals.
+function cascadeOverflowFrom(startContainer) {
+  let cur = startContainer;
+  while (cur) {
+    const typeKey = cur.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const rows    = [...cur.querySelectorAll('.pole-row-p1')];
+    if (rows.length <= pt.max) break; // no overflow here — done
 
-  // Collect ALL poles from every piece, sorted largest→smallest
-  const allPoles = [];
-  document.querySelectorAll('#packing-list .piece-container').forEach(c => {
-    c.querySelectorAll('.pole-row-p1').forEach(row => {
-      const m = (row.querySelector('.pr-model')?.value || '').trim();
-      if (m) allPoles.push({
-        model:  m,
-        flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
-        note:   (row.querySelector('.pr-note')?.value   || '').trim(),
-        serial: (row.querySelector('.pr-serial')?.value || '').trim(),
-      });
-    });
-  });
-  if (!allPoles.length) return;
+    // Sort largest→smallest, trim to max, collect excess as data objects
+    rows.sort((a, b) =>
+      (parseInt(b.querySelector('.pr-model')?.value) || 0) -
+      (parseInt(a.querySelector('.pr-model')?.value) || 0)
+    );
+    const pd = cur.querySelector('.piece-poles');
+    pd.innerHTML = '';
+    rows.slice(0, pt.max).forEach(r => pd.appendChild(r));
+    calcPieceDims(cur);
 
-  // Re-pack all poles into pieces of the new type
-  allPoles.sort((a, b) => (parseInt(b.model)||0) - (parseInt(a.model)||0));
-  const list = document.getElementById('packing-list');
-  list.innerHTML = '';
-  let rem = [...allPoles], num = 1;
-  while (rem.length) {
-    list.appendChild(createPieceContainer(num++, newTypeKey, rem.splice(0, pt.max)));
+    const overflow = rows.slice(pt.max).map(row => ({
+      model:  (row.querySelector('.pr-model')?.value  || '').trim(),
+      flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
+      note:   (row.querySelector('.pr-note')?.value   || '').trim(),
+      serial: (row.querySelector('.pr-serial')?.value || '').trim(),
+    })).filter(p => p.model);
+
+    const next = cur.nextElementSibling;
+    if (next && next.classList.contains('piece-container')) {
+      // Pour overflow into next piece, re-sort it, then loop to check its overflow
+      overflow.forEach(p => addPoleRowToContainer(next, p));
+      sortPolesBySize(next);
+      cur = next;
+    } else {
+      // No next piece — create new piece(s) for remaining overflow
+      const list     = document.getElementById('packing-list');
+      const autoType = overflow.length >= 5 ? 'large-tube' : 'small-tube';
+      const autoPt   = PIECE_TYPES[autoType];
+      let rem        = [...overflow];
+      while (rem.length) {
+        const chunk = rem.splice(0, autoPt.max);
+        const count = list.querySelectorAll('.piece-container').length;
+        const newC  = createPieceContainer(count + 1, autoType, chunk);
+        list.appendChild(newC);
+        calcPieceDims(newC);
+      }
+      break;
+    }
   }
-  document.querySelectorAll('.piece-container').forEach(c => calcPieceDims(c));
+}
+
+function onPieceTypeChange(sel) {
+  const container = sel.closest('.piece-container');
+  calcPieceDims(container); // update dims immediately for the new type
+  cascadeOverflowFrom(container);
+  renumberPieces();
   updatePackingTotals();
+  const list = document.getElementById('packing-list');
   list.style.opacity = '0.4';
   setTimeout(() => { list.style.transition = 'opacity .25s'; list.style.opacity = '1'; }, 30);
 }
@@ -779,19 +812,19 @@ function onPolesDrop(e) {
   const tgtContainer = targetPolesDiv.closest('.piece-container');
   if (!srcContainer || !tgtContainer) return;
 
-  // Move the row then sort destination by size (largest→smallest)
+  // Move the row, sort destination, then cascade any overflow forward
   targetPolesDiv.appendChild(_dragRow);
   sortPolesBySize(tgtContainer);
+  cascadeOverflowFrom(tgtContainer); // handles max-exceeded case
 
-  // If source piece is now empty, remove it; otherwise sort + recalc it too
+  // If source piece is now empty, remove it; otherwise sort + recalc
   if (!srcContainer.querySelectorAll('.pole-row-p1').length) {
     srcContainer.remove();
-    renumberPieces();
   } else {
     sortPolesBySize(srcContainer);
     calcPieceDims(srcContainer);
   }
-  calcPieceDims(tgtContainer);
+  renumberPieces();
   updatePackingTotals();
 }
 
