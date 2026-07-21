@@ -119,10 +119,10 @@ export async function onRequestGet({ params, env }) {
       }
 
       // Step 2: find IFs linked to that SO internal ID
+      // Note: ORDER BY + FETCH FIRST is not supported on transaction table in NS SuiteQL
       const ifSearch = await suiteQL(`
         SELECT id, tranid, trandate FROM transaction
         WHERE recordtype = 'itemfulfillment' AND createdfrom = ${soRow.id}
-        ORDER BY trandate DESC, id DESC
         FETCH FIRST 5 ROWS ONLY
       `, env);
 

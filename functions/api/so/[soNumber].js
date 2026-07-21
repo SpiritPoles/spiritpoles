@@ -175,7 +175,7 @@ export async function onRequestGet({ params, env }) {
     let ifNumber = '';
     try {
       const ifRes = await suiteQL(
-        `SELECT tranid FROM transaction WHERE recordtype = 'itemfulfillment' AND createdfrom = ${so.id} ORDER BY id DESC FETCH FIRST 1 ROWS ONLY`,
+        `SELECT tranid FROM transaction WHERE recordtype = 'itemfulfillment' AND createdfrom = ${so.id} FETCH FIRST 1 ROWS ONLY`,
         env
       );
       ifNumber = ((ifRes.items || [])[0] || {}).tranid || '';
