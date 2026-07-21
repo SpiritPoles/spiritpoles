@@ -119,12 +119,19 @@ export async function onRequestGet({ params, env }) {
         );
       }
 
-      // Step 2: find IFs linked to that SO internal ID.
-      // Must use table alias — NS SuiteQL requires createdfrom to be qualified (t.createdfrom).
-      // No FETCH FIRST — also throws INVALID_PARAMETER on transaction table queries.
+      // Step 2: find IFs linked to that SO.
+      // Cannot filter transaction table by createdfrom — NS SuiteQL treats it as a self-join
+      // and throws UNEXPECTED_ERROR regardless of alias or FETCH FIRST usage.
+      // Instead: join through transactionline — IF lines carry createdfromline → SO line id,
+      // so we can find all IFs whose lines were fulfilled from this SO without touching
+      // transaction.createdfrom at all.
       const ifSearch = await suiteQL(`
-        SELECT t.id, t.tranid, t.trandate FROM transaction t
-        WHERE t.recordtype = 'itemfulfillment' AND t.createdfrom = ${soRow.id}
+        SELECT DISTINCT t.id, t.tranid, t.trandate
+        FROM transaction t
+        JOIN transactionline tl  ON tl.transaction = t.id
+        JOIN transactionline sol ON sol.id = tl.createdfromline
+        WHERE t.recordtype = 'itemfulfillment'
+        AND   sol.transaction = ${soRow.id}
       `, env);
 
       const ifRows = ifSearch.items || [];
