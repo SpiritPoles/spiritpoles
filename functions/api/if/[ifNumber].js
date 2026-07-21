@@ -119,12 +119,12 @@ export async function onRequestGet({ params, env }) {
         );
       }
 
-      // Step 2: find IFs linked to that SO internal ID
-      // Note: ORDER BY + FETCH FIRST is not supported on transaction table in NS SuiteQL
+      // Step 2: find IFs linked to that SO internal ID.
+      // No FETCH FIRST — NS SuiteQL throws INVALID_PARAMETER on transaction table
+      // with FETCH FIRST even without ORDER BY. An SO has few IFs so no limit needed.
       const ifSearch = await suiteQL(`
         SELECT id, tranid, trandate FROM transaction
         WHERE recordtype = 'itemfulfillment' AND createdfrom = ${soRow.id}
-        FETCH FIRST 5 ROWS ONLY
       `, env);
 
       const ifRows = ifSearch.items || [];
