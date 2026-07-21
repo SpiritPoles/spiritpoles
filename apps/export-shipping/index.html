@@ -321,13 +321,13 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
     <!-- NetSuite fetch -->
     <div class="sl">Load from NetSuite</div>
     <div class="card">
-      <div class="card-title">Item Fulfillment Lookup</div>
+      <div class="card-title">Fulfillment Lookup</div>
       <div class="fetch-bar">
-        <input id="if-input" type="text" placeholder="IF Number (e.g. 4521)" onkeydown="if(event.key==='Enter')fetchIF()">
+        <input id="if-input" type="text" placeholder="IF or SO Number (e.g. IF4521 or SO33870)" onkeydown="if(event.key==='Enter')fetchIF()">
         <button class="btn btn-outline" onclick="fetchIF()" id="fetch-if-btn">&#8659; Fetch from NetSuite</button>
         <span class="fetch-status" id="fetch-if-status"></span>
       </div>
-      <div class="note">Loads fulfilled quantities and serial numbers. Enter any missing serials manually.</div>
+      <div class="note">Search by IF number <em>or</em> SO number — loads fulfilled quantities and serial numbers. Enter any missing serials manually.</div>
     </div>
 
     <!-- Shipment Details (Phase 2) -->
@@ -560,27 +560,35 @@ async function fetchSO() {
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchIF() {
   const raw = document.getElementById('if-input').value.trim();
-  if (!raw) { setFetchStatus('p2', 'Enter an IF number first', 'err'); return; }
+  if (!raw) { setFetchStatus('p2', 'Enter an IF or SO number first', 'err'); return; }
 
-  const num = raw.replace(/^IF/i, '');
+  // Send the input as-is — API normalizes IF/SO/bare-number formats
+  const query = raw.toUpperCase();
   setFetchStatus('p2', 'Fetching from NetSuite…', 'loading');
   document.getElementById('fetch-if-btn').disabled = true;
 
   try {
-    const resp = await fetch(`/api/if/${encodeURIComponent(num)}`);
+    const resp = await fetch(`/api/if/${encodeURIComponent(query)}`);
     const data = await resp.json();
     if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
 
     // Populate Phase 2 fields
-    setVal('if-num',          data.if_number || raw);
-    setVal('p2-so',           data.so_number || '');
-    setVal('p2-consignee',    data.customer || '');
+    setVal('if-num',            data.if_number   || raw);
+    setVal('p2-so',             data.so_number   || '');
+    setVal('p2-consignee',      data.customer    || '');
     setVal('p2-consignee-full', data.ship_address || '');
 
     // Build Phase 2 pole list with serial number inputs
     buildPoleListP2(data.lines || []);
     recalcPackingP2();
-    setFetchStatus('p2', `✓ Loaded ${data.if_number} — ${data.customer}`, 'ok');
+
+    // Base success message
+    let msg = `✓ Loaded ${data.if_number} — ${data.customer}`;
+    // Warn if this SO has multiple IFs (partial shipments)
+    if (data.multiple_ifs > 1) {
+      msg += ` · ${data.multiple_ifs} shipments found for this SO — showing most recent`;
+    }
+    setFetchStatus('p2', msg, 'ok');
   } catch (err) {
     setFetchStatus('p2', `Error: ${err.message}`, 'err');
   } finally {

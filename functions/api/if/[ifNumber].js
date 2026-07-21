@@ -1,5 +1,6 @@
 // functions/api/if/[ifNumber].js
 // Cloudflare Pages Function — fetches Item Fulfillment data from NetSuite via TBA OAuth 1.0a
+// Accepts: IF number (IF4160, 4160) OR Sales Order number (SO33870, 33870-style not supported)
 
 const CORS = {
   'Content-Type': 'application/json',
@@ -44,7 +45,6 @@ async function oauthHeader(method, url, env) {
   const raw = await crypto.subtle.sign('HMAC', key, enc.encode(base));
   const sig = btoa(String.fromCharCode(...new Uint8Array(raw)));
 
-  // Authorization header — values are quoted strings, NOT percent-encoded
   return [
     `OAuth realm="${env.NS_ACCOUNT_ID}"`,
     `oauth_consumer_key="${env.NS_CONSUMER_KEY}"`,
@@ -63,7 +63,7 @@ async function suiteQL(q, env, retries = 3) {
   const url = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const auth = await oauthHeader('POST', url, env);  // fresh ts + nonce each attempt
+    const auth = await oauthHeader('POST', url, env);
     const resp = await fetch(url, {
       method:  'POST',
       headers: {
@@ -77,9 +77,8 @@ async function suiteQL(q, env, retries = 3) {
     if (resp.ok) return resp.json();
 
     const txt = await resp.text();
-    // On 401 INVALID_LOGIN, wait and retry with a fresh signature (NS clock drift / caching)
     if (resp.status === 401 && attempt < retries) {
-      const wait = 600 * (attempt + 1);   // 600ms, 1200ms, 1800ms
+      const wait = 600 * (attempt + 1);
       console.warn(`NS 401 on attempt ${attempt + 1} — retrying in ${wait}ms`);
       await new Promise(r => setTimeout(r, wait));
       continue;
@@ -91,14 +90,50 @@ async function suiteQL(q, env, retries = 3) {
 // ── Handler ────────────────────────────────────────────────────────────────────
 
 export async function onRequestGet({ params, env }) {
-  const raw    = (params.ifNumber || '').trim();
-  // IF numbers in NetSuite are typically like "IF123456" or just numeric
-  const tranid = raw.toUpperCase().startsWith('IF') ? raw.toUpperCase() : raw;
+  const raw   = (params.ifNumber || '').trim();
+  const upper = raw.toUpperCase();
 
   try {
-    // 1. Header
-    // Note: JOIN entity fails in SuiteQL; use LEFT JOIN customer instead.
-    // Note: ship address component fields are NOT_EXPOSED — use only t.shipaddress.
+    let tranid;
+    let resolvedFromSO = null;   // set if looked up via SO number
+    let multipleIFs    = 0;      // >1 means there are more IFs for this SO
+
+    // ── Resolve tranid ──────────────────────────────────────────────────────
+    if (upper.startsWith('SO')) {
+      // Input is a Sales Order number — find the linked Item Fulfillment(s)
+      const soTranid = upper;  // e.g. "SO33870"
+
+      const ifSearch = await suiteQL(`
+        SELECT t.id, t.tranid, t.trandate
+        FROM transaction t
+        INNER JOIN transaction so ON so.id = t.createdfrom
+        WHERE t.recordtype = 'itemfulfillment'
+        AND   so.tranid    = '${soTranid}'
+        AND   so.recordtype = 'salesorder'
+        ORDER BY t.trandate DESC, t.id DESC
+        FETCH FIRST 5 ROWS ONLY
+      `, env);
+
+      const ifRows = ifSearch.items || [];
+      if (!ifRows.length) {
+        return new Response(
+          JSON.stringify({ error: `No Item Fulfillment found for ${soTranid} in NetSuite.` }),
+          { status: 404, headers: CORS }
+        );
+      }
+
+      tranid         = ifRows[0].tranid;  // most recent IF
+      resolvedFromSO = soTranid;
+      multipleIFs    = ifRows.length;     // caller can warn if >1
+
+    } else if (upper.startsWith('IF')) {
+      tranid = upper;   // e.g. "IF4160"
+    } else {
+      // Bare number — assume IF prefix (NS tranid format)
+      tranid = `IF${upper}`;  // e.g. "4160" → "IF4160"
+    }
+
+    // ── 1. Header ───────────────────────────────────────────────────────────
     const hdr = await suiteQL(`
       SELECT
         t.id,
@@ -123,13 +158,12 @@ export async function onRequestGet({ params, env }) {
     }
 
     const ifRec = rows[0];
+    const shipAddr = (ifRec.shipaddress || '')
+      .replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 
-    // shipaddress is the pre-formatted multi-line field; strip any HTML tags
-    const shipAddr = (ifRec.shipaddress || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
-
-    // Resolve linked SO number from createdfrom (internal ID of parent SO)
-    let soNumber = '';
-    if (ifRec.createdfrom) {
+    // ── Resolve linked SO number ─────────────────────────────────────────────
+    let soNumber = resolvedFromSO || '';
+    if (!soNumber && ifRec.createdfrom) {
       try {
         const soRes = await suiteQL(`
           SELECT tranid FROM transaction WHERE id = ${ifRec.createdfrom} FETCH FIRST 1 ROWS ONLY
@@ -138,7 +172,7 @@ export async function onRequestGet({ params, env }) {
       } catch (_) { /* non-fatal */ }
     }
 
-    // 2. Line items
+    // ── 2. Line items ────────────────────────────────────────────────────────
     const lines = await suiteQL(`
       SELECT
         tl.id        AS line_id,
@@ -156,18 +190,17 @@ export async function onRequestGet({ params, env }) {
       FETCH FIRST 200 ROWS ONLY
     `, env);
 
-    // Note: SuiteQL returns IF line quantities as negative — use Math.abs()
+    // SuiteQL returns IF line quantities as negative — use Math.abs()
     const lineItems = (lines.items || []).map(l => ({
       line_id:   l.line_id,
       item_id:   l.item,
-      item_code: l.itemid    || '',
+      item_code: l.itemid      || '',
       item_name: l.displayname || l.itemid || '',
       qty:       Math.abs(Math.round(parseFloat(l.quantity) || 0)),
-      serials:   [],   // populated below if available
+      serials:   [],
     }));
 
-    // 3. Serial numbers — attempt via inventorynumber join
-    //    (If this query fails due to schema differences, we skip gracefully)
+    // ── 3. Serial numbers ────────────────────────────────────────────────────
     try {
       const snRes = await suiteQL(`
         SELECT
@@ -194,13 +227,14 @@ export async function onRequestGet({ params, env }) {
     }
 
     return new Response(JSON.stringify({
-      if_number:    ifRec.tranid,
-      internal_id:  ifRec.id,
-      so_number:    soNumber,
-      date:         ifRec.trandate,
-      customer:     ifRec.companyname || '',
-      ship_address: shipAddr,
-      lines:        lineItems,
+      if_number:      ifRec.tranid,
+      internal_id:    ifRec.id,
+      so_number:      soNumber,
+      date:           ifRec.trandate,
+      customer:       ifRec.companyname || '',
+      ship_address:   shipAddr,
+      lines:          lineItems,
+      multiple_ifs:   multipleIFs,   // >1 = more IFs exist for this SO
     }), { status: 200, headers: CORS });
 
   } catch (err) {
