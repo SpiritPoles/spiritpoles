@@ -556,51 +556,40 @@ async function fetchSO() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NETSUITE FETCH — PHASE 2 (SO → auto-resolves linked IF)
-// Uses the same proven /api/so/ endpoint as Phase 1.
-// The SO endpoint now also returns if_number (linked Item Fulfillment).
+// NETSUITE FETCH — PHASE 2
+// User enters an SO number. API resolves it to the linked IF and returns IF
+// data (fulfilled quantities + serial numbers recorded at fulfillment).
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchIF() {
   const raw = document.getElementById('if-input').value.trim();
   if (!raw) { setFetchStatus('p2', 'Enter an SO number first', 'err'); return; }
 
-  // Strip SO prefix if present — /api/so/ handler normalises it back
-  const num = raw.replace(/^SO/i, '');
+  // Normalise: ensure "SO" prefix so the API knows to do SO→IF resolution
+  const query = raw.toUpperCase().startsWith('SO') ? raw.toUpperCase() : `SO${raw.toUpperCase()}`;
   setFetchStatus('p2', 'Fetching from NetSuite…', 'loading');
   document.getElementById('fetch-if-btn').disabled = true;
 
   try {
-    const resp = await fetch(`/api/so/${encodeURIComponent(num)}`);
+    const resp = await fetch(`/api/if/${encodeURIComponent(query)}`);
     const data = await resp.json();
     if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
 
-    // Populate Phase 2 header fields
+    // Populate Phase 2 header fields from IF data
     setVal('if-num',            data.if_number    || '');
-    setVal('p2-so',             data.so_number    || raw);
+    setVal('p2-so',             data.so_number    || '');
     setVal('p2-consignee',      data.customer     || '');
     setVal('p2-consignee-full', data.ship_address || '');
     const addrEl = document.getElementById('p2-consignee-full');
     if (addrEl) autoResize(addrEl);
-    if (data.declared_value) setVal('p2-goods-value', `$${data.declared_value.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`);
 
-    // Group flat SO lines (one entry per serialized pole) by item code
-    // → [{item_code, qty, serials:[]}] format for buildPoleListP2
-    const grouped = new Map();
-    for (const line of (data.lines || [])) {
-      const model = parseModel(line.item_code || line.item_name || '');
-      if (!model || !POLE_LENGTH_IN[model]) continue;
-      const key = line.item_code || String(model);
-      if (!grouped.has(key)) grouped.set(key, { item_code: key, qty: 0, serials: [] });
-      const g = grouped.get(key);
-      g.qty++;
-      g.serials.push(line.serial || '');
-    }
-    buildPoleListP2([...grouped.values()]);
+    // Build Phase 2 pole list — IF lines already have qty + serials[]
+    buildPoleListP2(data.lines || []);
     recalcPackingP2();
 
-    const poles = [...grouped.values()].reduce((s, g) => s + g.qty, 0);
-    const ifLabel = data.if_number ? ` · IF: ${data.if_number}` : ' · No IF on file yet';
-    setFetchStatus('p2', `✓ Loaded ${data.so_number} — ${data.customer} (${poles} poles)${ifLabel}`, 'ok');
+    const totalPoles = (data.lines || []).reduce((s, l) => s + (l.qty || 0), 0);
+    let msg = `✓ Loaded ${data.if_number} (${data.so_number}) — ${data.customer} · ${totalPoles} poles`;
+    if (data.multiple_ifs > 1) msg += ` · ${data.multiple_ifs} shipments on this SO — showing most recent`;
+    setFetchStatus('p2', msg, 'ok');
   } catch (err) {
     setFetchStatus('p2', `Error: ${err.message}`, 'err');
   } finally {

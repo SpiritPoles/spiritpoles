@@ -103,22 +103,33 @@ export async function onRequestGet({ params, env }) {
 
     // ── Resolve tranid ──────────────────────────────────────────────────────
     if (upper.startsWith('SO')) {
-      // Input is a Sales Order number — find the linked Item Fulfillment(s)
+      // Step 1: get the SO internal ID (avoids self-join which NS SuiteQL doesn't support)
+      const soRes = await suiteQL(`
+        SELECT id FROM transaction
+        WHERE tranid = '${upper}' AND recordtype = 'salesorder'
+        FETCH FIRST 1 ROWS ONLY
+      `, env);
+
+      const soRow = (soRes.items || [])[0];
+      if (!soRow) {
+        return new Response(
+          JSON.stringify({ error: `Sales Order "${upper}" not found in NetSuite.` }),
+          { status: 404, headers: CORS }
+        );
+      }
+
+      // Step 2: find IFs linked to that SO internal ID
       const ifSearch = await suiteQL(`
-        SELECT t.id, t.tranid, t.trandate
-        FROM transaction t
-        INNER JOIN transaction so ON so.id = t.createdfrom
-        WHERE t.recordtype = 'itemfulfillment'
-        AND   so.tranid    = '${upper}'
-        AND   so.recordtype = 'salesorder'
-        ORDER BY t.trandate DESC, t.id DESC
+        SELECT id, tranid, trandate FROM transaction
+        WHERE recordtype = 'itemfulfillment' AND createdfrom = ${soRow.id}
+        ORDER BY trandate DESC, id DESC
         FETCH FIRST 5 ROWS ONLY
       `, env);
 
       const ifRows = ifSearch.items || [];
       if (!ifRows.length) {
         return new Response(
-          JSON.stringify({ error: `No Item Fulfillment found for ${upper} in NetSuite.` }),
+          JSON.stringify({ error: `No Item Fulfillment found for ${upper} — order may not have shipped yet.` }),
           { status: 404, headers: CORS }
         );
       }
