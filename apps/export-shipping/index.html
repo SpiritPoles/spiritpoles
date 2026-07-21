@@ -327,12 +327,13 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <button class="btn btn-outline" onclick="fetchIF()" id="fetch-if-btn">&#8659; Fetch from NetSuite</button>
         <span class="fetch-status" id="fetch-if-status"></span>
       </div>
-      <div class="note">Enter the Sales Order number — loads poles, serial numbers, and linked IF automatically.</div>
+      <div class="note">Enter the SO number — auto-resolves to the linked Item Fulfillment and loads fulfilled poles &amp; serial numbers.</div>
     </div>
 
     <!-- Shipment Details (Phase 2) -->
+    <div class="sl">Shipment Details</div>
     <div class="card">
-      <div class="card-title">Shipment Info</div>
+      <div class="card-title">Consignee &amp; Order Info</div>
       <div class="field-row">
         <div class="field"><label>IF Number</label><input id="if-num" type="text" placeholder="e.g. IF4521"></div>
         <div class="field"><label>Linked SO</label><input id="p2-so" type="text" placeholder="e.g. SO33868"></div>
@@ -345,7 +346,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <div class="field"><label>Consignee (short name)</label><input id="p2-consignee" type="text" placeholder="e.g. Aspire Academy"></div>
       </div>
       <div class="field-row solo">
-        <div class="field"><label>Consignee Full Address</label><textarea id="p2-consignee-full" placeholder="Full name, address, city, country..."></textarea></div>
+        <div class="field"><label>Consignee Full Address</label><textarea id="p2-consignee-full" placeholder="Full name, address, city, country..." oninput="autoResize(this)"></textarea></div>
       </div>
       <div class="field-row tri">
         <div class="field"><label>Shipping Method</label>
@@ -360,29 +361,53 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         </div>
         <div class="field"><label>Schedule B / HS Code</label><input id="p2-schedule-b" type="text" value="9506.91.0000"></div>
       </div>
+      <div class="field-row" style="grid-template-columns:170px 1fr">
+        <div class="field"><label>Goods Description</label><input id="p2-goods-desc" type="text" value="Articles and equipment for general physical exercise, gymnastics or athletics; parts and accessories thereof"></div>
+        <div class="field"><label>Notify Party</label><input id="p2-notify" type="text" placeholder="Freight forwarder or notify party name"></div>
+      </div>
     </div>
 
-    <!-- Poles Phase 2 (with serial numbers) -->
+    <!-- SLI Export Fields -->
     <div class="card">
-      <div class="card-title">Poles &amp; Serial Numbers</div>
-      <div id="pole-list-p2"><div class="note">Fetch an Item Fulfillment above, or add poles manually.</div></div>
-      <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="addPoleRowP2()">+ Add Pole Model</button>
+      <div class="card-title">Export Declaration Fields</div>
+      <div class="field-row tri">
+        <div class="field"><label>Dom / Foreign</label><input id="p2-dom-foreign" type="text" value="D"></div>
+        <div class="field"><label>Qty in Sched. B</label><input id="p2-schedB-qty" type="text" placeholder="auto-filled on fetch"></div>
+        <div class="field"><label>DDTC Unit</label><input id="p2-ddtc-unit" type="text" value="EA"></div>
+      </div>
+      <div class="field-row tri">
+        <div class="field"><label>ECCN / EAR / USML</label><input id="p2-eccn" type="text" value="EAR99"></div>
+        <div class="field"><label>SME</label><input id="p2-sme" type="text" value="N"></div>
+        <div class="field"><label>License / Exemption</label><input id="p2-license" type="text" value="NLR"></div>
+      </div>
+      <div class="note">These fields pre-populate with standard UCS Spirit defaults and can be edited per shipment.</div>
+    </div>
 
+    <!-- Poles & Packing (mirrors Phase 1 exactly) -->
+    <div class="card">
+      <div class="card-title">Poles &amp; Packing</div>
+      <div id="packing-list-p2"></div>
+      <div style="display:flex;gap:8px;padding:6px 0 2px;border-top:1px solid var(--tgbr);margin-top:4px">
+        <button class="btn btn-outline btn-sm" onclick="addBlankPoleRow('packing-list-p2')">+ Add Pole</button>
+        <button class="btn btn-outline btn-sm" onclick="recalcPacking('packing-list-p2')" title="Re-run auto-grouping algorithm">&#8635; Re-calculate</button>
+      </div>
       <div class="divider"></div>
-      <div class="card-title">Packing Preview</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:0">Packing Summary</div>
+        <button class="btn btn-outline btn-sm" onclick="recalcPacking('packing-list-p2')">&#8635; Recalc</button>
+      </div>
       <div class="totals">
         <div class="total-box"><div class="total-val" id="t-pieces-p2">—</div><div class="total-lbl">Pieces</div></div>
         <div class="total-box"><div class="total-val" id="t-poles-p2">—</div><div class="total-lbl">Poles</div></div>
         <div class="total-box"><div class="total-val" id="t-weight-p2">—</div><div class="total-lbl">Total kg</div></div>
       </div>
-      <div id="packing-preview-p2"></div>
+      <div id="packing-breakdown-p2"></div>
     </div>
 
     <!-- Actions -->
     <div class="action-row">
-      <button class="btn btn-green" onclick="downloadPackingListP2()">&#8595; Final Packing List (Excel)</button>
-      <button class="btn btn-outline" onclick="downloadSLI()">&#8595; Shipper's Letter of Instruction</button>
-      <button class="btn btn-outline btn-sm" onclick="recalcPackingP2()">&#8635; Recalc Packing</button>
+      <button class="btn btn-green" onclick="downloadPackingListP2()">&#8595; Final Packing List (PDF)</button>
+      <button class="btn btn-outline" onclick="downloadSLI()">&#8595; Shipper's Letter of Instruction (PDF)</button>
     </div>
     <div class="action-err" id="action-err-p2"></div>
     <div class="log" id="log-p2"></div>
@@ -582,11 +607,30 @@ async function fetchIF() {
     const addrEl = document.getElementById('p2-consignee-full');
     if (addrEl) autoResize(addrEl);
 
-    // Build Phase 2 pole list — IF lines already have qty + serials[]
-    buildPoleListP2(data.lines || []);
-    recalcPackingP2();
+    // Expand IF lines (qty + serials[]) into one flat pole object per pole — same
+    // format as Phase 1's fetchSO, so buildPackingView works identically
+    const poleData = [];
+    for (const line of (data.lines || [])) {
+      const model = parseModel(line.item_code);
+      if (!model || !POLE_LENGTH_IN[model]) continue;
+      const dispCode = (line.item_code || '').replace(/^[A-Za-z]+/, '') || String(model);
+      const flexNum  = parseFlex(line.item_code);
+      const qty      = line.qty || 1;
+      for (let i = 0; i < qty; i++) {
+        poleData.push({
+          model:  dispCode,
+          flex:   flexNum ? String(flexNum) : '',
+          note:   '',
+          serial: (line.serials || [])[i] || '',
+        });
+      }
+    }
+    buildPackingView(poleData, 'packing-list-p2');
 
-    const totalPoles = (data.lines || []).reduce((s, l) => s + (l.qty || 0), 0);
+    // Auto-fill Sched. B qty with total pole count (editable)
+    const totalPoles = poleData.length;
+    setVal('p2-schedB-qty', String(totalPoles));
+
     let msg = `✓ Loaded ${data.if_number} (${data.so_number}) — ${data.customer} · ${totalPoles} poles`;
     if (data.multiple_ifs > 1) msg += ` · ${data.multiple_ifs} shipments on this SO — showing most recent`;
     setFetchStatus('p2', msg, 'ok');
@@ -733,7 +777,8 @@ function cascadeOverflowFrom(startContainer) {
       cur = next;
     } else {
       // No next piece — create new piece(s) for remaining overflow
-      const list     = document.getElementById('packing-list');
+      // Use startContainer's parent so this works for both Phase 1 and Phase 2 lists
+      const list     = startContainer.parentElement;
       const autoType = overflow.length >= 5 ? 'large-tube' : 'small-tube';
       const autoPt   = PIECE_TYPES[autoType];
       let rem        = [...overflow];
@@ -751,29 +796,30 @@ function cascadeOverflowFrom(startContainer) {
 
 function onPieceTypeChange(sel) {
   const container = sel.closest('.piece-container');
-  calcPieceDims(container); // update dims immediately for the new type
+  const listEl    = container.parentElement;
+  calcPieceDims(container);
   cascadeOverflowFrom(container);
-  renumberPieces();
-  updatePackingTotals();
-  const list = document.getElementById('packing-list');
-  list.style.opacity = '0.4';
-  setTimeout(() => { list.style.transition = 'opacity .25s'; list.style.opacity = '1'; }, 30);
+  renumberPieces(listEl.id);
+  updatePackingTotals(listEl.id);
+  listEl.style.opacity = '0.4';
+  setTimeout(() => { listEl.style.transition = 'opacity .25s'; listEl.style.opacity = '1'; }, 30);
 }
 
 function delPoleRow(btn) {
   const container = btn.closest('.piece-container');
+  const listId    = container.parentElement?.id || 'packing-list';
   btn.closest('.pole-row-p1').remove();
   if (!container.querySelectorAll('.pole-row-p1').length) {
     container.remove();
-    renumberPieces();
+    renumberPieces(listId);
   } else {
     calcPieceDims(container);
   }
-  updatePackingTotals();
+  updatePackingTotals(listId);
 }
 
-function renumberPieces() {
-  document.querySelectorAll('#packing-list .piece-container').forEach((c, i) => {
+function renumberPieces(listId = 'packing-list') {
+  document.querySelectorAll(`#${listId} .piece-container`).forEach((c, i) => {
     const b = c.querySelector('.piece-num-badge');
     if (b) b.textContent = `Piece ${i + 1}`;
   });
@@ -822,6 +868,8 @@ function onPolesDrop(e) {
   const tgtContainer = targetPolesDiv.closest('.piece-container');
   if (!srcContainer || !tgtContainer) return;
 
+  const listId = tgtContainer.parentElement?.id || 'packing-list';
+
   // Move the row, sort destination, then cascade any overflow forward
   targetPolesDiv.appendChild(_dragRow);
   sortPolesBySize(tgtContainer);
@@ -834,8 +882,8 @@ function onPolesDrop(e) {
     sortPolesBySize(srcContainer);
     calcPieceDims(srcContainer);
   }
-  renumberPieces();
-  updatePackingTotals();
+  renumberPieces(listId);
+  updatePackingTotals(listId);
 }
 
 // Sort poles within a piece container largest→smallest by model number
@@ -852,8 +900,10 @@ function sortPolesBySize(container) {
   rows.forEach(r => polesDiv.appendChild(r)); // re-append in sorted order
 }
 
-function updatePackingTotals() {
-  const containers = document.querySelectorAll('#packing-list .piece-container');
+// listId = 'packing-list' (Phase 1) or 'packing-list-p2' (Phase 2)
+function updatePackingTotals(listId = 'packing-list') {
+  const sfx        = listId === 'packing-list' ? '' : '-p2';
+  const containers = document.querySelectorAll(`#${listId} .piece-container`);
   let totalPoles = 0, totalLbs = 0, pieceSeq = 0;
   const pieceRows = [];
 
@@ -879,12 +929,15 @@ function updatePackingTotals() {
   const totalKg = Math.round(totalLbs * 0.453592 * 10) / 10;
 
   const n = containers.length;
-  document.getElementById('t-pieces').textContent = n         || '—';
-  document.getElementById('t-poles').textContent  = totalPoles || '—';
-  document.getElementById('t-weight').textContent = totalPoles ? totalKg + ' kg' : '—';
+  const tPieces = document.getElementById(`t-pieces${sfx}`);
+  const tPoles  = document.getElementById(`t-poles${sfx}`);
+  const tWeight = document.getElementById(`t-weight${sfx}`);
+  if (tPieces) tPieces.textContent = n          || '—';
+  if (tPoles)  tPoles.textContent  = totalPoles  || '—';
+  if (tWeight) tWeight.textContent = totalPoles  ? totalKg + ' kg' : '—';
 
   // Per-piece breakdown table
-  const bd = document.getElementById('packing-breakdown');
+  const bd = document.getElementById(`packing-breakdown${sfx}`);
   if (!bd) return;
   if (!pieceRows.length) { bd.innerHTML = ''; return; }
   bd.innerHTML = `
@@ -923,7 +976,7 @@ function addPoleRowToContainer(container, pole = {}) {
   row.draggable = true;
   row.innerHTML = `
     <input class="pr-model" type="text" value="${htmlEsc(String(model))}" placeholder="Model"
-      oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals()">
+      oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list')">
     <input class="pr-flex"   type="text" value="${htmlEsc(flex)}"   placeholder="Flex">
     <input class="pr-note"   type="text" value="${htmlEsc(note)}"   placeholder="Note">
     <input class="pr-serial" type="text" value="${htmlEsc(serial)}" placeholder="Serial">
@@ -936,10 +989,11 @@ function addPoleRowToContainer(container, pole = {}) {
 
 // Add a blank pole to a specific piece (called from per-piece button)
 function addPoleToPiece(btn) {
-  const c = btn.closest('.piece-container');
+  const c      = btn.closest('.piece-container');
+  const listId = c.parentElement?.id || 'packing-list';
   addPoleRowToContainer(c, {});
   calcPieceDims(c);
-  updatePackingTotals();
+  updatePackingTotals(listId);
 }
 
 // Build a piece container DOM element with given poles
@@ -972,10 +1026,11 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
 }
 
 // Main builder: takes flat array of pole objects, groups into pieces, renders DOM
-function buildPackingView(polesArray) {
-  const list = document.getElementById('packing-list');
+// listId = 'packing-list' (Phase 1) or 'packing-list-p2' (Phase 2)
+function buildPackingView(polesArray, listId = 'packing-list') {
+  const list = document.getElementById(listId);
   list.innerHTML = '';
-  if (!polesArray.length) { updatePackingTotals(); return; }
+  if (!polesArray.length) { updatePackingTotals(listId); return; }
 
   // Sort descending by model# (largest → smallest) for optimal packing
   const sorted = [...polesArray].sort((a, b) => (parseInt(b.model) || 0) - (parseInt(a.model) || 0));
@@ -989,14 +1044,14 @@ function buildPackingView(polesArray) {
   }
 
   pieces.forEach((p, i) => list.appendChild(createPieceContainer(i + 1, p.typeKey, p.poles)));
-  document.querySelectorAll('.piece-container').forEach(c => calcPieceDims(c));
-  updatePackingTotals();
+  list.querySelectorAll('.piece-container').forEach(c => calcPieceDims(c));
+  updatePackingTotals(listId);
 }
 
 // Re-run packing algorithm from current DOM state (preserves pole data, regroups)
-function recalcPacking() {
+function recalcPacking(listId = 'packing-list') {
   const poles = [];
-  document.querySelectorAll('#packing-list .piece-container').forEach(c => {
+  document.querySelectorAll(`#${listId} .piece-container`).forEach(c => {
     c.querySelectorAll('.pole-row-p1').forEach(row => {
       const m = (row.querySelector('.pr-model')?.value || '').trim();
       if (m) poles.push({
@@ -1008,139 +1063,27 @@ function recalcPacking() {
     });
   });
   if (!poles.length) { return; }
-  buildPackingView(poles);
-  // Brief visual confirmation
-  const list = document.getElementById('packing-list');
+  buildPackingView(poles, listId);
+  const list = document.getElementById(listId);
   list.style.opacity = '0.4';
   setTimeout(() => { list.style.transition = 'opacity .25s'; list.style.opacity = '1'; }, 30);
 }
 
 // Add a blank pole — goes to last piece, or creates new piece if empty
-function addBlankPoleRow() {
-  const containers = [...document.querySelectorAll('#packing-list .piece-container')];
+function addBlankPoleRow(listId = 'packing-list') {
+  const containers = [...document.querySelectorAll(`#${listId} .piece-container`)];
   if (containers.length) {
     const last = containers[containers.length - 1];
     addPoleRowToContainer(last, {});
     calcPieceDims(last);
-    updatePackingTotals();
+    updatePackingTotals(listId);
   } else {
-    buildPackingView([{ model: '', flex: '', note: '', serial: '' }]);
+    buildPackingView([{ model: '', flex: '', note: '', serial: '' }], listId);
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PHASE 2 POLE UI (with serial number inputs)
-// ─────────────────────────────────────────────────────────────────────────────
-function buildPoleListP2(lines) {
-  const el = document.getElementById('pole-list-p2');
-  el.innerHTML = '';
-  for (const line of lines) {
-    const model = parseModel(line.item_code);
-    const qty   = line.qty || 0;
-    if (!qty) continue;
-    addPoleRowP2(model, qty, line.item_code, line.serials || []);
-  }
-  if (!el.children.length) addPoleRowP2();
-}
-
-function addPoleRowP2(model=null, qty=1, itemCode='', serials=[]) {
-  const el   = document.getElementById('pole-list-p2');
-  const div  = document.createElement('div');
-  div.className = 'pole-row-p2';
-
-  const opts = ALL_MODELS.map(m => `<option value="${m}" ${m==model?'selected':''}>${m}</option>`).join('');
-  const displayName = itemCode ? `${itemCode}` : (model ? `Model ${model}` : '');
-
-  // Build serial number inputs (one per pole)
-  const snInputs = Array.from({length: qty}, (_, i) => {
-    const snVal = (serials[i] || '');
-    return `<div class="sn-item">
-      <span class="sn-label">#${i+1}</span>
-      <input type="text" class="sn-input" placeholder="Serial number" value="${snVal}" data-index="${i}">
-    </div>`;
-  }).join('');
-
-  div.innerHTML = `
-    <div class="pole-row-p2-header">
-      <div class="field" style="margin:0">
-        <select class="pole-model-p2" onchange="onP2ModelChange(this)">
-          <option value="">— Select Model —</option>${opts}
-        </select>
-        <input type="hidden" class="pole-flex-p2" value="${parseFlex(itemCode) || ''}">
-        ${displayName ? `<div style="font-size:10px;color:var(--ts);margin-top:3px">${displayName}</div>` : ''}
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-        <span class="pole-qty-badge p2-qty">${qty} pole${qty>1?'s':''}</span>
-        <input type="number" class="pole-qty-p2" min="1" max="99" value="${qty}" style="width:70px;background:var(--tgb);border:1px solid var(--tgbr);border-radius:6px;padding:4px 8px;font-size:12px;font-weight:700;color:var(--tp);outline:none;font-family:inherit" onchange="onP2QtyChange(this)" title="Quantity">
-        <button class="btn btn-outline btn-sm" style="color:var(--red);border-color:rgba(229,57,53,0.3)" onclick="this.closest('.pole-row-p2').remove();recalcPackingP2()">Remove</button>
-      </div>
-    </div>
-    <div class="sn-list">${snInputs || '<div class="note">Enter serial numbers below after setting quantity.</div>'}</div>`;
-
-  el.appendChild(div);
-  recalcPackingP2();
-}
-
-function onP2ModelChange(sel) {
-  recalcPackingP2();
-}
-
-function onP2QtyChange(input) {
-  const row    = input.closest('.pole-row-p2');
-  const qty    = parseInt(input.value) || 1;
-  const badge  = row.querySelector('.p2-qty');
-  if (badge) badge.textContent = `${qty} pole${qty>1?'s':''}`;
-
-  // Rebuild serial number inputs
-  const snList  = row.querySelector('.sn-list');
-  const existing = Array.from(snList.querySelectorAll('.sn-input')).map(i => i.value);
-  const snInputs = Array.from({length: qty}, (_, i) => {
-    const snVal = existing[i] || '';
-    return `<div class="sn-item">
-      <span class="sn-label">#${i+1}</span>
-      <input type="text" class="sn-input" placeholder="Serial number" value="${snVal}" data-index="${i}">
-    </div>`;
-  }).join('');
-  snList.innerHTML = snInputs;
-  recalcPackingP2();
-}
-
-function getP2PoleRows() {
-  const rows = document.querySelectorAll('#pole-list-p2 .pole-row-p2');
-  const result = [];
-  rows.forEach(row => {
-    const modelSel  = row.querySelector('.pole-model-p2');
-    const qtyInput  = row.querySelector('.pole-qty-p2');
-    const flexInput = row.querySelector('.pole-flex-p2');
-    const model   = modelSel?.value ? parseInt(modelSel.value) : null;
-    const qty     = parseInt(qtyInput?.value) || 0;
-    const flex    = flexInput?.value || '';
-    const serials = Array.from(row.querySelectorAll('.sn-input')).map(i => i.value.trim());
-    if (model && qty > 0) result.push({ model, qty, flex, serials });
-  });
-  return result;
-}
-
-function recalcPackingP2() {
-  const rows = getP2PoleRows();
-  if (!rows.length) {
-    document.getElementById('packing-preview-p2').innerHTML = '';
-    document.getElementById('t-pieces-p2').textContent = '—';
-    document.getElementById('t-poles-p2').textContent  = '—';
-    document.getElementById('t-weight-p2').textContent = '—';
-    return;
-  }
-  const pieces = packPoles(rows);
-  document.getElementById('t-pieces-p2').textContent = pieces.length;
-  document.getElementById('t-poles-p2').textContent  = pieces.reduce((s,p)=>s+p.poles.length,0);
-  document.getElementById('t-weight-p2').textContent = Math.round(pieces.reduce((s,p)=>s+p.weight_kg,0)*100)/100 + ' kg';
-  document.getElementById('packing-preview-p2').innerHTML = pieces.map((p,i) =>
-    `<div class="piece-row">
-      <span class="piece-tag">Piece ${i+1} · ${p.type}</span>
-      <span class="piece-detail">${p.tube_length_in}" × ${p.tube_width_in}" × ${p.tube_height_in}" &nbsp;|&nbsp; ${p.weight_lbs} lbs · ${p.weight_kg} kg &nbsp;|&nbsp; ${p.poles.length} pole${p.poles.length>1?'s':''}</span>
-    </div>`
-  ).join('');
-}
+// Phase 2 pole UI is handled by the shared buildPackingView / addBlankPoleRow system.
+// (Old grouped pole row functions removed — Phase 2 now uses identical piece containers.)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FREIGHT FORWARDER UI
@@ -1520,176 +1463,384 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXCEL PACKING LIST — PHASE 2 (with serial numbers)
+// PDF PACKING LIST — PHASE 2  (Final; no DRAFT; reads from packing-list-p2)
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadPackingListP2() {
-  const poleData = getP2PoleRows();
-  if (!poleData.length) { setActionErr('p2', 'Add poles before downloading.'); return; }
+  const containers = [...document.querySelectorAll('#packing-list-p2 .piece-container')];
+  if (!containers.length) { setActionErr('p2', 'Add poles before downloading.'); return; }
 
-  const pieces   = packPolesDetailed(poleData);
-  const ifNum    = v('if-num')       || 'XXXXX';
-  const soNum    = v('p2-so')        || '';
-  const cons     = v('p2-consignee') || '(consignee)';
-  const shipDate = v('p2-ship-date') || '';
-  const inco     = v('p2-incoterm');
+  const ifNum    = v('if-num')            || 'XXXXX';
+  const soNum    = v('p2-so')             || '';
+  const cons     = v('p2-consignee')      || '';
+  const consFull = v('p2-consignee-full') || cons;
+  const shipDate = v('p2-ship-date')      || '';
+  const inco     = v('p2-incoterm')       || '';
+  const method   = v('p2-method')         || '';
+  const schedB   = v('p2-schedule-b')     || '9506.91.0000';
+  const goodsVal = v('p2-goods-value')    || '';
 
-  const soRef = soNum ? `Sales Order: ${soNum}${ifNum !== 'XXXXX' ? `  ·  IF: ${ifNum}` : ''}` : `IF: ${ifNum}`;
+  const fmtDate = shipDate
+    ? new Date(shipDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
-  const aoa = [];
-  aoa.push(['New Nevada Plastics dba UCS Spirit','','','','','','PACKING LIST','','','','','','']);
-  aoa.push(['2180 Meridian Blvd, Minden NV 89423','','','','','',soRef,'','','','','','']);
-  aoa.push(['775-882-7114  ·  www.spiritpoles.com  ·  FED ID: 22-2768411','','','','','','','','','','','','']);
-  aoa.push([]);
-  aoa.push(['Date','Ultimate Consignee / Destination:','','','','','Carrier','','','','','','']);
-  aoa.push([shipDate, cons,'','','','',inco,'','','','','','']);
-  aoa.push([]);
-  aoa.push(["Piece","Piece Type","Model","Flex","Note","Serial #'s","Length (in)","x","Width (in)","x","Height (in)","Cu Ft","Weight (lbs)"]);
+  // ── Collect piece/pole data from DOM (identical logic to Phase 1) ───────────
+  let totalPoles = 0, totalLbs = 0, totalCuFt = 0, pieceCount = 0;
+  const pieceSections = [];
 
-  for (let i = 0; i < pieces.length; i++) {
-    const p = pieces[i];
-    const typeLabel = p.type === 'Large' ? 'Large Super Tube' : 'Small Super Tube';
-    aoa.push([i+1, typeLabel,'','','','', p.tube_length_in,'x',p.tube_width_in,'x',p.tube_height_in, p.cu_ft, p.weight_lbs]);
-    for (const pole of p.poles) {
-      aoa.push(['','', pole.model, pole.flex||'','', pole.sn||'','','','','','','','']);
-    }
-    aoa.push([]);
-  }
+  containers.forEach(container => {
+    const typeKey = container.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const rows    = [...container.querySelectorAll('.pole-row-p1')];
+    const poles   = rows.map(row => ({
+      model:  (row.querySelector('.pr-model')?.value  || '').trim(),
+      flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
+      note:   (row.querySelector('.pr-note')?.value   || '').trim(),
+      serial: (row.querySelector('.pr-serial')?.value || '').trim(),
+    })).filter(p => p.model);
 
-  const totalPoles = pieces.reduce((s,p)=>s+p.poles.length,0);
-  const totalLbs   = Math.round(pieces.reduce((s,p)=>s+p.weight_lbs,0)*10)/10;
-  const totalCuFt  = Math.round(pieces.reduce((s,p)=>s+p.cu_ft,0)*100)/100;
-  aoa.push(['TOTALS','','','','',totalPoles,'','','','','',totalCuFt,totalLbs]);
-  aoa.push([]);
-  aoa.push(['Shipper:', SHIPPER.company]);
-  aoa.push(['', SHIPPER.address]);
-  aoa.push(['Phone:', SHIPPER.phone,'','Email:', SHIPPER.email]);
-  aoa.push(['Contact:', SHIPPER.contact]);
+    if (!poles.length) return;
+    pieceCount++;
 
-  const colPts = [56,126,56,42,98,98,70,21,70,21,70,63,91];
-  const merges = [
-    {r:0,c:0,across:5},{r:0,c:6,across:6},
-    {r:1,c:0,across:5},{r:1,c:6,across:6},
-    {r:2,c:0,across:12},
-    {r:4,c:1,across:4},{r:5,c:1,across:4},
-  ];
-  xlsDownload(aoa, `FinalPackingList_${ifNum}_${shipDate||'draft'}.xls`, colPts, merges, 7, aoa.length - 6);
+    const models  = poles.map(p => parseInt(p.model) || 0).filter(Boolean);
+    const longest = models.length ? Math.max(...models) : 0;
+    const unknownModels = models.filter(m => !POLE_LENGTH_IN[m]);
+
+    const lenIn  = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
+    const wtLbs  = Math.round((models.reduce((s,m) => s + (POLE_WEIGHT_LBS[m] || 10), 0) + pt.extra_wt) * 10) / 10;
+    const wtKgs  = Math.round(wtLbs * 0.453592 * 10) / 10;
+    const cuFt   = lenIn ? Math.round(lenIn * pt.w * pt.h / 1728 * 100) / 100 : 0;
+
+    totalPoles += poles.length;
+    totalLbs   += wtLbs;
+    totalCuFt  += cuFt;
+
+    const unknownWarn = unknownModels.length
+      ? `<div class="unk-warn">&#9888; Unknown model(s): ${unknownModels.join(', ')} — dims &amp; weight may be incorrect</div>` : '';
+
+    const poleRows = poles.map(p => `
+      <tr class="pole-row">
+        <td></td><td></td>
+        <td>${htmlEsc(p.model)}</td>
+        <td>${htmlEsc(p.flex)}</td>
+        <td>${htmlEsc(p.note)}</td>
+        <td>${htmlEsc(p.serial)}</td>
+        <td></td><td></td><td></td><td></td><td></td>
+      </tr>`).join('');
+
+    pieceSections.push(`
+      <tr class="piece-hdr-row">
+        <td><strong>${pieceCount}</strong></td>
+        <td>${pt.label}</td>
+        <td></td><td></td><td></td><td></td>
+        <td>${lenIn}"</td><td>&times;</td><td>${pt.w}"</td><td>&times;</td><td>${pt.h}"</td>
+        <td>${cuFt}</td><td>${wtLbs}</td>
+      </tr>
+      ${unknownWarn ? `<tr><td colspan="13">${unknownWarn}</td></tr>` : ''}
+      ${poleRows}
+      <tr class="piece-sub-row">
+        <td colspan="11" style="text-align:right;font-style:italic;font-size:8pt;color:#888">Piece ${pieceCount} subtotal</td>
+        <td>${cuFt} ft³</td><td>${wtLbs} lbs &nbsp;(${wtKgs} kg)</td>
+      </tr>`);
+  });
+
+  if (!pieceCount) { setActionErr('p2', 'No poles found — fill in pole models before downloading.'); return; }
+
+  const totPcs  = pieceCount;
+  const totKgs  = Math.round(totalLbs * 0.453592 * 10) / 10;
+  const totLbs  = Math.round(totalLbs * 10) / 10;
+  const totCuFt = Math.round(totalCuFt * 100) / 100;
+
+  const refLine = soNum ? `IF: ${ifNum} &nbsp;·&nbsp; SO: ${soNum}` : `IF: ${ifNum}`;
+
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Packing List — ${ifNum}</title>
+<style>
+@page{size:8.5in 11in;margin:0.5in;@bottom-center{content:"Page " counter(page) " of " counter(pages);font-family:Arial,sans-serif;font-size:8pt;color:#888}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,Helvetica,sans-serif;font-size:9pt;color:#000;background:#fff}
+table.main-tbl{width:100%;border-collapse:collapse}
+table.main-tbl thead{display:table-header-group}
+table.main-tbl tfoot{display:table-footer-group}
+.lh-img{width:100%;height:auto;display:block;margin-bottom:8px}
+.doc-header{width:100%;margin-bottom:10px}
+.doc-header td{vertical-align:top;font-size:9pt}
+.doc-title{font-size:18pt;font-weight:900;letter-spacing:.04em;color:#000;text-align:right}
+.doc-sub{font-size:10pt;font-weight:700;color:#555;text-align:right;margin-top:2px}
+.ref-line{font-size:9pt;font-weight:700;color:#333;text-align:right;margin-top:4px}
+.doc-addr{font-size:8pt;color:#555;line-height:1.5}
+.cons-block{background:#f7f7f7;border:1px solid #ddd;border-radius:4px;padding:8px 12px;margin-bottom:10px}
+.cons-label{font-size:8pt;font-weight:700;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+.cons-name{font-size:11pt;font-weight:900}
+.cons-addr{font-size:9pt;color:#444;white-space:pre-line}
+.meta-row{display:flex;gap:16px;margin-bottom:12px;font-size:9pt}
+.meta-cell{flex:1;background:#f7f7f7;border:1px solid #ddd;border-radius:4px;padding:6px 10px}
+.meta-lbl{font-size:7.5pt;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em}
+.meta-val{font-size:10pt;font-weight:700;margin-top:1px}
+table.pole-tbl{width:100%;border-collapse:collapse;font-size:8.5pt;margin-bottom:10px}
+table.pole-tbl th{background:#222;color:#fff;padding:5px 7px;text-align:left;font-size:8pt;letter-spacing:.05em}
+table.pole-tbl td{padding:4px 7px;border-bottom:1px solid #eee}
+table.pole-tbl .piece-hdr-row td{background:#f0f0f0;font-weight:700;border-top:2px solid #999;border-bottom:1px solid #bbb}
+table.pole-tbl .pole-row td{background:#fff}
+table.pole-tbl .piece-sub-row td{background:#fafafa;border-top:1px dashed #ccc;font-size:8pt}
+.unk-warn{background:#fff3cd;color:#856404;padding:3px 8px;font-size:8pt;border-left:3px solid #ffc107}
+.totals-bar{display:flex;gap:0;border:2px solid #222;margin:8px 0;border-radius:4px;overflow:hidden}
+.tot-cell{flex:1;text-align:center;padding:8px 4px;border-right:1px solid #ccc}
+.tot-cell:last-child{border-right:none}
+.tot-num{display:block;font-size:16pt;font-weight:900}
+.tot-lbl{display:block;font-size:7.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#888;margin-top:1px}
+.bottom-sec{display:flex;align-items:flex-end;justify-content:space-between;margin-top:16px;padding-top:10px;border-top:1px solid #ccc}
+.made-usa{font-size:8pt;font-weight:700;color:#555;line-height:1.6}
+.seal-img{width:72px;height:auto}
+.sig-block{text-align:right;font-size:8.5pt;color:#333;line-height:1.7}
+.sig-line{border-top:1px solid #333;width:220px;margin-left:auto;margin-bottom:4px}
+.certified{font-size:8pt;font-style:italic;color:#555;margin-bottom:4px}
+.no-print{text-align:center;padding:20px;display:none}
+@media screen{.no-print{display:block}}
+</style></head><body>
+
+<table class="main-tbl">
+  <thead><tr><td>
+    <img src="data:image/png;base64,${LH_B64}" class="lh-img" alt="">
+    <table class="doc-header"><tr>
+      <td class="doc-addr">
+        New Nevada Plastics dba UCS Spirit<br>
+        2180 Meridian Blvd, Minden NV 89423<br>
+        775-882-7114 &nbsp;·&nbsp; www.spiritpoles.com<br>
+        FED ID: 22-2768411
+      </td>
+      <td style="text-align:right">
+        <div class="doc-title">PACKING LIST</div>
+        <div class="ref-line">${refLine}</div>
+      </td>
+    </tr></table>
+    <div class="cons-block">
+      <div class="cons-label">Ultimate Consignee / Destination</div>
+      <div class="cons-name">${htmlEsc(cons)}</div>
+      <div class="cons-addr">${htmlEsc(consFull)}</div>
+    </div>
+    <div class="meta-row">
+      <div class="meta-cell"><div class="meta-lbl">Ship Date</div><div class="meta-val">${fmtDate}</div></div>
+      <div class="meta-cell"><div class="meta-lbl">Method</div><div class="meta-val">${htmlEsc(method)}</div></div>
+      <div class="meta-cell"><div class="meta-lbl">Incoterms</div><div class="meta-val">${htmlEsc(inco)}</div></div>
+      <div class="meta-cell"><div class="meta-lbl">Declared Value</div><div class="meta-val">${htmlEsc(goodsVal)}</div></div>
+      <div class="meta-cell"><div class="meta-lbl">Schedule B</div><div class="meta-val">${htmlEsc(schedB)}</div></div>
+    </div>
+  </td></tr></thead>
+  <tfoot><tr><td style="height:8px"></td></tr></tfoot>
+  <tbody><tr><td>
+
+    <table class="pole-tbl">
+      <thead>
+        <tr>
+          <th style="width:32px">#</th>
+          <th>Type</th>
+          <th style="width:56px">Model</th>
+          <th style="width:44px">Flex</th>
+          <th>Notes</th>
+          <th style="width:90px">Serial #</th>
+          <th style="width:50px">L (in)</th>
+          <th style="width:14px"></th>
+          <th style="width:44px">W (in)</th>
+          <th style="width:14px"></th>
+          <th style="width:44px">H (in)</th>
+          <th style="width:44px">Cu Ft</th>
+          <th style="width:64px">Wt (lbs)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${pieceSections.join('')}
+      </tbody>
+    </table>
+
+    <div class="totals-bar">
+      <div class="tot-cell"><span class="tot-num">${totalPoles}</span><span class="tot-lbl">Poles</span></div>
+      <div class="tot-cell"><span class="tot-num">${totPcs}</span><span class="tot-lbl">Total Pieces</span></div>
+      <div class="tot-cell"><span class="tot-num">${totKgs}</span><span class="tot-lbl">kgs.</span></div>
+      <div class="tot-cell"><span class="tot-num">${totCuFt}</span><span class="tot-lbl">Cubic Feet</span></div>
+      <div class="tot-cell"><span class="tot-num">${totLbs}</span><span class="tot-lbl">lbs.</span></div>
+    </div>
+
+    <div class="bottom-sec">
+      <div class="made-usa">ALL PRODUCTS MADE IN THE USA<br>SCHEDULE B: ${htmlEsc(schedB)}<br>${fmtDate}</div>
+      <img src="data:image/png;base64,${SEAL_B64}" class="seal-img" alt="">
+      <div class="sig-block">
+        <div class="certified">Certified True and Correct</div>
+        <div class="sig-line"></div>
+        Austin Tilley<br>Office Assistant
+      </div>
+    </div>
+
+  </td></tr></tbody>
+</table>
+
+<div class="no-print">
+  <button onclick="window.print()">&#128438;&nbsp; Print / Save as PDF</button>
+</div>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=860,height=900,scrollbars=yes');
+  if (!win) { setActionErr('p2', 'Pop-up blocked — allow pop-ups for this site and try again.'); return; }
+  win.document.write(html);
+  win.document.close();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SLI (Shipper's Letter of Instruction) — HTML print
+// SLI (Shipper's Letter of Instruction) — PDF popup
 // ─────────────────────────────────────────────────────────────────────────────
 function downloadSLI() {
-  const rows = getP2PoleRows();
-  if (!rows.length) { setActionErr('p2', 'Add poles before generating the SLI.'); return; }
+  const containers = [...document.querySelectorAll('#packing-list-p2 .piece-container')];
+  if (!containers.length) { setActionErr('p2', 'Add poles before generating the SLI.'); return; }
 
-  const pieces   = packPoles(rows);
-  const ifNum    = v('if-num')            || 'XXXXX';
-  const soNum    = v('p2-so')             || '';
-  const cons     = v('p2-consignee')      || '(consignee)';
-  const consFull = v('p2-consignee-full') || cons;
-  const shipDate = v('p2-ship-date')      || '';
-  const method   = v('p2-method');
-  const inco     = v('p2-incoterm');
-  const schedB   = v('p2-schedule-b');
-  const goodsVal = v('p2-goods-value');
+  const ifNum      = v('if-num')            || 'XXXXX';
+  const soNum      = v('p2-so')             || '';
+  const cons       = v('p2-consignee')      || '';
+  const consFull   = v('p2-consignee-full') || cons;
+  const notify     = v('p2-notify')         || '';
+  const shipDate   = v('p2-ship-date')      || '';
+  const method     = v('p2-method')         || '';
+  const inco       = v('p2-incoterm')       || '';
+  const schedB     = v('p2-schedule-b')     || '9506.91.0000';
+  const schedBQty  = v('p2-schedB-qty')     || '';
+  const goodsDesc  = v('p2-goods-desc')     || 'Articles and equipment for general physical exercise, gymnastics or athletics; parts and accessories thereof';
+  const goodsVal   = v('p2-goods-value')    || '';
+  const domForeign = v('p2-dom-foreign')    || 'D';
+  const ddtcUnit   = v('p2-ddtc-unit')      || 'EA';
+  const eccn       = v('p2-eccn')           || 'EAR99';
+  const sme        = v('p2-sme')            || 'N';
+  const license    = v('p2-license')        || 'NLR';
 
-  const totalPieces = pieces.length;
-  const totalKg     = Math.round(pieces.reduce((s,p)=>s+p.weight_kg,0)*100)/100;
-  const totalLbs    = Math.round(pieces.reduce((s,p)=>s+p.weight_lbs,0)*10)/10;
-  const totalPoles  = pieces.reduce((s,p)=>s+p.poles.length,0);
+  const fmtDate = shipDate
+    ? new Date(shipDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
-  // Collect serials
-  const allSerials = [];
-  for (const r of rows) {
-    for (let i = 0; i < r.qty; i++) allSerials.push({ model: r.model, sn: r.serials[i] || '' });
-  }
-  const snRows = allSerials.map((s,i) =>
-    `<tr><td>${i+1}</td><td>${s.model}</td><td>${s.sn || '<em>TBD</em>'}</td></tr>`
+  // Collect piece dims and all pole/serial data from DOM
+  let totalLbs = 0, totalPoles = 0;
+  const pieceData = [];
+  const allPoles  = [];
+
+  containers.forEach((container, ci) => {
+    const typeKey = container.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const rows    = [...container.querySelectorAll('.pole-row-p1')];
+    const poles   = rows.map(row => ({
+      model:  (row.querySelector('.pr-model')?.value  || '').trim(),
+      flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
+      serial: (row.querySelector('.pr-serial')?.value || '').trim(),
+    })).filter(p => p.model);
+    if (!poles.length) return;
+
+    const models  = poles.map(p => parseInt(p.model) || 0).filter(Boolean);
+    const longest = models.length ? Math.max(...models) : 0;
+    const lenIn   = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
+    const wtLbs   = Math.round((models.reduce((s,m) => s + (POLE_WEIGHT_LBS[m] || 10), 0) + pt.extra_wt) * 10) / 10;
+    const wtKgs   = Math.round(wtLbs * 0.453592 * 10) / 10;
+
+    totalLbs   += wtLbs;
+    totalPoles += poles.length;
+    pieceData.push({ num: pieceData.length + 1, label: pt.label, lenIn, w: pt.w, h: pt.h, wtLbs, wtKgs, poleCount: poles.length });
+    poles.forEach(p => allPoles.push(p));
+  });
+
+  if (!pieceData.length) { setActionErr('p2', 'No poles found — fill in pole models before generating the SLI.'); return; }
+
+  const totalKgs   = Math.round(totalLbs * 0.453592 * 10) / 10;
+  const totalPieces = pieceData.length;
+
+  const dimRows = pieceData.map(p =>
+    `<tr><td>${p.num}</td><td>${htmlEsc(p.label)}</td><td>${p.lenIn}"</td><td>${p.w}"</td><td>${p.h}"</td><td>${p.wtLbs}</td><td>${p.wtKgs}</td><td>${p.poleCount}</td></tr>`
   ).join('');
 
-  const dimRows = pieces.map((p,i) =>
-    `<tr><td>${i+1}</td><td>${p.type}</td><td>${p.tube_length_in}"</td><td>${p.tube_width_in}"</td><td>${p.tube_height_in}"</td><td>${p.weight_lbs} lbs</td><td>${p.weight_kg} kg</td><td>${p.poles.length}</td></tr>`
+  const snRows = allPoles.map((p, i) =>
+    `<tr><td>${i+1}</td><td>${htmlEsc(p.model)}</td><td>${htmlEsc(p.flex)}</td><td>${p.serial ? htmlEsc(p.serial) : '<em style="color:#aaa">TBD</em>'}</td></tr>`
   ).join('');
 
   const sliHTML = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><title>SLI — ${ifNum}</title>
 <style>
-body{font-family:Arial,sans-serif;font-size:10pt;margin:0;padding:20px;color:#000}
-h1{font-size:14pt;margin:0 0 4px}
-h2{font-size:11pt;margin:16px 0 4px;border-bottom:1px solid #999;padding-bottom:2px}
-table{border-collapse:collapse;width:100%;margin-bottom:12px}
-th,td{border:1px solid #ccc;padding:5px 8px;text-align:left;font-size:9pt}
-th{background:#f0f0f0;font-weight:bold}
-.header-block{display:flex;justify-content:space-between;margin-bottom:16px}
-.header-block div{width:48%}
-.field-label{font-weight:bold;font-size:9pt;color:#555;margin-top:6px}
-.field-value{font-size:10pt;margin-bottom:2px}
-.title-bar{background:#000;color:#fff;padding:8px 14px;margin-bottom:16px}
-.title-bar h1{color:#fff}
-.sub{font-size:8pt;color:#888}
-@media print{body{padding:10px}.no-print{display:none}}
+@page{size:8.5in 11in;margin:0.5in}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,Helvetica,sans-serif;font-size:9pt;color:#000;background:#fff;padding:0}
+.lh-img{width:100%;height:auto;display:block;margin-bottom:12px}
+h2{font-size:10pt;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-bottom:2px solid #222;padding-bottom:3px;margin:14px 0 7px;color:#000}
+table{border-collapse:collapse;width:100%;margin-bottom:10px;font-size:8.5pt}
+th{background:#222;color:#fff;padding:5px 7px;text-align:left;font-size:8pt}
+td{padding:4px 7px;border:1px solid #ddd}
+.title-bar{background:#000;color:#fff;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+.title-bar h1{font-size:14pt;color:#fff;font-weight:900}
+.title-bar .sub{font-size:9pt;color:#aaa}
+.two-col{display:flex;gap:20px;margin-bottom:12px}
+.two-col > div{flex:1}
+.field-lbl{font-size:7.5pt;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#888;margin-bottom:2px}
+.field-val{font-size:10pt;font-weight:700;white-space:pre-line}
+.no-print{text-align:center;padding:20px}
+@media print{.no-print{display:none}}
 </style></head><body>
+
+<img src="data:image/png;base64,${LH_B64}" class="lh-img" alt="">
+
 <div class="title-bar">
   <h1>Shipper's Letter of Instruction</h1>
-  <div style="font-size:9pt;color:#ccc">UCS Spirit / New Nevada Plastics &mdash; Export Document</div>
+  <span class="sub">IF: ${htmlEsc(ifNum)} &nbsp;|&nbsp; ${fmtDate}</span>
 </div>
 
-<div class="header-block">
+<div class="two-col">
   <div>
-    <div class="field-label">SHIPPER</div>
-    <div class="field-value"><strong>${SHIPPER.company}</strong></div>
-    <div class="field-value">${SHIPPER.address}</div>
-    <div class="field-value">Phone: ${SHIPPER.phone}</div>
-    <div class="field-value">Email: ${SHIPPER.email}</div>
-    <div class="field-value">Contact: ${SHIPPER.contact}</div>
-    <div class="field-value">Hours: ${SHIPPER.hours}</div>
+    <div class="field-lbl">Shipper / Exporter</div>
+    <div class="field-val">${htmlEsc(SHIPPER.company)}<br>${htmlEsc(SHIPPER.address)}<br>${htmlEsc(SHIPPER.phone)}<br>${htmlEsc(SHIPPER.email)}</div>
   </div>
   <div>
-    <div class="field-label">CONSIGNEE</div>
-    <div class="field-value" style="white-space:pre-line">${consFull || cons}</div>
+    <div class="field-lbl">Ultimate Consignee</div>
+    <div class="field-val">${htmlEsc(consFull || cons)}</div>
   </div>
 </div>
+
+${notify ? `<div style="margin-bottom:12px"><div class="field-lbl">Notify Party</div><div class="field-val">${htmlEsc(notify)}</div></div>` : ''}
 
 <h2>Shipment Reference</h2>
-<table>
-<tr><th>IF Number</th><th>SO Number</th><th>Ship Date</th><th>Method</th><th>Incoterms</th></tr>
-<tr><td>${ifNum}</td><td>${soNum}</td><td>${shipDate}</td><td>${method}</td><td>${inco}</td></tr>
-</table>
+<table><tr>
+  <th>IF Number</th><th>SO Number</th><th>Ship Date</th><th>Method</th><th>Incoterms</th><th>Declared Value</th>
+</tr><tr>
+  <td>${htmlEsc(ifNum)}</td><td>${htmlEsc(soNum)}</td><td>${fmtDate}</td><td>${htmlEsc(method)}</td><td>${htmlEsc(inco)}</td><td>${htmlEsc(goodsVal)}</td>
+</tr></table>
 
-<h2>Commodity Details</h2>
+<h2>Export Declaration</h2>
 <table>
-<tr><th>Schedule B / HS Code</th><th>Goods Description</th><th>Declared Value</th></tr>
-<tr><td>9506.91.0000</td><td>Articles and equipment for general physical exercise, gymnastics or athletics; parts and accessories thereof</td><td>${goodsVal}</td></tr>
+<tr><th>Dom/Foreign</th><th>Schedule B / HS</th><th>Goods Description</th><th>Sched. B Qty</th><th>DDTC Unit</th></tr>
+<tr><td>${htmlEsc(domForeign)}</td><td>${htmlEsc(schedB)}</td><td>${htmlEsc(goodsDesc)}</td><td>${htmlEsc(schedBQty)}</td><td>${htmlEsc(ddtcUnit)}</td></tr>
+<tr><th>ECCN / EAR99 / USML</th><th>SME</th><th>License / Exemption / NLR</th><th>Shipping Weight (kg)</th><th>Shipping Weight (lbs)</th></tr>
+<tr><td>${htmlEsc(eccn)}</td><td>${htmlEsc(sme)}</td><td>${htmlEsc(license)}</td><td>${totalKgs} kg</td><td>${Math.round(totalLbs*10)/10} lbs</td></tr>
 </table>
 
 <h2>Package Dimensions &amp; Weight</h2>
 <table>
-<tr><th>Piece #</th><th>Type</th><th>Length</th><th>Width</th><th>Height</th><th>Weight (lbs)</th><th>Weight (kg)</th><th>Poles</th></tr>
+<tr><th>#</th><th>Type</th><th>Length</th><th>Width</th><th>Height</th><th>Wt (lbs)</th><th>Wt (kg)</th><th>Poles</th></tr>
 ${dimRows}
-<tr style="font-weight:bold;background:#f9f9f9"><td colspan="5">TOTALS</td><td>${totalLbs} lbs</td><td>${totalKg} kg</td><td>${totalPoles}</td></tr>
+<tr style="font-weight:800;background:#f0f0f0"><td colspan="5">TOTALS — ${totalPieces} piece${totalPieces>1?'s':''}</td><td>${Math.round(totalLbs*10)/10}</td><td>${totalKgs}</td><td>${totalPoles}</td></tr>
 </table>
 
 <h2>Serial Number Register</h2>
 <table>
-<tr><th>#</th><th>Pole Model</th><th>Serial Number</th></tr>
+<tr><th>#</th><th>Model</th><th>Flex</th><th>Serial Number</th></tr>
 ${snRows}
 </table>
 
-<h2>Special Instructions</h2>
-<p style="font-size:9pt;color:#555">Poles are fiberglass athletic vaulting poles. Handle with care — do not stack heavy items on top. Tubes are marked as fragile.</p>
-
-<div style="margin-top:30px;font-size:9pt;color:#999">
-Generated: ${new Date().toLocaleDateString('en-US', {year:'numeric',month:'long',day:'numeric'})} &nbsp;|&nbsp; UCS Spirit Export Shipping Tool
+<div style="margin-top:20px;padding-top:12px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:8.5pt;color:#555">
+  <div>Fiberglass athletic vaulting poles. Handle with care — do not stack heavy items on top.</div>
+  <div>Generated: ${fmtDate} &nbsp;|&nbsp; UCS Spirit Export Shipping</div>
 </div>
 
-<script>window.print();<\/script>
+<div class="no-print" style="margin-top:20px">
+  <button onclick="window.print()">&#128438;&nbsp; Print / Save as PDF</button>
+</div>
 </body></html>`;
 
-  const blob = new Blob([sliHTML], { type: 'text/html' });
-  const url  = URL.createObjectURL(blob);
-  const win  = window.open(url, '_blank');
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  const win = window.open('', '_blank', 'width=860,height=900,scrollbars=yes');
+  if (!win) { setActionErr('p2', 'Pop-up blocked — allow pop-ups for this site and try again.'); return; }
+  win.document.write(sliHTML);
+  win.document.close();
 }
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EMAIL BUILDER
