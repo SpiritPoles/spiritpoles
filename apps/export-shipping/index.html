@@ -503,12 +503,11 @@ function autoResize(el) {
   el.style.height = (el.scrollHeight) + 'px';
 }
 
-// Parse model number from NetSuite item code like "SP400/40" or "UF350/55"
+// Parse model number from NetSuite item code like "SP400/40" or "UF350/55".
+// Requires slash format — avoids false matches on non-pole items like "XB-400-BOX".
 function parseModel(itemCode) {
   const m = String(itemCode || '').match(/(\d+)\//);
-  if (m) return parseInt(m[1]);
-  const n = String(itemCode || '').match(/\d+/);
-  return n ? parseInt(n[0]) : null;
+  return m ? parseInt(m[1]) : null;
 }
 
 // Parse flex from NetSuite item code like "SP400/40" → 40
@@ -609,7 +608,7 @@ async function fetchIF() {
       const btns = allIFs.map(f => {
         const active = f.tranid === data.if_number;
         return `<button class="btn btn-sm ${active ? 'btn-green' : 'btn-outline'} if-pick-btn"
-          onclick="selectIF('${f.tranid}')" style="margin:2px 4px 2px 0">${htmlEsc(f.tranid)}${f.date ? ' · ' + f.date : ''}</button>`;
+          onclick="selectIF(${JSON.stringify(f.tranid)})" style="margin:2px 4px 2px 0">${htmlEsc(f.tranid)}${f.date ? ' · ' + f.date : ''}</button>`;
       }).join('');
       picker.innerHTML = `<strong>${allIFs.length} shipments found for ${htmlEsc(query)} — select one to load:</strong>
         <div style="display:flex;flex-wrap:wrap;margin-top:5px">${btns}</div>`;
@@ -1104,6 +1103,8 @@ function recalcPacking(listId = 'packing-list') {
   });
   if (!poles.length) { return; }
   buildPackingView(poles, listId);
+  // Keep Schedule B qty in sync when poles are added/removed before recalc
+  if (listId === 'packing-list-p2') setVal('p2-schedB-qty', String(poles.length));
   const list = document.getElementById(listId);
   list.style.opacity = '0.4';
   setTimeout(() => { list.style.transition = 'opacity .25s'; list.style.opacity = '1'; }, 30);
@@ -1119,6 +1120,11 @@ function addBlankPoleRow(listId = 'packing-list') {
     updatePackingTotals(listId);
   } else {
     buildPackingView([{ model: '', flex: '', note: '', serial: '' }], listId);
+  }
+  // Keep Schedule B qty in sync for Phase 2
+  if (listId === 'packing-list-p2') {
+    const count = document.querySelectorAll('#packing-list-p2 .pole-row-p1').length;
+    setVal('p2-schedB-qty', String(count));
   }
 }
 
@@ -1243,9 +1249,9 @@ function downloadPackingListPDF() {
   const inco     = v('incoterm')       || '';
 
   const fmtDate = shipDate
-    ? new Date(shipDate + 'T00:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
+    ? new Date(shipDate + 'T00:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
     : '';
-  const printedDate = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+  const printedDate = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
 
   let totalPoles = 0, totalLbs = 0, totalCuFt = 0, pieceCount = 0;
   let pieceSections = '';
@@ -1524,7 +1530,7 @@ function downloadPackingListP2() {
     : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   // ── Collect piece/pole data from DOM (identical logic to Phase 1) ───────────
-  let totalPoles = 0, totalLbs = 0, totalCuFt = 0, pieceCount = 0;
+  let totalPoles = 0, totalLbs = 0, totalCuFtRaw = 0, pieceCount = 0;
   const pieceSections = [];
 
   containers.forEach(container => {
@@ -1548,11 +1554,12 @@ function downloadPackingListP2() {
     const lenIn  = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
     const wtLbs  = Math.round((models.reduce((s,m) => s + (POLE_WEIGHT_LBS[m] || 10), 0) + pt.extra_wt) * 10) / 10;
     const wtKgs  = Math.round(wtLbs * 0.453592 * 10) / 10;
-    const cuFt   = lenIn ? Math.round(lenIn * pt.w * pt.h / 1728 * 100) / 100 : 0;
+    const cuFtRaw = lenIn ? lenIn * pt.w * pt.h / 1728 : 0;
+    const cuFt    = Math.round(cuFtRaw * 100) / 100;  // per-piece display value
 
-    totalPoles += poles.length;
-    totalLbs   += wtLbs;
-    totalCuFt  += cuFt;
+    totalPoles   += poles.length;
+    totalLbs     += wtLbs;
+    totalCuFtRaw += cuFtRaw;  // accumulate raw so final total rounds correctly
 
     const unknownWarn = unknownModels.length
       ? `<div class="unk-warn">&#9888; Unknown model(s): ${unknownModels.join(', ')} — dims &amp; weight may be incorrect</div>` : '';
@@ -1588,7 +1595,7 @@ function downloadPackingListP2() {
   const totPcs  = pieceCount;
   const totKgs  = Math.round(totalLbs * 0.453592 * 10) / 10;
   const totLbs  = Math.round(totalLbs * 10) / 10;
-  const totCuFt = Math.round(totalCuFt * 100) / 100;
+  const totCuFt = Math.round(totalCuFtRaw * 100) / 100;  // round raw total, not sum of rounded pieces
 
   const refLine = soNum ? `IF: ${ifNum} &nbsp;·&nbsp; SO: ${soNum}` : `IF: ${ifNum}`;
 
@@ -2181,8 +2188,11 @@ if (localStorage.getItem('mode') === 'light') {
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-  document.getElementById('ship-date').valueAsDate    = new Date();
-  document.getElementById('p2-ship-date').valueAsDate = new Date();
+  // Use toLocaleDateString('en-CA') → YYYY-MM-DD in LOCAL time.
+  // .valueAsDate = new Date() interprets as UTC and shows tomorrow's date after ~4pm Pacific.
+  const todayLocal = new Date().toLocaleDateString('en-CA');
+  document.getElementById('ship-date').value    = todayLocal;
+  document.getElementById('p2-ship-date').value = todayLocal;
   // Auto-size any pre-filled textareas
   document.querySelectorAll('textarea[oninput*="autoResize"]').forEach(t => autoResize(t));
   buildFFList();
