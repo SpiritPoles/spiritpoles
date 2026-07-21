@@ -1305,9 +1305,9 @@ function downloadPackingListPDF() {
         <thead><tr>
           <th class="tc" style="width:30px">#</th>
           <th style="width:76px">Model</th>
-          <th style="width:84px">Flex Memo</th>
+          <th style="width:70px">Flex Memo</th>
           <th style="width:160px">Special Line Item Notes</th>
-          <th style="width:195px">Serial #</th>
+          <th style="width:235px">Serial #</th>
         </tr></thead>
         <tbody>${poleRows}</tbody>
       </table>
@@ -1327,7 +1327,7 @@ function downloadPackingListPDF() {
 <title>Packing List DRAFT — ${htmlEsc(soNum)}</title>
 <style>
 /* ── Page & body ── */
-@page { size:letter portrait; margin:0.5in; }
+@page { size:letter portrait; margin:0.25in 0.5in 0.5in; }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{background:#ccc}
 body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background:#fff;
@@ -1343,7 +1343,7 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
 
 /* ── Doc header ── */
 .doc-header{display:flex;justify-content:space-between;align-items:center}
-.lh-img{height:80px;width:auto}
+.lh-img{height:88px;width:auto}
 .doc-right{text-align:right;line-height:1.2}
 .doc-title{font-size:22pt;font-weight:900;letter-spacing:1px}
 .draft-tag{display:inline-block;background:#222;color:#fff;font-size:8pt;
@@ -1352,7 +1352,7 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
 .doc-so{font-size:11pt;font-weight:bold;margin-top:3px}
 
 /* ── Info bar ── */
-.info-bar{display:flex;border:1.5px solid #666;border-top:none;background:#fff;margin-top:0}
+.info-bar{display:flex;border:1.5px solid #666;background:#fff;margin-top:0}
 .ib-cell{flex:1;padding:5px 10px}
 .ib-cell:first-child{flex:0 0 105px}
 .ib-cell:last-child{flex:0 0 155px;border-right:none}
@@ -1387,9 +1387,9 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
 .pole-tbl tbody tr:nth-child(even){background:#f8f8f8}
 .tc{text-align:center}
 .n{color:#888;font-size:8pt}
-.mdl{font-weight:bold;font-size:10.5pt;color:#000}
+.mdl{font-weight:bold;font-size:10.5pt;color:#000;letter-spacing:0.06em}
 .nte{color:#555;font-size:8.5pt}
-.mono{font-family:'Courier New',monospace;font-size:8.5pt;color:#333}
+.mono{font-family:'Courier New',monospace;font-size:10.5pt;color:#333}
 .serial-blank{display:block;border-bottom:1px solid #bbb;
               height:1.1em;width:88%;margin:1px 0}
 
