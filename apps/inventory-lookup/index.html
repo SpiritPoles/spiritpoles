@@ -1,6 +1,6 @@
 <!DOCTYPE html><script type="application/json" id="cowork-artifact-meta">
 {
-  "name": "Ucs Spirit Inventory",
+  "name": "UCS Spirit Inventory",
   "schemaVersion": 1,
   "description": "UCS Spirit finished pole inventory dashboard. Renders instantly from pre-aggregated snapshot embedded by 'spiritpoles-inventory-refresh' (7am + 4pm). Data: SS 2471 (inventory counts), SS 2827 (flex numbers), SS 2491 (open orders). No live NetSuite calls on open. Refresh button triggers on-demand task run.",
   "mcpTools": ["mcp__ddaa1911-73d8-4ad4-b036-af611307a1bc__ns_runSavedSearch"],
@@ -172,6 +172,7 @@ table.ntm tbody tr:hover td { background: #eff6ff; }
 <div class="header">
   <div class="header-brand">
     <div>
+      <a href="#" onclick="window.history.back();return false;" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:rgba(255,255,255,0.65);text-decoration:none;letter-spacing:0.4px;margin-bottom:5px;transition:color 0.15s;" onmouseover="this.style.color='rgba(255,255,255,0.95)'" onmouseout="this.style.color='rgba(255,255,255,0.65)'">&#x2190; Back to Apps</a>
       <h1>UCS Spirit &mdash; Inventory Dashboard</h1>
       <div class="header-meta" id="lastUpdated">Loading snapshot&#x2026;</div>
       <div class="header-meta" id="refreshStatus" style="font-size:10px;opacity:0.65;margin-top:2px"></div>
@@ -349,7 +350,8 @@ async function triggerRefresh() {
   }
 }
 
-function processAndRenderCompact(models, orders, catalog) {
+function processAndRenderCompact(modelsRaw, orders, catalog) {
+  const models = Object.assign({}, modelsRaw); // clone — never mutate the live data object
   const modelMap     = {};
   const allFlexPoles = [];
   Object.entries(catalog).forEach(([itemid, displayname]) => {
@@ -386,7 +388,7 @@ function processAndRenderCompact(models, orders, catalog) {
       soLines:     o.soLines     || []
     };
   });
-  _finishRender(modelMap, orderMap, allFlexPoles);
+  _finishRender(modelMap, orderMap, allFlexPoles, true); // skipNTM — we re-render after ufModelMap is set
   // Extract UF items directly from models dict (payload has no separate ufModels key)
   const ufFromModels = {};
   Object.entries(models).forEach(([name, m]) => {
@@ -406,8 +408,8 @@ function processAndRenderCompact(models, orders, catalog) {
   renderUnfinished();
 }
 
-function _finishRender(modelMap, orderMap, allFlexPoles) {
-  appData = { modelMap, orderMap, allFlexPoles };
+function _finishRender(modelMap, orderMap, allFlexPoles, skipNTM = false) {
+  appData = { modelMap, orderMap, allFlexPoles, ufModelMap: appData.ufModelMap || null };
   const vals          = Object.values(modelMap);
   // All calculations use: Available = On Hand - On Order (SS2491), not NetSuite native fields
   const totalOnHand   = vals.reduce((s, m) => s + (m.onHand || 0), 0);
@@ -431,7 +433,7 @@ function _finishRender(modelMap, orderMap, allFlexPoles) {
   document.getElementById('stat-so').textContent          = totalSO;
 
   renderAvailable();
-  renderNeedToMake();
+  if (!skipNTM) renderNeedToMake();
   renderOpenSO();
   const flexVal = document.getElementById('flexInput').value;
   if (flexVal.length >= 2) doFlexSearch(flexVal);
@@ -497,14 +499,28 @@ function processAndRender(generalInventory, flexPoles, orders, catalog) {
   });
   appData = { modelMap, orderMap, allFlexPoles };
   const vals        = Object.values(modelMap);
+  // Align stat tiles with compact path: use onHand not available (Bug 5)
+  const _legTotalOH = vals.reduce((s,m)=>s+(m.onHand||0),0);
+  const _legModOH   = vals.filter(m=>(m.onHand||0)>0).length;
   document.getElementById('stat-all-models').textContent = vals.length;
-  document.getElementById('stat-total').textContent      = vals.reduce((s,m)=>s+m.available,0);
-  document.getElementById('stat-models').textContent     = vals.filter(m=>m.available>0).length;
-  document.getElementById('stat-zero').textContent       = vals.filter(m=>m.available===0).length;
+  document.getElementById('stat-total').textContent      = _legTotalOH;
+  document.getElementById('stat-models').textContent     = _legModOH;
+  document.getElementById('stat-zero').textContent       = vals.filter(m=>(m.onHand||0)===0).length;
   document.getElementById('stat-bo').textContent         = Object.values(orderMap).reduce((s,o)=>s+o.backOrdered,0);
   document.getElementById('stat-so').textContent         = Object.values(orderMap).reduce((s,o)=>s+o.openOrders,0);
-  renderAvailable(); renderNeedToMake(); renderOpenSO();
-  if (window.UCS_INV_DATA && window.UCS_INV_DATA.ufModels) { appData.ufModelMap = window.UCS_INV_DATA.ufModels; }
+  renderAvailable(); renderOpenSO();
+  // Extract UF items from generalInventory (Bug 1) then render NTM with UF data
+  const _ufLegacy = {};
+  generalInventory.forEach(item => {
+    const n = item['Name'] || '';
+    if (n.startsWith('UF') && n.includes('/')) _ufLegacy[n] = {
+      onHand: parseIntSafe(item['On Hand']), available: parseIntSafe(item['Available']),
+      committed: parseIntSafe(item['Committed'])
+    };
+  });
+  if (Object.keys(_ufLegacy).length > 0) appData.ufModelMap = _ufLegacy;
+  else if (window.UCS_INV_DATA && window.UCS_INV_DATA.ufModels) appData.ufModelMap = window.UCS_INV_DATA.ufModels;
+  renderNeedToMake(); // after ufModelMap set so Available-from-Unfinished column is correct (Bug 1)
   renderUnfinished();
   const flexVal = document.getElementById('flexInput').value;
   if (flexVal.length >= 2) doFlexSearch(flexVal);
@@ -648,7 +664,7 @@ function renderAvailable() {
       </div>`;
     if (regular.length > 0) html += renderPoleRows(regular);
     if (glass.length > 0) {
-      const glassAvail = glass.reduce((s, p) => s + p.available, 0);
+      const glassAvail = glass.reduce((s, p) => s + Math.max(0, (p.onHand||0) - (orderMap[p.model]?.openOrders || 0)), 0);
       html += `<div class="sglass-divider">◆ S-Glass &nbsp;<span style="font-size:10px;font-weight:500;color:#0369a1;">${glassAvail} avail</span></div>`;
       html += renderPoleRows(glass);
     }
@@ -833,7 +849,7 @@ function renderOpenSO() {
   const { orderMap, modelMap } = appData;
   const rows = Object.entries(orderMap)
     .filter(([name, o]) => POLE_RE.test(name) && o.openOrders > 0)
-    .map(([name, o]) => ({ name, ...o, avail: modelMap[name]?.available ?? o.availableSO }))
+    .map(([name, o]) => ({ name, ...o, avail: modelMap[name]?.onHand ?? o.onHandSO }))
     .sort((a, b) => {
       const ap = getLengthPrefix(a.name), bp = getLengthPrefix(b.name);
       if (ap !== bp) return parseInt(ap) - parseInt(bp);
@@ -1184,7 +1200,6 @@ if (document.readyState !== 'loading') {
   document.addEventListener('DOMContentLoaded', _boot);
 }
 
-let currentUfLengthFilter = 'all';
 
 </script>
 </body>

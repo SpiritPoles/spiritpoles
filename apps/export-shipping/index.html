@@ -1327,7 +1327,14 @@ function downloadPackingListPDF() {
 <title>Packing List DRAFT — ${htmlEsc(soNum)}</title>
 <style>
 /* ── Page & body ── */
-@page { size:letter portrait; margin:0.25in 0.5in 0.5in; }
+@page {
+  size:letter portrait;
+  margin:0.25in 0.5in 0.5in;
+  @bottom-center {
+    content:"Page " counter(page) " of " counter(pages);
+    font-size:7pt;color:#aaa;font-family:Arial,sans-serif;
+  }
+}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{background:#ccc}
 body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background:#fff;
@@ -1447,9 +1454,9 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
   </thead>
   <tfoot>
     <tr><td>
-      <div style="display:flex;justify-content:space-between;font-size:7pt;color:#bbb;padding-top:5px">
-        <span>Printed:&nbsp;${printedDate}</span>
-        <span>SO:&nbsp;${htmlEsc(soNum)}&nbsp;&bull;&nbsp;DRAFT</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:7pt;color:#bbb;padding-top:5px;border-top:1px solid #e0e0e0">
+        <span>Printed:&nbsp;${printedDate}&nbsp;&bull;&nbsp;SO:&nbsp;${htmlEsc(soNum)}&nbsp;&bull;&nbsp;DRAFT</span>
+        <span id="pl-cont" style="display:none;color:#444;font-style:italic;font-size:7.5pt;font-weight:bold">Packing List continues on following page.</span>
       </div>
     </td></tr>
   </tfoot>
@@ -1479,6 +1486,17 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
 <div class="no-print">
   <button onclick="window.print()">&#128438;&nbsp; Print / Save as PDF</button>
 </div>
+<script>
+(function(){
+  // Estimate page count: letter content area = (11 - 0.25 - 0.5) * 96px = 984px
+  var ph = 10.25 * 96;
+  var h  = document.querySelector(".pw").scrollHeight;
+  if (h > ph * 1.05) {
+    var el = document.getElementById("pl-cont");
+    if (el) el.style.display = "inline";
+  }
+})();
+</script>
 </body></html>`;
 
   // 816px = 8.5" at 96dpi; +44px for scrollbar
