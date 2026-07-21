@@ -120,11 +120,11 @@ export async function onRequestGet({ params, env }) {
       }
 
       // Step 2: find IFs linked to that SO internal ID.
-      // No FETCH FIRST — NS SuiteQL throws INVALID_PARAMETER on transaction table
-      // with FETCH FIRST even without ORDER BY. An SO has few IFs so no limit needed.
+      // Must use table alias — NS SuiteQL requires createdfrom to be qualified (t.createdfrom).
+      // No FETCH FIRST — also throws INVALID_PARAMETER on transaction table queries.
       const ifSearch = await suiteQL(`
-        SELECT id, tranid, trandate FROM transaction
-        WHERE recordtype = 'itemfulfillment' AND createdfrom = ${soRow.id}
+        SELECT t.id, t.tranid, t.trandate FROM transaction t
+        WHERE t.recordtype = 'itemfulfillment' AND t.createdfrom = ${soRow.id}
       `, env);
 
       const ifRows = ifSearch.items || [];
