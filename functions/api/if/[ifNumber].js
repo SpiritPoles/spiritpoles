@@ -1,13 +1,14 @@
 // functions/api/if/[ifNumber].js
 // Cloudflare Pages Function — fetches Item Fulfillment data from NetSuite via TBA OAuth 1.0a
-// Accepts: IF number (IF4160, 4160) OR Sales Order number (SO33870, 33870-style not supported)
+// Accepts: IF number (IF4160, 4160) OR Sales Order number (SO33870)
+// OAuth + SuiteQL implementation is an exact copy of /api/so/[soNumber].js (which is confirmed working)
 
 const CORS = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
 };
 
-// ── OAuth 1.0a helpers ─────────────────────────────────────────────────────────
+// ── OAuth 1.0a helpers — verbatim copy from [soNumber].js ─────────────────────
 
 function pct(str) {
   return encodeURIComponent(String(str))
@@ -16,11 +17,13 @@ function pct(str) {
     .replace(/\*/g, '%2A');
 }
 
-async function oauthHeader(method, url, env) {
+async function oauthHeader(method, baseUrl, env, extraParams = {}) {
   const ts    = Math.floor(Date.now() / 1000).toString();
   const nonce = crypto.randomUUID().replace(/-/g, '');
 
+  // Merge oauth_ params with any request query params — all get sorted together
   const p = {
+    ...extraParams,
     oauth_consumer_key:     env.NS_CONSUMER_KEY,
     oauth_nonce:            nonce,
     oauth_signature_method: 'HMAC-SHA256',
@@ -34,7 +37,7 @@ async function oauthHeader(method, url, env) {
     .map(([k, v]) => `${pct(k)}=${pct(v)}`)
     .join('&');
 
-  const base = `${method.toUpperCase()}&${pct(url)}&${pct(normalized)}`;
+  const base   = `${method.toUpperCase()}&${pct(baseUrl)}&${pct(normalized)}`;
   const sigKey = `${pct(env.NS_CONSUMER_SECRET)}&${pct(env.NS_TOKEN_SECRET)}`;
 
   const enc = new TextEncoder();
@@ -57,7 +60,7 @@ async function oauthHeader(method, url, env) {
   ].join(', ');
 }
 
-// ── SuiteQL helper ─────────────────────────────────────────────────────────────
+// ── SuiteQL helper — verbatim copy from [soNumber].js ─────────────────────────
 
 async function suiteQL(q, env, retries = 3) {
   const url = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
@@ -95,20 +98,18 @@ export async function onRequestGet({ params, env }) {
 
   try {
     let tranid;
-    let resolvedFromSO = null;   // set if looked up via SO number
-    let multipleIFs    = 0;      // >1 means there are more IFs for this SO
+    let resolvedFromSO = null;
+    let multipleIFs    = 0;
 
     // ── Resolve tranid ──────────────────────────────────────────────────────
     if (upper.startsWith('SO')) {
       // Input is a Sales Order number — find the linked Item Fulfillment(s)
-      const soTranid = upper;  // e.g. "SO33870"
-
       const ifSearch = await suiteQL(`
         SELECT t.id, t.tranid, t.trandate
         FROM transaction t
         INNER JOIN transaction so ON so.id = t.createdfrom
         WHERE t.recordtype = 'itemfulfillment'
-        AND   so.tranid    = '${soTranid}'
+        AND   so.tranid    = '${upper}'
         AND   so.recordtype = 'salesorder'
         ORDER BY t.trandate DESC, t.id DESC
         FETCH FIRST 5 ROWS ONLY
@@ -117,20 +118,20 @@ export async function onRequestGet({ params, env }) {
       const ifRows = ifSearch.items || [];
       if (!ifRows.length) {
         return new Response(
-          JSON.stringify({ error: `No Item Fulfillment found for ${soTranid} in NetSuite.` }),
+          JSON.stringify({ error: `No Item Fulfillment found for ${upper} in NetSuite.` }),
           { status: 404, headers: CORS }
         );
       }
 
-      tranid         = ifRows[0].tranid;  // most recent IF
-      resolvedFromSO = soTranid;
-      multipleIFs    = ifRows.length;     // caller can warn if >1
+      tranid         = ifRows[0].tranid;
+      resolvedFromSO = upper;
+      multipleIFs    = ifRows.length;
 
     } else if (upper.startsWith('IF')) {
-      tranid = upper;   // e.g. "IF4160"
+      tranid = upper;
     } else {
-      // Bare number — assume IF prefix (NS tranid format)
-      tranid = `IF${upper}`;  // e.g. "4160" → "IF4160"
+      // Bare number — assume IF prefix
+      tranid = `IF${upper}`;
     }
 
     // ── 1. Header ───────────────────────────────────────────────────────────
@@ -227,14 +228,14 @@ export async function onRequestGet({ params, env }) {
     }
 
     return new Response(JSON.stringify({
-      if_number:      ifRec.tranid,
-      internal_id:    ifRec.id,
-      so_number:      soNumber,
-      date:           ifRec.trandate,
-      customer:       ifRec.companyname || '',
-      ship_address:   shipAddr,
-      lines:          lineItems,
-      multiple_ifs:   multipleIFs,   // >1 = more IFs exist for this SO
+      if_number:    ifRec.tranid,
+      internal_id:  ifRec.id,
+      so_number:    soNumber,
+      date:         ifRec.trandate,
+      customer:     ifRec.companyname || '',
+      ship_address: shipAddr,
+      lines:        lineItems,
+      multiple_ifs: multipleIFs,
     }), { status: 200, headers: CORS });
 
   } catch (err) {
