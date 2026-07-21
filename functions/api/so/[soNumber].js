@@ -171,6 +171,16 @@ export async function onRequestGet({ params, env }) {
     const so = rows[0];
     const shipAddr = (so.shipaddress || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 
+    // 1b. Look up linked Item Fulfillment number (non-fatal — IF may not exist yet)
+    let ifNumber = '';
+    try {
+      const ifRes = await suiteQL(
+        `SELECT tranid FROM transaction WHERE recordtype = 'itemfulfillment' AND createdfrom = ${so.id} ORDER BY id DESC FETCH FIRST 1 ROWS ONLY`,
+        env
+      );
+      ifNumber = ((ifRes.items || [])[0] || {}).tranid || '';
+    } catch (_) { /* non-fatal */ }
+
     // 2. REST Record API — gets subtotal + full line items with custom fields & serials
     // expandSubResources=true inlines inventoryDetail subrecords per line.
     const recUrl  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/salesorder/${so.id}?expandSubResources=true`;
@@ -225,6 +235,7 @@ export async function onRequestGet({ params, env }) {
 
     return new Response(JSON.stringify({
       so_number:      so.tranid,
+      if_number:      ifNumber,
       internal_id:    so.id,
       date:           so.trandate,
       customer:       so.companyname || '',
