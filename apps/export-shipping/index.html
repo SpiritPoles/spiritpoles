@@ -328,6 +328,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <span class="fetch-status" id="fetch-if-status"></span>
       </div>
       <div class="note">Enter the SO number — auto-resolves to the linked Item Fulfillment and loads fulfilled poles &amp; serial numbers.</div>
+      <div id="if-picker" style="display:none;margin-top:8px;padding:8px 10px;background:var(--surface-2,#f5f5f5);border:1px solid var(--tgbr);border-radius:6px;font-size:8.5pt"></div>
     </div>
 
     <!-- Shipment Details (Phase 2) -->
@@ -340,7 +341,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       </div>
       <div class="field-row">
         <div class="field"><label>Ship Date</label><input id="p2-ship-date" type="date"></div>
-        <div class="field"><label>Declared Value (USD)</label><input id="p2-goods-value" type="text" placeholder="$8,516.00"></div>
+        <div class="field"><label>Declared Value (USD)</label><input id="p2-goods-value" type="text" placeholder="Enter from invoice"></div>
       </div>
       <div class="field-row solo">
         <div class="field"><label>Consignee (short name)</label><input id="p2-consignee" type="text" placeholder="e.g. Aspire Academy"></div>
@@ -599,46 +600,85 @@ async function fetchIF() {
     const data = await resp.json();
     if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
 
-    // Populate Phase 2 header fields from IF data
-    setVal('if-num',            data.if_number    || '');
-    setVal('p2-so',             data.so_number    || '');
-    setVal('p2-consignee',      data.customer     || '');
-    setVal('p2-consignee-full', data.ship_address || '');
-    const addrEl = document.getElementById('p2-consignee-full');
-    if (addrEl) autoResize(addrEl);
+    populateIFData(data);
 
-    // Expand IF lines (qty + serials[]) into one flat pole object per pole — same
-    // format as Phase 1's fetchSO, so buildPackingView works identically
-    const poleData = [];
-    for (const line of (data.lines || [])) {
-      const model = parseModel(line.item_code);
-      if (!model || !POLE_LENGTH_IN[model]) continue;
-      const dispCode = (line.item_code || '').replace(/^[A-Za-z]+/, '') || String(model);
-      const flexNum  = parseFlex(line.item_code);
-      const qty      = line.qty || 1;
-      for (let i = 0; i < qty; i++) {
-        poleData.push({
-          model:  dispCode,
-          flex:   flexNum ? String(flexNum) : '',
-          note:   '',
-          serial: (line.serials || [])[i] || '',
-        });
-      }
+    // Show IF picker when multiple shipments exist on this SO
+    const allIFs  = data.all_ifs || [];
+    const picker  = document.getElementById('if-picker');
+    if (allIFs.length > 1) {
+      const btns = allIFs.map(f => {
+        const active = f.tranid === data.if_number;
+        return `<button class="btn btn-sm ${active ? 'btn-green' : 'btn-outline'} if-pick-btn"
+          onclick="selectIF('${f.tranid}')" style="margin:2px 4px 2px 0">${htmlEsc(f.tranid)}${f.date ? ' · ' + f.date : ''}</button>`;
+      }).join('');
+      picker.innerHTML = `<strong>${allIFs.length} shipments found for ${htmlEsc(query)} — select one to load:</strong>
+        <div style="display:flex;flex-wrap:wrap;margin-top:5px">${btns}</div>`;
+      picker.style.display = 'block';
+    } else {
+      picker.innerHTML = '';
+      picker.style.display = 'none';
     }
-    buildPackingView(poleData, 'packing-list-p2');
-
-    // Auto-fill Sched. B qty with total pole count (editable)
-    const totalPoles = poleData.length;
-    setVal('p2-schedB-qty', String(totalPoles));
-
-    let msg = `✓ Loaded ${data.if_number} (${data.so_number}) — ${data.customer} · ${totalPoles} poles`;
-    if (data.multiple_ifs > 1) msg += ` · ${data.multiple_ifs} shipments on this SO — showing most recent`;
-    setFetchStatus('p2', msg, 'ok');
   } catch (err) {
     setFetchStatus('p2', `Error: ${err.message}`, 'err');
   } finally {
     document.getElementById('fetch-if-btn').disabled = false;
   }
+}
+
+// Load a specific IF by tranid (called from the multi-IF picker buttons)
+async function selectIF(tranid) {
+  setFetchStatus('p2', `Loading ${tranid}…`, 'loading');
+  document.getElementById('fetch-if-btn').disabled = true;
+  try {
+    const resp = await fetch(`/api/if/${encodeURIComponent(tranid)}`);
+    const data = await resp.json();
+    if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
+    populateIFData(data);
+    // Update active button highlight in picker
+    document.querySelectorAll('.if-pick-btn').forEach(btn => {
+      const isActive = btn.textContent.trim().startsWith(tranid);
+      btn.className = `btn btn-sm ${isActive ? 'btn-green' : 'btn-outline'} if-pick-btn`;
+      btn.style.margin = '2px 4px 2px 0';
+    });
+  } catch (err) {
+    setFetchStatus('p2', `Error: ${err.message}`, 'err');
+  } finally {
+    document.getElementById('fetch-if-btn').disabled = false;
+  }
+}
+
+// Shared field-population logic used by both fetchIF() and selectIF()
+function populateIFData(data) {
+  setVal('if-num',            data.if_number    || '');
+  setVal('p2-so',             data.so_number    || '');
+  setVal('p2-ship-date',      data.date         || '');
+  setVal('p2-consignee',      data.customer     || '');
+  setVal('p2-consignee-full', data.ship_address || '');
+  const addrEl = document.getElementById('p2-consignee-full');
+  if (addrEl) autoResize(addrEl);
+
+  // Expand IF lines (qty + serials[]) into one flat pole object per pole
+  const poleData = [];
+  for (const line of (data.lines || [])) {
+    const model = parseModel(line.item_code);
+    if (!model || !POLE_LENGTH_IN[model]) continue;
+    const dispCode = (line.item_code || '').replace(/^[A-Za-z]+/, '') || String(model);
+    const flexNum  = parseFlex(line.item_code);
+    const qty      = line.qty || 1;
+    for (let i = 0; i < qty; i++) {
+      poleData.push({
+        model:  dispCode,
+        flex:   flexNum ? flexNum.toFixed(1) : '',
+        note:   '',
+        serial: (line.serials || [])[i] || '',
+      });
+    }
+  }
+  buildPackingView(poleData, 'packing-list-p2');
+  setVal('p2-schedB-qty', String(poleData.length));
+
+  const totalPoles = poleData.length;
+  setFetchStatus('p2', `✓ Loaded ${data.if_number} (${data.so_number}) — ${data.customer} · ${totalPoles} poles`, 'ok');
 }
 
 function setFetchStatus(phase, msg, cls) {
@@ -1524,7 +1564,7 @@ function downloadPackingListP2() {
         <td>${htmlEsc(p.flex)}</td>
         <td>${htmlEsc(p.note)}</td>
         <td>${htmlEsc(p.serial)}</td>
-        <td></td><td></td><td></td><td></td><td></td>
+        <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
       </tr>`).join('');
 
     pieceSections.push(`

@@ -100,6 +100,7 @@ export async function onRequestGet({ params, env }) {
     let tranid;
     let resolvedFromSO = null;
     let multipleIFs    = 0;
+    let allIFs         = [];
 
     // ── Resolve tranid ──────────────────────────────────────────────────────
     if (upper.startsWith('SO')) {
@@ -137,6 +138,7 @@ export async function onRequestGet({ params, env }) {
       tranid         = ifRows[0].tranid;
       resolvedFromSO = upper;
       multipleIFs    = ifRows.length;
+      allIFs         = ifRows.map(r => ({ tranid: r.tranid, date: r.trandate || '' }));
 
     } else if (upper.startsWith('IF')) {
       tranid = upper;
@@ -217,7 +219,7 @@ export async function onRequestGet({ params, env }) {
       const snRes = await suiteQL(`
         SELECT
           invn.transactionline,
-          invn.inventorynumber
+          sn.inventorynumber AS serial_number
         FROM inventorynumberitem invn
         JOIN inventorynumber sn ON sn.id = invn.inventorynumber
         WHERE invn.transaction = ${ifRec.id}
@@ -229,7 +231,7 @@ export async function onRequestGet({ params, env }) {
       for (const r of (snRes.items || [])) {
         const lid = String(r.transactionline);
         if (!snMap[lid]) snMap[lid] = [];
-        snMap[lid].push(r.inventorynumber);
+        snMap[lid].push(r.serial_number);
       }
       for (const li of lineItems) {
         li.serials = snMap[String(li.line_id)] || [];
@@ -247,6 +249,7 @@ export async function onRequestGet({ params, env }) {
       ship_address: shipAddr,
       lines:        lineItems,
       multiple_ifs: multipleIFs,
+      all_ifs:      allIFs,
     }), { status: 200, headers: CORS });
 
   } catch (err) {
