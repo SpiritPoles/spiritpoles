@@ -268,8 +268,14 @@ export async function onRequestGet({ params, env }) {
     const lineItems = [];
 
     for (const li of rawItems) {
-      const itemRef = typeof li.item === 'object' ? (li.item?.refName || '') : String(li.item || '');
-      if (!itemRef) continue;
+      // On IFs, item.refName is an internal numeric ID ("1773") — not useful.
+      // itemName contains the model/flex code ("350/50") that parseFlex/parseModel need.
+      const itemCode = li.itemName || '';
+      const dispName = typeof li.custcol_ucs_display_name === 'string'
+        ? li.custcol_ucs_display_name
+        : (li.custcol_ucs_display_name?.refName || li.displayName || itemCode);
+
+      if (!itemCode) continue;
 
       const qty = Math.abs(Math.round(parseFloat(li.quantity) || 0));
       if (!qty) continue;
@@ -283,8 +289,8 @@ export async function onRequestGet({ params, env }) {
         .filter(Boolean);
 
       lineItems.push({
-        item_code: itemRef,
-        item_name: itemRef,
+        item_code: itemCode,
+        item_name: dispName || itemCode,
         qty,
         serials,
       });
