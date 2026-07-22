@@ -393,7 +393,38 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <div class="field"><label>SME</label><input id="p2-sme" type="text" value="N"></div>
         <div class="field"><label>License / Exemption</label><input id="p2-license" type="text" value="NLR"></div>
       </div>
-      <div class="note">These fields pre-populate with standard UCS Spirit defaults and can be edited per shipment.</div>
+      <div class="field-row tri">
+        <div class="field"><label>TIB / Carnet</label>
+          <select id="p2-tib"><option>No</option><option>Yes – C-88</option><option>Yes – ATA Carnet</option></select>
+        </div>
+        <div class="field"><label>Related Party</label>
+          <select id="p2-related-party"><option>Non-Related</option><option>Related</option></select>
+        </div>
+        <div class="field"><label>Routed Export</label>
+          <select id="p2-routed-export"><option>No</option><option>Yes</option></select>
+        </div>
+      </div>
+      <div class="field-row tri">
+        <div class="field"><label>Hazardous Material</label>
+          <select id="p2-hazmat"><option>No</option><option>Yes</option></select>
+        </div>
+        <div class="field"><label>Named Place / Port</label><input id="p2-named-place" type="text" placeholder="e.g. Chicago O'Hare / LAX"></div>
+        <div class="field"><label>Port of Export</label><input id="p2-port-export" type="text" placeholder="e.g. Reno-Tahoe Intl"></div>
+      </div>
+      <div class="field-row solo">
+        <div class="field"><label>Forwarding Agent (populates SLI Box 5)</label>
+          <select id="p2-forwarder">
+            <option value="">— Select Forwarder —</option>
+            <option>AIT</option>
+            <option>Maersk / Pilot</option>
+            <option>DSV</option>
+            <option>Global Shipping Services</option>
+            <option>Dynasty / Erixmar</option>
+            <option>SAIA</option>
+          </select>
+        </div>
+      </div>
+      <div class="note">Standard UCS Spirit defaults — edit any field per shipment as needed.</div>
     </div>
 
     <!-- Poles & Packing (mirrors Phase 1 exactly) -->
@@ -456,12 +487,18 @@ const SHIPPER = {
 };
 
 const FREIGHT_FORWARDERS = [
-  { name:'AIT',                    to:'orders@ait.com',                    cc:[],                          active:true  },
-  { name:'Maersk / Pilot',         to:'pilotchi@pilotdelivers.com',        cc:['pilotsfo@pilotdelivers.com'], active:true  },
-  { name:'DSV',                    to:'dsv.chicago@dsv.com',               cc:[],                          active:true  },
-  { name:'Global Shipping Services',to:'quotes@globalshippingservices.com',cc:[],                          active:true  },
-  { name:'Dynasty / Erixmar',      to:'dynasty@erixmar.com',               cc:['erixmar@erixmar.com'],     active:true  },
-  { name:'SAIA',                   to:'quotes@saia.com',                   cc:[],                          active:true  },
+  { name:'AIT', to:'orders@ait.com', cc:[], active:true,
+    sli:{ name:'AIT Worldwide Logistics, Inc.', addr:'701 N. Rohlwing Rd., Itasca, IL 60143', phone:'', iata:'' } },
+  { name:'Maersk / Pilot', to:'pilotchi@pilotdelivers.com', cc:['pilotsfo@pilotdelivers.com'], active:true,
+    sli:{ name:'Pilot Air Freight, LLC (Agent for Maersk)', addr:'701 Airfreight Dr., Wood Dale, IL 60191', phone:'', iata:'' } },
+  { name:'DSV', to:'dsv.chicago@dsv.com', cc:[], active:true,
+    sli:{ name:'DSV Air & Sea, Inc.', addr:'', phone:'', iata:'' } },
+  { name:'Global Shipping Services', to:'quotes@globalshippingservices.com', cc:[], active:true,
+    sli:{ name:'Global Shipping Services', addr:'141 Arena St. #C, El Segundo, CA 90245', phone:'', iata:'' } },
+  { name:'Dynasty / Erixmar', to:'dynasty@erixmar.com', cc:['erixmar@erixmar.com'], active:true,
+    sli:{ name:'Dynasty Shipping Inc.', addr:'643 Hindry Ave., Inglewood, CA 90301', phone:'310-645-2838', iata:'' } },
+  { name:'SAIA', to:'quotes@saia.com', cc:[], active:true,
+    sli:{ name:'SAIA Inc.', addr:'', phone:'', iata:'' } },
 ];
 const INTERNAL_CC = ['stevechappell@ucsspirit.com', 'chrischappell@ucsspirit.com'];
 
@@ -1779,29 +1816,47 @@ function downloadSLI() {
   const containers = [...document.querySelectorAll('#packing-list-p2 .piece-container')];
   if (!containers.length) { setActionErr('p2', 'Add poles before generating the SLI.'); return; }
 
-  const ifNum      = v('if-num')            || 'XXXXX';
-  const soNum      = v('p2-so')             || '';
-  const cons       = v('p2-consignee')      || '';
-  const consFull   = v('p2-consignee-full') || cons;
-  const country    = v('p2-country')        || '';
-  const consType   = v('p2-cons-type')      || 'Reseller';
-  const shipDate   = v('p2-ship-date')      || '';
-  const method     = v('p2-method')         || 'Air';
-  const inco       = v('p2-incoterm')       || '';
-  const schedB     = v('p2-schedule-b')     || '9506.91.0000';
-  const schedBQty  = v('p2-schedB-qty')     || '';
-  const goodsDesc  = v('p2-goods-desc')     || 'Articles and equipment for general physical exercise, gymnastics or athletics; parts and accessories thereof';
-  const goodsVal   = v('p2-goods-value')    || '';
-  const domForeign = v('p2-dom-foreign')    || 'D';
-  const ddtcUnit   = v('p2-ddtc-unit')      || 'EA';
-  const eccn       = v('p2-eccn')           || 'EAR99';
-  const sme        = v('p2-sme')            || 'N';
-  const license    = v('p2-license')        || 'NLR';
+  const ifNum        = v('if-num')             || 'XXXXX';
+  const soNum        = v('p2-so')              || '';
+  const cons         = v('p2-consignee')       || '';
+  const consFull     = v('p2-consignee-full')  || cons;
+  const country      = v('p2-country')         || '';
+  const consType     = v('p2-cons-type')       || 'Reseller';
+  const shipDate     = v('p2-ship-date')       || '';
+  const method       = v('p2-method')          || 'Air';
+  const inco         = v('p2-incoterm')        || '';
+  const schedB       = v('p2-schedule-b')      || '9506.91.0000';
+  const schedBQty    = v('p2-schedB-qty')      || '';
+  const goodsDesc    = v('p2-goods-desc')      || 'Articles and equipment for general physical exercise, gymnastics or athletics; parts and accessories thereof';
+  const goodsVal     = v('p2-goods-value')     || '';
+  const domForeign   = v('p2-dom-foreign')     || 'D';
+  const ddtcUnit     = v('p2-ddtc-unit')       || 'EA';
+  const eccn         = v('p2-eccn')            || 'EAR99';
+  const sme          = v('p2-sme')             || 'N';
+  const license      = v('p2-license')         || 'NLR';
+  const tib          = v('p2-tib')             || 'No';
+  const relatedParty = v('p2-related-party')   || 'Non-Related';
+  const routedExp    = v('p2-routed-export')   || 'No';
+  const hazmat       = v('p2-hazmat')          || 'No';
+  const namedPlace   = v('p2-named-place')     || '';
+  const portExport   = v('p2-port-export')     || '';
+  const forwarderKey = v('p2-forwarder')       || '';
 
   const fmtDate = shipDate
     ? new Date(shipDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
     : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
+  // Forwarding agent info from FREIGHT_FORWARDERS
+  const ffEntry = FREIGHT_FORWARDERS.find(ff => ff.name === forwarderKey);
+  const fwdr = ffEntry?.sli || null;
+  const fwdrHTML = fwdr && fwdr.name
+    ? `<div class="bv" style="font-size:8.5pt">${htmlEsc(fwdr.name)}</div>` +
+      `${fwdr.addr ? `<div class="bsm">${htmlEsc(fwdr.addr)}</div>` : ''}` +
+      `${fwdr.phone ? `<div class="bsm">Ph: ${htmlEsc(fwdr.phone)}</div>` : ''}` +
+      `${fwdr.iata ? `<div class="bsm">${htmlEsc(fwdr.iata)}</div>` : ''}`
+    : `<div style="min-height:54px;color:#aaa;font-size:7pt;font-style:italic">(Forwarder to complete)</div>`;
+
+  // Collect piece/pole data
   let totalLbs = 0, totalPoles = 0;
   const pieceData = [];
   containers.forEach(container => {
@@ -1825,12 +1880,22 @@ function downloadSLI() {
   const totalKgs    = Math.round(totalLbs * 0.453592 * 10) / 10;
   const totalPieces = pieceData.length;
 
+  // Checkbox helpers
   const incoKey = inco.split(' ')[0].toUpperCase();
-  const chkI    = t => incoKey === t   ? '☑' : '☐';
-  const chkCT   = t => consType === t  ? '☑' : '☐';
+  const chkI    = t => incoKey === t        ? '☑' : '☐';
+  const chkCT   = t => consType === t       ? '☑' : '☐';
   const chkAir   = method === 'Air'           ? '☑' : '☐';
   const chkOcean = method.startsWith('Ocean') ? '☑' : '☐';
   const chkTruck = method === 'Ground'        ? '☑' : '☐';
+  const chkRelY  = relatedParty === 'Related'   ? '☑' : '☐';
+  const chkRelN  = relatedParty !== 'Related'   ? '☑' : '☐';
+  const chkRteY  = routedExp    === 'Yes'        ? '☑' : '☐';
+  const chkRteN  = routedExp    !== 'Yes'        ? '☑' : '☐';
+  const chkHazY  = hazmat       === 'Yes'        ? '☑' : '☐';
+  const chkHazN  = hazmat       !== 'Yes'        ? '☑' : '☐';
+  const chkTibY  = tib          !== 'No'         ? '☑' : '☐';
+  const chkTibN  = tib          === 'No'         ? '☑' : '☐';
+  const tibLabel = tib !== 'No' ? tib : '';
 
   const instructions = `FRAGILE! Handle with Care! ${totalPoles} vaulting pole${totalPoles>1?'s':''} packed in ${totalPieces} piece${totalPieces>1?'s':''}. Do not stack heavy items on top of containers.`;
 
@@ -1843,13 +1908,27 @@ function downloadSLI() {
   const sliHTML = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <title>SLI — ${htmlEsc(ifNum)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
 <style>
 @page{size:8.5in 11in;margin:0.4in 0.5in}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:#fff}
-.lh{width:100%;height:auto;display:block;margin-bottom:6px}
-.sli-title{text-align:center;font-size:11pt;font-weight:900;text-transform:uppercase;
-           letter-spacing:.10em;border:2px solid #000;padding:5px 0 4px;margin-bottom:0}
+/* ── title / section headers ── */
+.doc-head{display:flex;justify-content:space-between;align-items:flex-end;
+          padding:0 2px 5px;border-bottom:3px solid #1a237e;margin-bottom:0}
+.doc-co{font-size:12pt;font-weight:900;color:#1a237e;letter-spacing:.05em}
+.doc-sub{font-size:6.8pt;color:#555;margin-top:1px}
+.doc-ein{font-size:7pt;color:#555;text-align:right;line-height:1.5}
+.sli-title{background:#1a237e;color:#fff;display:flex;justify-content:space-between;
+           align-items:center;padding:5px 8px;margin-bottom:0}
+.sli-title span{font-size:11pt;font-weight:900;letter-spacing:.09em;text-transform:uppercase}
+.sli-ref{font-size:8.5pt;font-weight:400;opacity:.8;letter-spacing:.04em}
+.sec-hdr{background:#37474f;color:#fff;font-size:6.5pt;font-weight:700;
+         padding:3px 6px;letter-spacing:.07em;text-transform:uppercase;margin-top:0}
+.sec-hdr-lt{background:#e8eaf6;color:#1a237e;font-size:6.3pt;font-weight:700;
+            padding:2px 6px;letter-spacing:.06em;text-transform:uppercase;border:1px solid #c5cae9;border-top:0}
+/* ── main numbered-box table ── */
 .sli{border-collapse:collapse;width:100%;table-layout:fixed}
 .sli td{border:1px solid #000;padding:2px 4px;vertical-align:top}
 .bn{font-size:5.8pt;font-weight:700;display:block;line-height:1.2;margin-bottom:1px;
@@ -1858,29 +1937,51 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
 .bck{font-size:8pt;line-height:1.5}
 .bsm{font-size:8pt;line-height:1.4}
 .bnote{font-size:7pt;color:#555;font-style:italic}
-.items{border-collapse:collapse;width:100%;table-layout:fixed;margin-top:0}
-.items th{border:1px solid #000;background:#e0e0e0;font-size:6.0pt;font-weight:700;
-          text-align:center;padding:2px;line-height:1.2;vertical-align:bottom}
+/* ── cargo table ── */
+.items{border-collapse:collapse;width:100%;table-layout:fixed}
+.items th{border:1px solid #000;background:#cfd8dc;font-size:6.0pt;font-weight:700;
+          text-align:center;padding:2px;line-height:1.2;vertical-align:bottom;color:#000}
 .items td{border:1px solid #000;font-size:8pt;padding:2px 3px;vertical-align:middle}
+/* ── dims table ── */
 .dims{border-collapse:collapse;width:100%;margin-top:0}
-.dims th{border:1px solid #000;background:#f0f0f0;font-size:6.3pt;font-weight:700;
+.dims th{border:1px solid #000;background:#eceff1;font-size:6.3pt;font-weight:700;
          padding:2px 3px;text-align:center}
 .dims td{border:1px solid #000;font-size:7.5pt;padding:2px 3px;text-align:center}
-.cert{border:1px solid #000;border-top:0;padding:4px 6px;font-size:6.6pt;line-height:1.45}
+/* ── cert / sig / checkboxes ── */
+.cert{border:1px solid #000;border-top:0;padding:4px 6px;font-size:6.6pt;
+      line-height:1.45;background:#fafafa}
 .chk-row{border:1px solid #000;border-top:0;padding:3px 5px;font-size:6.8pt;line-height:1.5}
 .sig-wrap{display:flex;margin-top:0}
-.sig-cell{border:1px solid #000;border-top:0;padding:3px 5px;flex:1}
+.sig-cell{border:1px solid #000;border-top:0;padding:3px 5px;flex:1;background:#fafafa}
 .sig-cell+.sig-cell{border-left:0}
-.sig-label{font-size:5.8pt;font-weight:700;display:block;text-transform:uppercase;
-           letter-spacing:.03em}
+.sig-label{font-size:5.8pt;font-weight:700;display:block;text-transform:uppercase;letter-spacing:.03em}
 .sig-val{font-size:8pt;line-height:1.3;margin-top:1px}
-.sig-line{border-bottom:1px solid #000;min-height:22px;margin-top:3px}
+.sig-script{font-family:'Dancing Script',cursive;font-size:20pt;font-weight:700;
+            color:#1a237e;line-height:1.1;margin-top:3px}
 .no-print{text-align:center;padding:18px;margin-top:8px}
 @media print{.no-print{display:none}}
 </style></head><body>
 
-<img src="data:image/png;base64,${LH_B64}" class="lh" alt="">
-<div class="sli-title">Shipper&rsquo;s Letter of Instructions (SLI)</div>
+<!-- UCS Spirit header (replaces letterhead) -->
+<div class="doc-head">
+  <div>
+    <div class="doc-co">UCS SPIRIT</div>
+    <div class="doc-sub">New Nevada Plastics dba UCS Spirit &nbsp;|&nbsp; 2180 Meridian Blvd., Minden, NV 89423</div>
+  </div>
+  <div class="doc-ein">
+    EIN: 22-2768411<br>
+    chrischappell@ucsspirit.com &nbsp;|&nbsp; +1 775 882 7114
+  </div>
+</div>
+
+<!-- Title bar -->
+<div class="sli-title">
+  <span>Shipper&rsquo;s Letter of Instructions (SLI)</span>
+  <span class="sli-ref">${htmlEsc(ifNum)}${soNum ? ' &nbsp;/&nbsp; ' + htmlEsc(soNum) : ''} &nbsp;&mdash;&nbsp; ${fmtDate}</span>
+</div>
+
+<!-- Section A: Shipper / Consignee / Export Indicators -->
+<div class="sec-hdr">Part A &mdash; Shipper, Consignee &amp; Export Indicators (Boxes 1&ndash;19)</div>
 
 <table class="sli">
 <colgroup>
@@ -1890,9 +1991,9 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
 <col style="width:8.33%"><col style="width:8.34%"><col style="width:8.33%">
 </colgroup>
 
-<!-- ROW 1-2: USPPI (boxes 1+2 merged cell) / Freight Location (3+4) / Forwarding Agent (5) -->
+<!-- ROW 1-2: USPPI (boxes 1+2 merged) / Freight Location (3+4) / Forwarding Agent (5) -->
 <tr>
-  <td colspan="5" rowspan="2" style="vertical-align:top">
+  <td colspan="5" rowspan="2" style="vertical-align:top;background:#e8eaf6">
     <span class="bn">1. USPPI Name (U.S. Principal Party in Interest)</span>
     <div class="bv">New Nevada Plastics dba UCS Spirit</div>
     <div style="margin-top:5px">
@@ -1907,9 +2008,10 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
   </td>
   <td colspan="4" rowspan="2" style="vertical-align:top">
     <span class="bn">5. Forwarding Agent / IATA Cargo Agent Name &amp; Address</span>
-    <div style="min-height:54px">&nbsp;</div>
-    <div style="border-top:1px solid #000;margin-top:4px;padding-top:2px">
+    ${fwdrHTML}
+    <div style="border-top:1px solid #ccc;margin-top:4px;padding-top:2px">
       <span class="bn">Forwarding Agent I.D. No.</span>
+      <div style="font-size:7pt">${fwdr?.iata || '&nbsp;'}</div>
     </div>
   </td>
 </tr>
@@ -1922,17 +2024,17 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
 
 <!-- ROW 3: EIN / Related Party / Routed Export -->
 <tr>
-  <td colspan="3">
-    <span class="bn">6. U.S. Employer ID No. (IRS EIN / SSN)</span>
+  <td colspan="3" style="background:#f5f5f5">
+    <span class="bn">6. U.S. Employer ID No. (IRS EIN)</span>
     <div class="bv">22-2768411</div>
   </td>
   <td colspan="4">
     <span class="bn">7. Related Party Indicator</span>
-    <div class="bck">☐ Related &nbsp;&nbsp;&nbsp; ☑ Non-Related</div>
+    <div class="bck">${chkRelY} Related &nbsp;&nbsp;&nbsp; ${chkRelN} Non-Related</div>
   </td>
   <td colspan="5">
     <span class="bn">9. Routed Export Transaction</span>
-    <div class="bck">☐ Yes &nbsp;&nbsp;&nbsp; ☑ No</div>
+    <div class="bck">${chkRteY} Yes &nbsp;&nbsp;&nbsp; ${chkRteN} No</div>
   </td>
 </tr>
 
@@ -1940,9 +2042,9 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
 <tr>
   <td colspan="3">
     <span class="bn">8. USPPI Reference No. (IF / SO)</span>
-    <div class="bv">${htmlEsc(ifNum)}${soNum ? ' &nbsp;/&nbsp; ' + htmlEsc(soNum) : ''}</div>
+    <div class="bv">${htmlEsc(ifNum)}${soNum ? ' / ' + htmlEsc(soNum) : ''}</div>
   </td>
-  <td colspan="4" rowspan="2" style="vertical-align:top">
+  <td colspan="4" rowspan="2" style="vertical-align:top;background:#e8eaf6">
     <span class="bn">10. Ultimate Consignee Name &amp; Address</span>
     <div class="bsm" style="white-space:pre-line;font-weight:700">${htmlEsc(consFull || cons)}</div>
   </td>
@@ -1956,13 +2058,13 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
     </div>
   </td>
   <td colspan="2" rowspan="2" style="vertical-align:top">
-    <span class="bn">12. Intermediate Consignee Name &amp; Address</span>
+    <span class="bn">12. Intermediate Consignee</span>
     <div style="min-height:52px">&nbsp;</div>
   </td>
 </tr>
 <tr>
   <td colspan="3">
-    <span class="bn">Country of Citizenship / Country of Origin</span>
+    <span class="bn">Country of Citizenship</span>
     <div style="min-height:20px">&nbsp;</div>
   </td>
   <td colspan="3" style="vertical-align:top">
@@ -1973,17 +2075,17 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
 
 <!-- ROW 6: State / Country / Hazmat / In-Bond / Entry / FTZ / TIB -->
 <tr>
-  <td colspan="2">
+  <td colspan="2" style="background:#f5f5f5">
     <span class="bn">13. State of Origin</span>
     <div class="bv">Nevada</div>
   </td>
-  <td colspan="2">
+  <td colspan="2" style="background:#f5f5f5">
     <span class="bn">14. Country of Ult. Destination</span>
     <div class="bv">${htmlEsc(country) || '&nbsp;'}</div>
   </td>
   <td colspan="2">
     <span class="bn">15. Hazardous Material</span>
-    <div class="bck" style="font-size:7.5pt">☐ Yes &nbsp; ☑ No</div>
+    <div class="bck" style="font-size:7.5pt">${chkHazY} Yes &nbsp; ${chkHazN} No</div>
   </td>
   <td colspan="2">
     <span class="bn">16. In-Bond Code</span>
@@ -1999,13 +2101,13 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
   </td>
   <td colspan="1">
     <span class="bn">19. TIB / Carnet</span>
-    <div style="font-size:7pt;line-height:1.6">☐&nbsp;Yes<br>☑&nbsp;No</div>
+    <div style="font-size:7pt;line-height:1.6">${chkTibY}&nbsp;Yes<br>${chkTibN}&nbsp;No${tibLabel ? '<br><span style="font-size:6.5pt">' + htmlEsc(tibLabel) + '</span>' : ''}</div>
   </td>
 </tr>
 
 <!-- ROW 7: Incoterms -->
 <tr>
-  <td colspan="9">
+  <td colspan="9" style="background:#f5f5f5">
     <span class="bn">Incoterms&reg; 2020 (select one)</span>
     <div style="font-size:7.5pt">
       ${chkI('EXW')} EXW &nbsp;
@@ -2023,11 +2125,11 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
   </td>
   <td colspan="3">
     <span class="bn">Named Place / Port</span>
-    <div style="min-height:18px">&nbsp;</div>
+    <div class="bsm">${htmlEsc(namedPlace) || '&nbsp;'}</div>
   </td>
 </tr>
 
-<!-- ROW 8: Mode / Date / Port -->
+<!-- ROW 8: Mode / Date / Port of Export -->
 <tr>
   <td colspan="5">
     <span class="bn">Mode of Transport</span>
@@ -2035,26 +2137,28 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
       ${chkAir} Air &nbsp;&nbsp; ${chkOcean} Ocean &nbsp;&nbsp; ☐ Rail &nbsp;&nbsp; ${chkTruck} Truck
     </div>
   </td>
-  <td colspan="3">
+  <td colspan="3" style="background:#f5f5f5">
     <span class="bn">Date of Export (Est.)</span>
     <div class="bv" style="font-size:8pt">${fmtDate}</div>
   </td>
   <td colspan="4">
     <span class="bn">Port of Export / Airport of Departure</span>
-    <div style="min-height:18px">&nbsp;</div>
+    <div class="bsm">${htmlEsc(portExport) || '&nbsp;'}</div>
   </td>
 </tr>
 
 <!-- ROW 9: Instructions to Forwarder -->
 <tr>
-  <td colspan="12">
-    <span class="bn">Special Instructions to Forwarding Agent / Carrier</span>
+  <td colspan="12" style="background:#fff8e1;border-top:2px solid #f9a825">
+    <span class="bn" style="color:#f9a825">Special Instructions to Forwarding Agent / Carrier</span>
     <div class="bsm">${htmlEsc(instructions)}</div>
   </td>
 </tr>
 </table>
 
-<!-- CARGO LINE ITEMS -->
+<!-- Section B: Cargo -->
+<div class="sec-hdr" style="margin-top:4px">Part B &mdash; Cargo &amp; Commodity Details (Boxes 20&ndash;29)</div>
+
 <table class="items">
 <thead>
 <tr>
@@ -2086,7 +2190,7 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
   <td style="text-align:right;font-weight:700">${goodsVal ? 'USD&nbsp;' + htmlEsc(goodsVal) : ''}</td>
   <td style="text-align:center">&nbsp;</td>
 </tr>
-<tr style="background:#f5f5f5">
+<tr style="background:#eceff1">
   <td colspan="2" style="font-size:6.5pt;font-weight:700">TOTALS &mdash; ${totalPieces} piece${totalPieces>1?'s':''}</td>
   <td style="text-align:center;font-weight:700">${totalPoles}</td>
   <td style="text-align:center">${totalPoles}&nbsp;${htmlEsc(ddtcUnit)}</td>
@@ -2098,7 +2202,9 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
 </tbody>
 </table>
 
-<!-- PACKAGE DIMENSIONS -->
+<!-- Section C: Package Dimensions -->
+<div class="sec-hdr-lt">Package Dimensions (Supplementary)</div>
+
 <table class="dims">
 <thead>
 <tr>
@@ -2112,7 +2218,7 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:8pt;color:#000;background:
 </thead>
 <tbody>
 ${dimRows}
-<tr style="background:#f0f0f0">
+<tr style="background:#eceff1">
   <td colspan="2" style="font-weight:700;font-size:7pt;text-align:left">TOTALS</td>
   <td colspan="2">&nbsp;</td>
   <td style="font-weight:700">${totalKgs}&nbsp;kg</td>
@@ -2121,7 +2227,8 @@ ${dimRows}
 </tbody>
 </table>
 
-<!-- DDTC / ELIGIBLE PARTY -->
+<!-- DDTC / Eligible Party -->
+<div class="sec-hdr" style="margin-top:4px">Part C &mdash; DDTC / Export Authorizations (Boxes 30&ndash;31)</div>
 <table class="sli" style="margin-top:0">
 <colgroup>
 <col style="width:8.33%"><col style="width:8.33%"><col style="width:8.34%">
@@ -2130,31 +2237,31 @@ ${dimRows}
 <col style="width:8.33%"><col style="width:8.34%"><col style="width:8.33%">
 </colgroup>
 <tr>
-  <td colspan="7">
-    <span class="bn">30. DDTC Applicant Registration No. (if applicable &mdash; ITAR-controlled items only)</span>
+  <td colspan="7" style="background:#fafafa">
+    <span class="bn">30. DDTC Applicant Registration No. (ITAR-controlled items only)</span>
     <div style="min-height:14px">&nbsp;</div>
   </td>
-  <td colspan="5">
+  <td colspan="5" style="background:#fafafa">
     <span class="bn">31. Eligible Party Certification (ITAR)</span>
-    <div class="bck" style="font-size:7.5pt">☐ Yes &nbsp;&nbsp;&nbsp; ☑ No (EAR99 &mdash; no ITAR restriction)</div>
+    <div class="bck" style="font-size:7.5pt">☐ Yes &nbsp;&nbsp;&nbsp; ☑ No (EAR99 &mdash; not ITAR-controlled)</div>
   </td>
 </tr>
 </table>
 
-<!-- AUTHORIZATION CHECKBOXES -->
+<!-- Authorization checkboxes -->
 <div class="chk-row">
-  ☐ <strong>32.</strong> I certify that all items are EAR99, non-controlled, and individually valued below $2,500; no AES/SED filing required.
+  ☐ <strong>32.</strong> I certify all items are EAR99, non-controlled, individually valued under $2,500; no AES/SED filing required.
 </div>
 <div class="chk-row">
   ☑ <strong>33.</strong> I authorize the above-named Forwarding Agent to act as the USPPI&rsquo;s agent solely for purposes of filing the Electronic Export Information (EEI) on my behalf with the U.S. Census Bureau / AES in accordance with 15 CFR Part 30.
 </div>
 
-<!-- LEGAL CERTIFICATION -->
+<!-- Legal Certification -->
 <div class="cert">
   <strong>CERTIFICATION:</strong> I certify that all statements made and all information contained herein are true and correct, and that I have read and understand the instructions for preparation of this document. I understand that civil and criminal penalties, including forfeiture and sale, may be imposed for making false or fraudulent statements herein, failing to provide the requested information, or for violation of U.S. laws on exportation (13 U.S.C. &sect;305; 22 U.S.C. &sect;401; 18 U.S.C. &sect;1001; 50 U.S.C. App. &sect;2410).
 </div>
 
-<!-- SIGNATURE BLOCK -->
+<!-- Signature Block -->
 <div class="sig-wrap">
   <div class="sig-cell" style="flex:1.6">
     <span class="sig-label">34. USPPI Email Address</span>
@@ -2170,7 +2277,7 @@ ${dimRows}
   </div>
   <div class="sig-cell" style="flex:2">
     <span class="sig-label">37. Authorized Signature</span>
-    <div class="sig-line">&nbsp;</div>
+    <div class="sig-script">Chris Chappell</div>
   </div>
   <div class="sig-cell" style="flex:1.2">
     <span class="sig-label">38. Title</span>
