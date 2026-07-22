@@ -173,18 +173,27 @@ export async function onRequestGet({ params, env }) {
     const shipAddr = (so.shipaddress || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 
     // 1b. Look up linked Item Fulfillment number (non-fatal — IF may not exist yet)
-    // NS SuiteQL self-join restriction: WHERE createdfrom = X throws UNEXPECTED_ERROR.
-    // Workaround: SELECT createdfrom is safe — query IFs for this entity, filter in JS.
+    // NS SuiteQL: createdfrom on transaction table triggers UNEXPECTED_ERROR in both
+    // WHERE and SELECT on broad queries. Use entity-scoped list + parallel REST checks.
     let ifNumber = '';
     try {
-      const ifRes = await suiteQL(
-        `SELECT t.tranid, t.createdfrom FROM transaction t
+      const ifList = await suiteQL(
+        `SELECT t.id, t.tranid FROM transaction t
          WHERE t.recordtype = 'itemfulfillment' AND t.entity = ${so.entity}
-         ORDER BY t.trandate DESC FETCH FIRST 50 ROWS ONLY`,
+         ORDER BY t.trandate DESC FETCH FIRST 10 ROWS ONLY`,
         env
       );
-      const matched = (ifRes.items || []).filter(r => String(r.createdfrom) === String(so.id));
-      ifNumber = (matched[0] || {}).tranid || '';
+      const soIdStr  = String(so.id);
+      const restBase = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment`;
+      const results  = await Promise.all(
+        (ifList.items || []).map(async c => {
+          try {
+            const rec = await nsGet(`${restBase}/${c.id}`, env, 1);
+            return { tranid: c.tranid, match: String(rec.createdFrom?.id || '') === soIdStr };
+          } catch (_) { return { tranid: c.tranid, match: false }; }
+        })
+      );
+      ifNumber = (results.find(r => r.match) || {}).tranid || '';
     } catch (_) { /* non-fatal */ }
 
     // 2. REST Record API — gets subtotal + full line items with custom fields & serials

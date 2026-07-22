@@ -90,6 +90,42 @@ async function suiteQL(q, env, retries = 3) {
   }
 }
 
+// ── REST Record API GET helper — verbatim copy from [soNumber].js ─────────────
+// Query-string params are included in the OAuth signature base string.
+
+async function nsGet(fullUrl, env, retries = 2) {
+  const qIdx    = fullUrl.indexOf('?');
+  const baseUrl = qIdx >= 0 ? fullUrl.slice(0, qIdx) : fullUrl;
+  const qs      = qIdx >= 0 ? fullUrl.slice(qIdx + 1) : '';
+
+  const queryParams = {};
+  if (qs) {
+    for (const pair of qs.split('&')) {
+      const eq = pair.indexOf('=');
+      const k  = eq >= 0 ? decodeURIComponent(pair.slice(0, eq)) : decodeURIComponent(pair);
+      const v  = eq >= 0 ? decodeURIComponent(pair.slice(eq + 1)) : '';
+      if (k) queryParams[k] = v;
+    }
+  }
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const auth = await oauthHeader('GET', baseUrl, env, queryParams);
+    const resp = await fetch(fullUrl, {
+      method:  'GET',
+      headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
+    });
+
+    if (resp.ok) return resp.json();
+
+    const txt = await resp.text();
+    if (resp.status === 401 && attempt < retries) {
+      await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      continue;
+    }
+    throw new Error(`NS REST ${resp.status}: ${txt.substring(0, 400)}`);
+  }
+}
+
 // ── Handler ────────────────────────────────────────────────────────────────────
 
 export async function onRequestGet({ params, env }) {
@@ -119,23 +155,45 @@ export async function onRequestGet({ params, env }) {
         );
       }
 
-      // Step 2: find IFs linked to that SO.
-      // NS SuiteQL self-join restriction: filtering WHERE createdfrom = X on the transaction
-      // table always throws UNEXPECTED_ERROR (self-join), even with table alias.
-      // Workaround: SELECT createdfrom is fine — only WHERE filtering triggers the error.
-      // Query all IFs for the same entity, select createdfrom, then filter in JS.
-      const ifSearch = await suiteQL(`
-        SELECT t.id, t.tranid, t.trandate, t.createdfrom
+      // Step 2: Get candidate IFs for this entity.
+      // NS SuiteQL UNEXPECTED_ERROR restriction: createdfrom on transaction table causes a
+      // self-join error in both WHERE and SELECT on broad (entity-scoped) queries.
+      // Solution: omit createdfrom entirely from SuiteQL; use REST Record API in Step 3.
+      const ifList = await suiteQL(`
+        SELECT t.id, t.tranid, t.trandate
         FROM transaction t
         WHERE t.recordtype = 'itemfulfillment'
         AND   t.entity = ${soRow.entity}
         ORDER BY t.trandate DESC
-        FETCH FIRST 50 ROWS ONLY
+        FETCH FIRST 20 ROWS ONLY
       `, env);
 
-      // Filter in JS: only IFs whose createdfrom matches this SO's internal ID
-      const allEntityIFs = ifSearch.items || [];
-      const ifRows = allEntityIFs.filter(r => String(r.createdfrom) === String(soRow.id));
+      const candidates = ifList.items || [];
+      if (!candidates.length) {
+        return new Response(
+          JSON.stringify({ error: `No Item Fulfillment found for ${upper} — order may not have shipped yet.` }),
+          { status: 404, headers: CORS }
+        );
+      }
+
+      // Step 3: Parallel REST Record API calls to check createdFrom.
+      // The IF REST record exposes createdFrom.id cleanly; SuiteQL cannot.
+      const soIdStr  = String(soRow.id);
+      const restBase = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment`;
+
+      const checked = await Promise.all(
+        candidates.map(async c => {
+          try {
+            const rec   = await nsGet(`${restBase}/${c.id}`, env, 1);
+            const cFrom = rec.createdFrom?.id || '';
+            return { id: c.id, tranid: c.tranid, trandate: c.trandate, matchesSO: String(cFrom) === soIdStr };
+          } catch (_) {
+            return { id: c.id, tranid: c.tranid, trandate: c.trandate, matchesSO: false };
+          }
+        })
+      );
+
+      const ifRows = checked.filter(c => c.matchesSO);
       if (!ifRows.length) {
         return new Response(
           JSON.stringify({ error: `No Item Fulfillment found for ${upper} — order may not have shipped yet.` }),
