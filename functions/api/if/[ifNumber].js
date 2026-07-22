@@ -290,6 +290,14 @@ export async function onRequestGet({ params, env }) {
       });
     }
 
+    // ── DEBUG: expose raw IF REST structure so we can verify the item sublist path ──
+    const debugFirstItem = rawItems[0] ? {
+      keys:     Object.keys(rawItems[0]),
+      item:     rawItems[0].item,
+      quantity: rawItems[0].quantity,
+      itemtype: rawItems[0].itemtype,
+    } : null;
+
     return new Response(JSON.stringify({
       if_number:    ifRec.tranid,
       internal_id:  ifRec.id,
@@ -300,6 +308,14 @@ export async function onRequestGet({ params, env }) {
       lines:        lineItems,
       multiple_ifs: multipleIFs,
       all_ifs:      allIFs,
+      // ── TEMP DEBUG — remove after confirming item structure ──
+      _debug: {
+        if_rest_top_keys:   Object.keys(ifRest),
+        item_sublist_type:  typeof ifRest.item,
+        item_sublist_keys:  ifRest.item ? Object.keys(ifRest.item) : null,
+        raw_item_count:     rawItems.length,
+        first_raw_item:     debugFirstItem,
+      },
     }), { status: 200, headers: CORS });
 
   } catch (err) {
