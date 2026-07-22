@@ -67,6 +67,12 @@ body::before{content:'';position:fixed;inset:0;background:url(../flex-lookup/ucs
 .btn-outline:disabled{opacity:.4;cursor:not-allowed}
 .btn-green{background:rgba(76,175,80,0.15);border:1px solid rgba(76,175,80,0.35);color:#4caf50}
 .btn-green:hover{background:rgba(76,175,80,0.25)}
+.btn-blue{background:#1565c0;color:#e8f0fe}
+.btn-blue:hover{background:#1976d2}
+.btn-red{background:rgba(198,40,40,0.15);border:1px solid rgba(198,40,40,0.4);color:#c62828}
+.btn-red:hover{background:rgba(198,40,40,0.25)}
+.btn-grey{background:rgba(128,128,128,0.1);border:1px solid rgba(128,128,128,0.3);color:var(--tgc)}
+.btn-grey:hover{background:rgba(128,128,128,0.2)}
 .btn-sm{padding:7px 13px;font-size:11px}
 
 /* Section label */
@@ -299,8 +305,8 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
 
     <!-- Actions -->
     <div class="action-row">
-      <button class="btn btn-primary" id="create-btn" onclick="createDrafts()" disabled>&#9993; Create Outlook Drafts</button>
-      <button class="btn btn-green" onclick="downloadPackingListPDF()">&#8595; Download Packing List (PDF)</button>
+      <button class="btn btn-blue" id="create-btn" onclick="createDrafts()" disabled>&#9993; Create Outlook Drafts</button>
+      <button class="btn btn-red" onclick="downloadPackingListPDF()">&#128438; PRINT PACKING LIST - DRAFT</button>
     </div>
     <div class="action-err" id="action-err-p1"></div>
     <div class="log" id="log-p1"></div>
@@ -407,8 +413,8 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
 
     <!-- Actions -->
     <div class="action-row">
-      <button class="btn btn-green" onclick="downloadPackingListP2()">&#8595; Final Packing List (PDF)</button>
-      <button class="btn btn-outline" onclick="downloadSLI()">&#8595; Shipper's Letter of Instruction (PDF)</button>
+      <button class="btn btn-red" onclick="downloadPackingListP2()">&#128438; PRINT PACKING LIST - FINAL</button>
+      <button class="btn btn-grey" onclick="downloadSLI()">&#128438; PRINT Shipper's Letter of Instruction</button>
     </div>
     <div class="action-err" id="action-err-p2"></div>
     <div class="log" id="log-p2"></div>
@@ -2057,6 +2063,7 @@ async function createDrafts() {
 
   btn.disabled = false;
   btn.innerHTML = '&#9993; Create Outlook Drafts';
+  btn.className = 'btn btn-blue';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
