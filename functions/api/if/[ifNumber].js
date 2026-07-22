@@ -220,8 +220,7 @@ export async function onRequestGet({ params, env }) {
         t.tranid,
         t.trandate,
         c.companyname,
-        t.shipaddress,
-        t.shipemail
+        t.shipaddress
       FROM transaction t
       LEFT JOIN customer c ON c.id = t.entity
       WHERE t.recordtype = 'itemfulfillment'
@@ -297,6 +296,9 @@ export async function onRequestGet({ params, env }) {
       });
     }
 
+    // ship_email comes from the REST record (shipemail is blocked in SuiteQL — triggers 500)
+    const shipEmail = (ifRest.shipEmail || ifRest.shipemail || '').trim();
+
     return new Response(JSON.stringify({
       if_number:    ifRec.tranid,
       internal_id:  ifRec.id,
@@ -304,7 +306,7 @@ export async function onRequestGet({ params, env }) {
       date:         ifRec.trandate,
       customer:     ifRec.companyname || '',
       ship_address: shipAddr,
-      ship_email:   (ifRec.shipemail || '').trim(),
+      ship_email:   shipEmail,
       lines:        lineItems,
       multiple_ifs: multipleIFs,
       all_ifs:      allIFs,
