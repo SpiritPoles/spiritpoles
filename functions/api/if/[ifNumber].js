@@ -292,10 +292,14 @@ export async function onRequestGet({ params, env }) {
 
     // ── DEBUG: expose raw IF REST structure so we can verify the item sublist path ──
     const debugFirstItem = rawItems[0] ? {
-      keys:     Object.keys(rawItems[0]),
-      item:     rawItems[0].item,
-      quantity: rawItems[0].quantity,
-      itemtype: rawItems[0].itemtype,
+      keys:                    Object.keys(rawItems[0]),
+      item:                    rawItems[0].item,
+      quantity:                rawItems[0].quantity,
+      itemtype:                rawItems[0].itemtype,
+      itemName:                rawItems[0].itemName,
+      displayName:             rawItems[0].displayName,
+      custcol_ucs_display_name: rawItems[0].custcol_ucs_display_name,
+      custcol_ucs_flex_memo:   rawItems[0].custcol_ucs_flex_memo,
     } : null;
 
     return new Response(JSON.stringify({
