@@ -452,6 +452,19 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       <div id="packing-breakdown-p2"></div>
     </div>
 
+    <!-- Accessories & Additional Items -->
+    <div class="card" id="acc-card-p2" style="display:none">
+      <div class="card-title">Accessories &amp; Additional Items</div>
+      <div style="font-size:11px;color:var(--ts);margin-bottom:10px">
+        Items from the order that are not vaulting poles. Assign each item to an existing piece (packs inside a tube) or to a new Small Box, or mark as Not Shipping.
+      </div>
+      <div id="accessories-list-p2"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" onclick="assignAllAccessories('new-box')">+ All → New Small Box</button>
+        <button class="btn btn-outline btn-sm" onclick="assignAllAccessories('not-shipping')">All → Not Shipping</button>
+      </div>
+    </div>
+
     <!-- Actions -->
     <div class="action-row">
       <button class="btn btn-red" onclick="downloadPackingListP2()">&#128438; PRINT PACKING LIST - FINAL</button>
@@ -533,6 +546,28 @@ const LARGE_TUBE = { w:8, h:8, extra_wt:35, extra_len:6, max:8 };
 const SMALL_TUBE = { w:6, h:6, extra_wt:25, extra_len:6, max:4 };
 const ALL_MODELS = Object.keys(POLE_LENGTH_IN).map(Number).sort((a,b)=>a-b);
 
+// ── Crossbar item codes → packing length & weight ─────────────────────────────
+// 755-132RM = HJ Crossbar (158"), 755-133RM = PV Crossbar (177")
+// 755-4001  = Bungee Crossbar (treated as accessory, not a tube-pack item)
+const CROSSBAR_INFO = {
+  'hj': { label:'HJ Crossbar', lenIn:158, wtLbs:4.0, pieceType:'x-bars-hj' },
+  'pv': { label:'PV Crossbar', lenIn:177, wtLbs:5.0, pieceType:'x-bars-pv' },
+};
+
+// Item classification — returns 'pole' | 'crossbar-hj' | 'crossbar-pv' | 'accessory'
+function classifyItem(itemCode, itemName) {
+  const code = (itemCode || '').toUpperCase();
+  const name = (itemName || '').toUpperCase();
+  // Poles — already handled by parseModel(); this is for explicit non-pole routing
+  if (parseModel(itemCode) && POLE_LENGTH_IN[parseModel(itemCode)]) return 'pole';
+  // HJ crossbar: 755-132
+  if (code.includes('755-132')) return 'crossbar-hj';
+  // PV crossbar: 755-133
+  if (code.includes('755-133')) return 'crossbar-pv';
+  // Bungee and everything else = accessory
+  return 'accessory';
+}
+
 // Piece type definitions: dims, extra weight, max poles per piece.
 // fixedLen: for X-bar box types that have a fixed length regardless of pole model.
 // Source: Reference Sheet in Packing List and SO Worksheet Template.xlsx
@@ -546,6 +581,7 @@ const PIECE_TYPES = {
   'x-bar-tube': { label:'X-Bar Tube',       w:4,  h:4,  extra_wt:3,  extra_len:0,  max:4,  fixedLen:null },
   'x-bars-hj':  { label:'X-Bars HJ Box',   w:15, h:4,  extra_wt:5,  extra_len:0,  max:25, fixedLen:158  },
   'x-bars-pv':  { label:'X-Bars PV Box',   w:15, h:4,  extra_wt:5,  extra_len:0,  max:25, fixedLen:180  },
+  'small-box':  { label:'Small Box',       w:0,  h:0,  extra_wt:2,  extra_len:0,  max:99, fixedLen:null, configDims:true },
 };
 const htmlEsc = s => String(s==null?'':s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -719,25 +755,98 @@ function populateIFData(data) {
   // Auto-populate consignee email from NS shipping email field
   if (data.ship_email) setVal('p2-cons-email', data.ship_email);
 
-  // Expand IF lines (qty + serials[]) into one flat pole object per pole
-  const poleData = [];
+  // ── Classify lines: poles / crossbars / accessories ──────────────────────
+  const poleData    = [];
+  const xbarLines   = { hj: [], pv: [] }; // { hj: [{qty, serials}], pv: [...] }
+  const accData     = [];
+
   for (const line of (data.lines || [])) {
-    const model = parseModel(line.item_code);
-    if (!model || !POLE_LENGTH_IN[model]) continue;
-    const dispCode = (line.item_code || '').replace(/^[A-Za-z]+/, '') || String(model);
-    const flexNum  = parseFlex(line.item_code);
-    const qty      = line.qty || 1;
-    for (let i = 0; i < qty; i++) {
-      poleData.push({
-        model:  dispCode,
-        flex:   flexNum ? flexNum.toFixed(1) : '',
-        note:   '',
-        serial: (line.serials || [])[i] || '',
+    const kind = classifyItem(line.item_code, line.item_name);
+    if (kind === 'pole') {
+      const model   = parseModel(line.item_code);
+      const dispCode = (line.item_code || '').replace(/^[A-Za-z]+/, '') || String(model);
+      const flexNum  = parseFlex(line.item_code);
+      const qty      = line.qty || 1;
+      for (let i = 0; i < qty; i++) {
+        poleData.push({ model: dispCode, flex: flexNum ? flexNum.toFixed(1) : '',
+                        note: '', serial: (line.serials || [])[i] || '' });
+      }
+    } else if (kind === 'crossbar-hj') {
+      xbarLines.hj.push(line);
+    } else if (kind === 'crossbar-pv') {
+      xbarLines.pv.push(line);
+    } else {
+      // accessory
+      accData.push({
+        item_code: line.item_code || '',
+        item_name: line.item_name || line.item_code || '',
+        qty:       line.qty || 1,
+        unitWtLbs: 0, // NS doesn't reliably have weights; leave 0 (user can adjust)
       });
     }
   }
+
+  // ── Crossbar packing ──────────────────────────────────────────────────────
+  // For each crossbar type: qty ≤5 → treat as poles in tubes (add to poleData)
+  //   qty 6-15 → auto-create X-Bar Tube piece(s); qty ≥16 → auto-create X-Bar Box
+  // We handle this AFTER building poleData so buildPackingView covers all tube items.
+  // Crossbars treated as poles get a special display code so dims calc works.
+  // We add them directly to poleData with model = their fixedLen for tube packing.
+  function handleCrossbarType(lines, cbKey) {
+    const info = CROSSBAR_INFO[cbKey]; // { label, lenIn, wtLbs, pieceType }
+    const total = lines.reduce((s, l) => s + (l.qty || 1), 0);
+    if (total === 0) return;
+
+    if (total <= 5) {
+      // Treat like poles — use a pseudo-model that POLE_LENGTH_IN can resolve.
+      // We add them to accData instead with a note — cleaner than faking pole models.
+      for (const l of lines) {
+        accData.push({
+          item_code: l.item_code,
+          item_name: `${info.label} (${info.lenIn}" — packs with poles)`,
+          qty:       l.qty || 1,
+          unitWtLbs: info.wtLbs,
+          isCrossbar: true,
+        });
+      }
+    } else {
+      // 6+ → auto-create the appropriate box piece type after buildPackingView
+      accData.push({
+        item_code: lines[0]?.item_code || cbKey,
+        item_name: `${info.label} (${info.lenIn}")`,
+        qty:       total,
+        unitWtLbs: info.wtLbs,
+        isCrossbar: true,
+        xbarPieceType: info.pieceType,
+        xbarLenIn:     info.lenIn,
+      });
+    }
+  }
+  handleCrossbarType(xbarLines.hj, 'hj');
+  handleCrossbarType(xbarLines.pv, 'pv');
+
+  // ── Build pole packing view ───────────────────────────────────────────────
   buildPackingView(poleData, 'packing-list-p2');
   setVal('p2-schedB-qty', String(poleData.length));
+
+  // ── Auto-create crossbar box pieces (qty ≥ 6) ────────────────────────────
+  const xbarBoxItems = accData.filter(a => a.xbarPieceType);
+  if (xbarBoxItems.length) {
+    const p2List = document.getElementById('packing-list-p2');
+    xbarBoxItems.forEach(xb => {
+      const pieceNum = p2List.querySelectorAll('.piece-container').length + 1;
+      const c = createPieceContainer(pieceNum, xb.xbarPieceType, []);
+      p2List.appendChild(c);
+      calcPieceDims(c);
+    });
+    renumberPieces('packing-list-p2');
+    updatePackingTotals('packing-list-p2');
+  }
+
+  // ── Accessories panel ─────────────────────────────────────────────────────
+  buildAccessoriesPanel(accData);
+  // After building pieces, refresh accessory dropdown options
+  setTimeout(refreshAccessoryPanel, 50);
 
   const totalPoles = poleData.length;
   setFetchStatus('p2', `✓ Loaded ${data.if_number} (${data.so_number}) — ${data.customer} · ${totalPoles} poles`, 'ok');
@@ -826,10 +935,22 @@ function packPolesDetailed(poleList) {
 function calcPieceDims(container) {
   const typeKey = container.querySelector('.piece-type-sel')?.value || 'large-tube';
   const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+  const el      = container.querySelector('.piece-dims-wt');
+  if (!el) return;
+
+  // Small Box: reads L/W/H from custom inputs, weight from accessory data
+  if (pt.configDims) {
+    const L = parseFloat(container.querySelector('.sb-len')?.value) || 0;
+    const W = parseFloat(container.querySelector('.sb-w')?.value)   || 0;
+    const H = parseFloat(container.querySelector('.sb-h')?.value)   || 0;
+    const wtLbs = parseFloat(container.dataset.accessoryWt || 0) + pt.extra_wt;
+    const wtKg  = Math.round(wtLbs * 0.453592 * 10) / 10;
+    el.textContent = L && W && H ? `${L}" × ${W}" × ${H}" · ${wtLbs} lbs · ${wtKg} kg` : 'Enter dimensions ↑';
+    return;
+  }
+
   const models  = Array.from(container.querySelectorAll('.pr-model'))
     .map(i => parseInt(i.value) || 0).filter(Boolean);
-  const el = container.querySelector('.piece-dims-wt');
-  if (!el) return;
   if (!models.length) { el.textContent = '—'; return; }
   const longest = Math.max(...models);
   // For X-bar boxes with a fixed length, use that; otherwise compute from longest pole
@@ -899,8 +1020,16 @@ function cascadeOverflowFrom(startContainer) {
 function onPieceTypeChange(sel) {
   const container = sel.closest('.piece-container');
   const listEl    = container.parentElement;
+  const pt        = PIECE_TYPES[sel.value] || {};
+  // Show/hide custom dimension inputs for Small Box
+  const sbDims = container.querySelector('.sb-dims');
+  if (sbDims) sbDims.style.display = pt.configDims ? 'flex' : 'none';
+  // Show/hide pole rows for Small Box (no poles in a small box)
+  const poleSection = container.querySelector('.piece-col-hdr, .piece-poles, .piece-foot');
+  container.querySelectorAll('.piece-col-hdr, .piece-poles, .piece-foot')
+    .forEach(el => el.style.display = pt.configDims ? 'none' : '');
   calcPieceDims(container);
-  cascadeOverflowFrom(container);
+  if (!pt.configDims) cascadeOverflowFrom(container);
   renumberPieces(listEl.id);
   updatePackingTotals(listEl.id);
   listEl.style.opacity = '0.4';
@@ -925,6 +1054,111 @@ function renumberPieces(listId = 'packing-list') {
     const b = c.querySelector('.piece-num-badge');
     if (b) b.textContent = `Piece ${i + 1}`;
   });
+  // Keep accessory assignment dropdown in sync with current pieces
+  if (listId === 'packing-list-p2') refreshAccessoryPanel();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACCESSORIES — state + UI for non-pole / non-crossbar items
+// ─────────────────────────────────────────────────────────────────────────────
+let p2Accessories = []; // [{item_code, item_name, qty, assignedTo}]
+                        // assignedTo: 'piece-N' (0-based) | 'new-box' | 'not-shipping'
+
+function buildAccessoriesPanel(items) {
+  p2Accessories = items.map(it => ({ ...it, assignedTo: 'not-shipping' }));
+  const card = document.getElementById('acc-card-p2');
+  const list = document.getElementById('accessories-list-p2');
+  if (!items.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  function render() {
+    // Build piece options from current packing-list-p2 containers
+    const pieces = [...document.querySelectorAll('#packing-list-p2 .piece-container')];
+    const pieceOpts = pieces.map((c, i) => {
+      const label = c.querySelector('.piece-num-badge')?.textContent || `Piece ${i+1}`;
+      return `<option value="piece-${i}"${'' }>Pack in ${label}</option>`;
+    }).join('');
+
+    list.innerHTML = p2Accessories.map((acc, idx) => `
+      <div class="acc-row" data-idx="${idx}" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--tgbr);flex-wrap:wrap">
+        <span style="font-weight:700;font-size:12px;min-width:36px;text-align:right;color:var(--pink)">${acc.qty}×</span>
+        <span style="flex:1;font-size:12px;color:var(--tp)">${htmlEsc(acc.item_name || acc.item_code)}</span>
+        <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 6px;color:var(--tp)"
+          onchange="onAccAssign(this,${idx})">
+          ${pieceOpts}
+          <option value="new-box"${acc.assignedTo==='new-box'?' selected':''}>+ New Small Box</option>
+          <option value="not-shipping"${acc.assignedTo==='not-shipping'?' selected':''}>Not Shipping</option>
+        </select>
+      </div>`).join('');
+
+    // Restore saved selections
+    p2Accessories.forEach((acc, idx) => {
+      const sel = list.querySelector(`.acc-row[data-idx="${idx}"] .acc-assign`);
+      if (sel && acc.assignedTo) sel.value = acc.assignedTo;
+    });
+
+    updateAccessorySmallBox();
+  }
+
+  list._render = render;
+  render();
+}
+
+function onAccAssign(sel, idx) {
+  p2Accessories[idx].assignedTo = sel.value;
+  updateAccessorySmallBox();
+}
+
+function assignAllAccessories(target) {
+  p2Accessories.forEach(acc => acc.assignedTo = target);
+  buildAccessoriesPanel(p2Accessories);
+}
+
+// Creates / updates a single shared Small Box piece container for accessory items
+function updateAccessorySmallBox() {
+  const list = document.getElementById('packing-list-p2');
+  const boxItems = p2Accessories.filter(a => a.assignedTo === 'new-box');
+
+  // Find or create the accessories small-box piece
+  let boxContainer = list.querySelector('.piece-container[data-acc-box="1"]');
+  if (boxItems.length === 0) {
+    if (boxContainer) { boxContainer.remove(); renumberPieces('packing-list-p2'); }
+    return;
+  }
+  if (!boxContainer) {
+    const pieceNum = list.querySelectorAll('.piece-container').length + 1;
+    boxContainer = createPieceContainer(pieceNum, 'small-box', []);
+    boxContainer.dataset.accBox = '1';
+    list.appendChild(boxContainer);
+    renumberPieces('packing-list-p2');
+  }
+  // Store total accessory weight on the container (for calcPieceDims)
+  const totalWt = boxItems.reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
+  boxContainer.dataset.accessoryWt = totalWt.toFixed(1);
+
+  // Show items summary in the box header note
+  let note = boxContainer.querySelector('.acc-box-note');
+  if (!note) {
+    note = document.createElement('div');
+    note.className = 'acc-box-note';
+    note.style.cssText = 'font-size:11px;color:var(--ts);padding:4px 10px 6px';
+    boxContainer.querySelector('.sb-dims').after(note);
+  }
+  note.innerHTML = '<strong>Contents:</strong> ' +
+    boxItems.map(a => `${a.qty}× ${htmlEsc(a.item_name || a.item_code)}`).join(', ');
+  calcPieceDims(boxContainer);
+  updatePackingTotals('packing-list-p2');
+}
+
+// Returns accessories assigned to a given piece index (for document output)
+function getAccForPiece(pieceIdx) {
+  return p2Accessories.filter(a => a.assignedTo === `piece-${pieceIdx}`);
+}
+
+// Re-render accessory dropdown when packing pieces change
+function refreshAccessoryPanel() {
+  const list = document.getElementById('accessories-list-p2');
+  if (list && list._render) list._render();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1104,6 +1338,7 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
     .map(([k, v]) => `<option value="${k}"${k === typeKey ? ' selected' : ''}>${v.label}</option>`)
     .join('');
   const div = document.createElement('div');
+  const isSmallBox = (PIECE_TYPES[typeKey] || {}).configDims;
   div.className = 'piece-container';
   div.innerHTML = `
     <div class="piece-header">
@@ -1111,11 +1346,20 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
       <select class="piece-type-sel" onchange="onPieceTypeChange(this)">${typeOpts}</select>
       <div class="piece-dims-box"><span class="piece-dims-wt">—</span></div>
     </div>
-    <div class="piece-col-hdr">
+    <div class="sb-dims" style="display:${isSmallBox ? 'flex' : 'none'};gap:6px;padding:5px 10px;align-items:center;font-size:11px;flex-wrap:wrap">
+      <label style="font-weight:600;color:var(--tp)">Dimensions (inches):</label>
+      <input class="sb-len" type="number" placeholder="Length" style="width:68px" oninput="calcPieceDims(this.closest('.piece-container'))">
+      <span style="color:var(--tp)">×</span>
+      <input class="sb-w"   type="number" placeholder="Width"  style="width:58px" oninput="calcPieceDims(this.closest('.piece-container'))">
+      <span style="color:var(--tp)">×</span>
+      <input class="sb-h"   type="number" placeholder="Height" style="width:58px" oninput="calcPieceDims(this.closest('.piece-container'))">
+      <span style="color:var(--ts);font-size:10px">(required for packing list)</span>
+    </div>
+    <div class="piece-col-hdr" style="${isSmallBox ? 'display:none' : ''}">
       <span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span></span>
     </div>
-    <div class="piece-poles"></div>
-    <div class="piece-foot">
+    <div class="piece-poles" style="${isSmallBox ? 'display:none' : ''}"></div>
+    <div class="piece-foot" style="${isSmallBox ? 'display:none' : ''}">
       <button class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 9px" onclick="addPoleToPiece(this)">+ Add Pole</button>
     </div>`;
   // Wire drop zone on piece-poles
@@ -1597,30 +1841,59 @@ function downloadPackingListP2() {
   let pieceSections = '';
 
   containers.forEach((c, i) => {
-    const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
-    const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
-    const poles   = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
+    const typeKey   = c.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt        = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const isSmBox   = !!pt.configDims;
+    const poles     = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
       model:  row.querySelector('.pr-model')?.value  || '',
       flex:   row.querySelector('.pr-flex')?.value   || '',
       note:   row.querySelector('.pr-note')?.value   || '',
       serial: row.querySelector('.pr-serial')?.value || '',
     })).filter(p => p.model);
+    // Accessories assigned to THIS piece (by index in the non-acc-box pieces)
+    const pieceAccs = getAccForPiece(i);
 
-    if (!poles.length) return;
+    // Skip empty non-small-box pieces with no accessories
+    if (!poles.length && !isSmBox && !pieceAccs.length) return;
     pieceCount++;
 
-    const models        = poles.map(p => parseInt(p.model) || 0).filter(Boolean);
-    const longest       = models.length ? Math.max(...models) : 0;
-    const unknownModels = models.filter(m => !POLE_LENGTH_IN[m]);
-    const lenIn   = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
-    const wtPoles = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
-    const wtLbs   = Math.round((wtPoles + pt.extra_wt) * 10) / 10;
-    const wtKgs   = Math.round(wtLbs * 0.453592 * 10) / 10;
-    const cuFt    = lenIn ? Math.round(lenIn * pt.w * pt.h / 1728 * 100) / 100 : 0;
+    let lenIn, wtLbs, wtKgs, cuFt, dimsStr, unknownWarn;
+    if (isSmBox) {
+      // Small Box: read custom dims from DOM inputs
+      const L = parseFloat(c.querySelector('.sb-len')?.value) || 0;
+      const W = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
+      const H = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
+      const accWt = p2Accessories.filter(a => a.assignedTo === 'new-box')
+                      .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
+      lenIn    = L;
+      wtLbs    = Math.round((accWt + pt.extra_wt) * 10) / 10;
+      wtKgs    = Math.round(wtLbs * 0.453592 * 10) / 10;
+      cuFt     = (L && W && H) ? Math.round(L * W * H / 1728 * 100) / 100 : 0;
+      dimsStr  = (L && W && H) ? `${L}" &times; ${W}" &times; ${H}"` : '<em style="color:#c00">— dims required —</em>';
+      unknownWarn = '';
+    } else {
+      const models        = poles.map(p => parseInt(p.model) || 0).filter(Boolean);
+      const longest       = models.length ? Math.max(...models) : 0;
+      const unknownModels = models.filter(m => !POLE_LENGTH_IN[m]);
+      lenIn    = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
+      const wtPoles = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
+      wtLbs    = Math.round((wtPoles + pt.extra_wt) * 10) / 10;
+      wtKgs    = Math.round(wtLbs * 0.453592 * 10) / 10;
+      cuFt     = lenIn ? Math.round(lenIn * pt.w * pt.h / 1728 * 100) / 100 : 0;
+      dimsStr  = lenIn ? `${lenIn}" &times; ${pt.w}" &times; ${pt.h}"` : '';
+      unknownWarn = unknownModels.length
+        ? `<span class="piece-warn">&#9888; Unknown model(s): ${unknownModels.join(', ')}</span>` : '';
+    }
 
     totalPoles += poles.length;
     totalLbs   += wtLbs;
     totalCuFt  += cuFt;
+
+    // Accessory rows appended to the bottom of any piece
+    const accRowsHtml = pieceAccs.length
+      ? `<tr><td colspan="5" style="padding:4px 6px;background:#f5f5e8;font-size:8pt;color:#555;font-style:italic">
+           Also in this piece: ${pieceAccs.map(a => `${a.qty}× ${htmlEsc(a.item_name||a.item_code)}`).join(', ')}
+         </td></tr>` : '';
 
     let poleRows = '';
     poles.forEach((pole, j) => {
@@ -1637,10 +1910,25 @@ function downloadPackingListP2() {
         </tr>`;
     });
 
-    const dimsStr     = lenIn ? `${lenIn}" &times; ${pt.w}" &times; ${pt.h}"` : '';
-    const unknownWarn = unknownModels.length
-      ? `<span class="piece-warn">&#9888; Unknown model(s): ${unknownModels.join(', ')} — dims &amp; weight may be incorrect</span>`
-      : '';
+    // For Small Box pieces — show contents list instead of pole table
+    const contentTable = isSmBox
+      ? `<table class="pole-tbl"><thead><tr>
+           <th>Item</th><th style="width:60px;text-align:center">Qty</th>
+         </tr></thead><tbody>
+         ${p2Accessories.filter(a=>a.assignedTo==='new-box').map(a=>
+           `<tr><td>${htmlEsc(a.item_name||a.item_code)}</td><td style="text-align:center">${a.qty}</td></tr>`
+         ).join('') || '<tr><td colspan="2" style="color:#aaa;font-style:italic">No items assigned</td></tr>'}
+         </tbody></table>`
+      : `<table class="pole-tbl">
+         <thead><tr>
+           <th class="tc" style="width:30px">#</th>
+           <th style="width:76px">Model</th>
+           <th style="width:70px">Flex Memo</th>
+           <th style="width:160px">Special Line Item Notes</th>
+           <th style="width:235px">Serial #</th>
+         </tr></thead>
+         <tbody>${poleRows}${accRowsHtml}</tbody>
+         </table>`;
 
     pieceSections += `<div class="piece-block">
       <div class="piece-hdr">
@@ -1651,16 +1939,7 @@ function downloadPackingListP2() {
         <span class="piece-cuft-lbl">${cuFt}&nbsp;cu&nbsp;ft</span>
         ${unknownWarn}
       </div>
-      <table class="pole-tbl">
-        <thead><tr>
-          <th class="tc" style="width:30px">#</th>
-          <th style="width:76px">Model</th>
-          <th style="width:70px">Flex Memo</th>
-          <th style="width:160px">Special Line Item Notes</th>
-          <th style="width:235px">Serial #</th>
-        </tr></thead>
-        <tbody>${poleRows}</tbody>
-      </table>
+      ${contentTable}
     </div>`;
   });
 
@@ -1880,6 +2159,19 @@ function downloadSLI() {
   containers.forEach(container => {
     const typeKey = container.querySelector('.piece-type-sel')?.value || 'large-tube';
     const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    if (pt.configDims) {
+      // Small Box — read custom dims + accessory weight
+      const L      = parseFloat(container.querySelector('.sb-len')?.value) || 0;
+      const W      = parseFloat(container.querySelector('.sb-w')?.value)   || 0;
+      const H      = parseFloat(container.querySelector('.sb-h')?.value)   || 0;
+      const accWt  = p2Accessories.filter(a => a.assignedTo === 'new-box')
+                       .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
+      const wtLbs  = Math.round((accWt + pt.extra_wt) * 10) / 10;
+      const wtKgs  = Math.round(wtLbs * 0.453592 * 10) / 10;
+      totalLbs += wtLbs;
+      pieceData.push({ num: pieceData.length + 1, label: pt.label, lenIn: L, w: W, h: H, wtLbs, wtKgs, poleCount: 0 });
+      return;
+    }
     const rows    = [...container.querySelectorAll('.pole-row-p1')];
     const poles   = rows.map(r => ({ model: (r.querySelector('.pr-model')?.value || '').trim() })).filter(p => p.model);
     if (!poles.length) return;
@@ -1888,12 +2180,21 @@ function downloadSLI() {
     const lenIn   = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
     const wtLbs   = Math.round((models.reduce((s,m) => s + (POLE_WEIGHT_LBS[m] || 10), 0) + pt.extra_wt) * 10) / 10;
     const wtKgs   = Math.round(wtLbs * 0.453592 * 10) / 10;
-    totalLbs   += wtLbs;
+    // Add weight of accessories packed in this piece
+    const pieceAccWt = getAccForPiece(pieceData.length)
+      .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
+    totalLbs   += wtLbs + pieceAccWt;
     totalPoles += poles.length;
-    pieceData.push({ num: pieceData.length + 1, label: pt.label, lenIn, w: pt.w, h: pt.h, wtLbs, wtKgs, poleCount: poles.length });
+    pieceData.push({ num: pieceData.length + 1, label: pt.label, lenIn, w: pt.w, h: pt.h, wtLbs: wtLbs + pieceAccWt, wtKgs: Math.round((wtLbs + pieceAccWt) * 0.453592 * 10)/10, poleCount: poles.length });
   });
 
   if (!pieceData.length) { setActionErr('p2', 'No poles found — fill in pole models before generating the SLI.'); return; }
+
+  // Add shipping weight of accessories not yet in any piece (not-shipping excluded)
+  const unattachedAccWt = p2Accessories
+    .filter(a => a.assignedTo !== 'not-shipping' && a.assignedTo !== 'new-box' && !a.assignedTo?.startsWith('piece-'))
+    .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
+  totalLbs += unattachedAccWt;
 
   const totalKgs    = Math.round(totalLbs * 0.453592 * 10) / 10;
   const totalPieces = pieceData.length;
