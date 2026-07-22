@@ -211,13 +211,14 @@ export async function onRequestGet({ params, env }) {
     }
 
     // ── 1. Header ───────────────────────────────────────────────────────────
+    // Note: createdfrom is deliberately excluded — ANY reference to createdfrom in
+    // SuiteQL on the transaction table (WHERE or SELECT) triggers NS UNEXPECTED_ERROR.
     const hdr = await suiteQL(`
       SELECT
         t.id,
         t.tranid,
         t.trandate,
         c.companyname,
-        t.createdfrom,
         t.shipaddress
       FROM transaction t
       LEFT JOIN customer c ON c.id = t.entity
@@ -239,13 +240,19 @@ export async function onRequestGet({ params, env }) {
       .replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 
     // ── Resolve linked SO number ─────────────────────────────────────────────
+    // For SO# entry: already known from resolvedFromSO.
+    // For IF# direct entry: get createdFrom.refName via REST Record API.
+    // Cannot use SuiteQL at all — createdfrom triggers UNEXPECTED_ERROR everywhere.
     let soNumber = resolvedFromSO || '';
-    if (!soNumber && ifRec.createdfrom) {
+    if (!soNumber) {
       try {
-        const soRes = await suiteQL(`
-          SELECT tranid FROM transaction WHERE id = ${ifRec.createdfrom} FETCH FIRST 1 ROWS ONLY
-        `, env);
-        soNumber = ((soRes.items || [])[0] || {}).tranid || '';
+        const ifRestRec = await nsGet(
+          `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment/${ifRec.id}`,
+          env, 1
+        );
+        // refName is e.g. "Sales Order #SO33870"
+        const refName = ifRestRec.createdFrom?.refName || '';
+        soNumber = refName.replace(/^Sales Order #/i, '').trim();
       } catch (_) { /* non-fatal */ }
     }
 
