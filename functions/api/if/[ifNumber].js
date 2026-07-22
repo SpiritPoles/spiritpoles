@@ -104,9 +104,9 @@ export async function onRequestGet({ params, env }) {
 
     // ── Resolve tranid ──────────────────────────────────────────────────────
     if (upper.startsWith('SO')) {
-      // Step 1: get the SO internal ID (avoids self-join which NS SuiteQL doesn't support)
+      // Step 1: get the SO internal ID + entity (entity needed to scope IF search in Step 2)
       const soRes = await suiteQL(`
-        SELECT id FROM transaction
+        SELECT id, entity FROM transaction
         WHERE tranid = '${upper}' AND recordtype = 'salesorder'
         FETCH FIRST 1 ROWS ONLY
       `, env);
@@ -120,21 +120,22 @@ export async function onRequestGet({ params, env }) {
       }
 
       // Step 2: find IFs linked to that SO.
-      // Cannot filter transaction table by createdfrom — NS SuiteQL treats it as a self-join
-      // and throws UNEXPECTED_ERROR regardless of alias or FETCH FIRST usage.
-      // Instead: join through transactionline — IF lines carry createdfromline → SO line id,
-      // so we can find all IFs whose lines were fulfilled from this SO without touching
-      // transaction.createdfrom at all.
+      // NS SuiteQL self-join restriction: filtering WHERE createdfrom = X on the transaction
+      // table always throws UNEXPECTED_ERROR (self-join), even with table alias.
+      // Workaround: SELECT createdfrom is fine — only WHERE filtering triggers the error.
+      // Query all IFs for the same entity, select createdfrom, then filter in JS.
       const ifSearch = await suiteQL(`
-        SELECT DISTINCT t.id, t.tranid, t.trandate
+        SELECT t.id, t.tranid, t.trandate, t.createdfrom
         FROM transaction t
-        JOIN transactionline tl  ON tl.transaction = t.id
-        JOIN transactionline sol ON sol.id = tl.createdfromline
         WHERE t.recordtype = 'itemfulfillment'
-        AND   sol.transaction = ${soRow.id}
+        AND   t.entity = ${soRow.entity}
+        ORDER BY t.trandate DESC
+        FETCH FIRST 50 ROWS ONLY
       `, env);
 
-      const ifRows = ifSearch.items || [];
+      // Filter in JS: only IFs whose createdfrom matches this SO's internal ID
+      const allEntityIFs = ifSearch.items || [];
+      const ifRows = allEntityIFs.filter(r => String(r.createdfrom) === String(soRow.id));
       if (!ifRows.length) {
         return new Response(
           JSON.stringify({ error: `No Item Fulfillment found for ${upper} — order may not have shipped yet.` }),

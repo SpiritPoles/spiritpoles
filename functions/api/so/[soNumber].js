@@ -149,6 +149,7 @@ export async function onRequestGet({ params, env }) {
     const hdr = await suiteQL(`
       SELECT
         t.id,
+        t.entity,
         t.tranid,
         t.trandate,
         c.companyname,
@@ -172,13 +173,18 @@ export async function onRequestGet({ params, env }) {
     const shipAddr = (so.shipaddress || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 
     // 1b. Look up linked Item Fulfillment number (non-fatal — IF may not exist yet)
+    // NS SuiteQL self-join restriction: WHERE createdfrom = X throws UNEXPECTED_ERROR.
+    // Workaround: SELECT createdfrom is safe — query IFs for this entity, filter in JS.
     let ifNumber = '';
     try {
       const ifRes = await suiteQL(
-        `SELECT DISTINCT t.tranid FROM transaction t JOIN transactionline tl ON tl.transaction = t.id JOIN transactionline sol ON sol.id = tl.createdfromline WHERE t.recordtype = 'itemfulfillment' AND sol.transaction = ${so.id}`,
+        `SELECT t.tranid, t.createdfrom FROM transaction t
+         WHERE t.recordtype = 'itemfulfillment' AND t.entity = ${so.entity}
+         ORDER BY t.trandate DESC FETCH FIRST 50 ROWS ONLY`,
         env
       );
-      ifNumber = ((ifRes.items || [])[0] || {}).tranid || '';
+      const matched = (ifRes.items || []).filter(r => String(r.createdfrom) === String(so.id));
+      ifNumber = (matched[0] || {}).tranid || '';
     } catch (_) { /* non-fatal */ }
 
     // 2. REST Record API — gets subtotal + full line items with custom fields & serials
