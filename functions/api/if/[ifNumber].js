@@ -155,17 +155,16 @@ export async function onRequestGet({ params, env }) {
         );
       }
 
-      // Step 2: Get candidate IFs for this entity.
-      // NS SuiteQL UNEXPECTED_ERROR restriction: createdfrom on transaction table causes a
-      // self-join error in both WHERE and SELECT on broad (entity-scoped) queries.
-      // Solution: omit createdfrom entirely from SuiteQL; use REST Record API in Step 3.
+      // Step 2: Get recent IFs for this entity.
+      // Cannot use createdfrom in SuiteQL at all (self-join 500 in both WHERE and SELECT
+      // on broad queries). Get IFs by entity only, then check createdFrom via REST.
       const ifList = await suiteQL(`
         SELECT t.id, t.tranid, t.trandate
         FROM transaction t
         WHERE t.recordtype = 'itemfulfillment'
         AND   t.entity = ${soRow.entity}
         ORDER BY t.trandate DESC
-        FETCH FIRST 20 ROWS ONLY
+        FETCH FIRST 10 ROWS ONLY
       `, env);
 
       const candidates = ifList.items || [];
@@ -176,24 +175,22 @@ export async function onRequestGet({ params, env }) {
         );
       }
 
-      // Step 3: Parallel REST Record API calls to check createdFrom.
-      // The IF REST record exposes createdFrom.id cleanly; SuiteQL cannot.
+      // Step 3: Sequential REST calls to check createdFrom on each candidate.
+      // Sequential (not parallel) to stay under NS concurrency limits (parallel → 429).
+      // Sorted newest-first so the match is typically found on the first call.
       const soIdStr  = String(soRow.id);
       const restBase = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment`;
+      const ifRows   = [];
 
-      const checked = await Promise.all(
-        candidates.map(async c => {
-          try {
-            const rec   = await nsGet(`${restBase}/${c.id}`, env, 1);
-            const cFrom = rec.createdFrom?.id || '';
-            return { id: c.id, tranid: c.tranid, trandate: c.trandate, matchesSO: String(cFrom) === soIdStr };
-          } catch (_) {
-            return { id: c.id, tranid: c.tranid, trandate: c.trandate, matchesSO: false };
+      for (const c of candidates) {
+        try {
+          const rec = await nsGet(`${restBase}/${c.id}`, env, 1);
+          if (String(rec.createdFrom?.id || '') === soIdStr) {
+            ifRows.push({ id: c.id, tranid: c.tranid, trandate: c.trandate });
           }
-        })
-      );
+        } catch (_) { /* skip this candidate */ }
+      }
 
-      const ifRows = checked.filter(c => c.matchesSO);
       if (!ifRows.length) {
         return new Response(
           JSON.stringify({ error: `No Item Fulfillment found for ${upper} — order may not have shipped yet.` }),

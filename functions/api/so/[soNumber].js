@@ -185,15 +185,13 @@ export async function onRequestGet({ params, env }) {
       );
       const soIdStr  = String(so.id);
       const restBase = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment`;
-      const results  = await Promise.all(
-        (ifList.items || []).map(async c => {
-          try {
-            const rec = await nsGet(`${restBase}/${c.id}`, env, 1);
-            return { tranid: c.tranid, match: String(rec.createdFrom?.id || '') === soIdStr };
-          } catch (_) { return { tranid: c.tranid, match: false }; }
-        })
-      );
-      ifNumber = (results.find(r => r.match) || {}).tranid || '';
+      // Sequential (not parallel) — parallel calls hit NS 429 concurrency limit
+      for (const c of (ifList.items || [])) {
+        try {
+          const rec = await nsGet(`${restBase}/${c.id}`, env, 1);
+          if (String(rec.createdFrom?.id || '') === soIdStr) { ifNumber = c.tranid; break; }
+        } catch (_) { /* skip */ }
+      }
     } catch (_) { /* non-fatal */ }
 
     // 2. REST Record API — gets subtotal + full line items with custom fields & serials
