@@ -1530,203 +1530,230 @@ function downloadPackingListP2() {
   const consFull = v('p2-consignee-full') || cons;
   const shipDate = v('p2-ship-date')      || '';
   const inco     = v('p2-incoterm')       || '';
-  const method   = v('p2-method')         || '';
-  const schedB   = v('p2-schedule-b')     || '9506.91.0000';
-  const goodsVal = v('p2-goods-value')    || '';
 
   const fmtDate = shipDate
-    ? new Date(shipDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    ? new Date(shipDate + 'T00:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
+    : '';
+  const printedDate = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
 
-  // ── Collect piece/pole data from DOM (identical logic to Phase 1) ───────────
-  let totalPoles = 0, totalLbs = 0, totalCuFtRaw = 0, pieceCount = 0;
-  const pieceSections = [];
+  let totalPoles = 0, totalLbs = 0, totalCuFt = 0, pieceCount = 0;
+  let pieceSections = '';
 
-  containers.forEach(container => {
-    const typeKey = container.querySelector('.piece-type-sel')?.value || 'large-tube';
+  containers.forEach((c, i) => {
+    const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
     const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
-    const rows    = [...container.querySelectorAll('.pole-row-p1')];
-    const poles   = rows.map(row => ({
-      model:  (row.querySelector('.pr-model')?.value  || '').trim(),
-      flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
-      note:   (row.querySelector('.pr-note')?.value   || '').trim(),
-      serial: (row.querySelector('.pr-serial')?.value || '').trim(),
+    const poles   = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
+      model:  row.querySelector('.pr-model')?.value  || '',
+      flex:   row.querySelector('.pr-flex')?.value   || '',
+      note:   row.querySelector('.pr-note')?.value   || '',
+      serial: row.querySelector('.pr-serial')?.value || '',
     })).filter(p => p.model);
 
     if (!poles.length) return;
     pieceCount++;
 
-    const models  = poles.map(p => parseInt(p.model) || 0).filter(Boolean);
-    const longest = models.length ? Math.max(...models) : 0;
+    const models        = poles.map(p => parseInt(p.model) || 0).filter(Boolean);
+    const longest       = models.length ? Math.max(...models) : 0;
     const unknownModels = models.filter(m => !POLE_LENGTH_IN[m]);
+    const lenIn   = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
+    const wtPoles = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
+    const wtLbs   = Math.round((wtPoles + pt.extra_wt) * 10) / 10;
+    const wtKgs   = Math.round(wtLbs * 0.453592 * 10) / 10;
+    const cuFt    = lenIn ? Math.round(lenIn * pt.w * pt.h / 1728 * 100) / 100 : 0;
 
-    const lenIn  = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
-    const wtLbs  = Math.round((models.reduce((s,m) => s + (POLE_WEIGHT_LBS[m] || 10), 0) + pt.extra_wt) * 10) / 10;
-    const wtKgs  = Math.round(wtLbs * 0.453592 * 10) / 10;
-    const cuFtRaw = lenIn ? lenIn * pt.w * pt.h / 1728 : 0;
-    const cuFt    = Math.round(cuFtRaw * 100) / 100;  // per-piece display value
+    totalPoles += poles.length;
+    totalLbs   += wtLbs;
+    totalCuFt  += cuFt;
 
-    totalPoles   += poles.length;
-    totalLbs     += wtLbs;
-    totalCuFtRaw += cuFtRaw;  // accumulate raw so final total rounds correctly
+    let poleRows = '';
+    poles.forEach((pole, j) => {
+      const serialDisplay = pole.serial
+        ? `<span class="mono">${htmlEsc(pole.serial)}</span>`
+        : `<span class="serial-blank"></span>`;
+      const flexDisplay = pole.flex ? `<strong>${htmlEsc(pole.flex)}</strong>` : '';
+      poleRows += `<tr>
+          <td class="tc n">${j + 1}</td>
+          <td class="mdl">${htmlEsc(pole.model)}</td>
+          <td class="tc">${flexDisplay}</td>
+          <td class="nte">${htmlEsc(pole.note)}</td>
+          <td>${serialDisplay}</td>
+        </tr>`;
+    });
 
+    const dimsStr     = lenIn ? `${lenIn}" &times; ${pt.w}" &times; ${pt.h}"` : '';
     const unknownWarn = unknownModels.length
-      ? `<div class="unk-warn">&#9888; Unknown model(s): ${unknownModels.join(', ')} — dims &amp; weight may be incorrect</div>` : '';
+      ? `<span class="piece-warn">&#9888; Unknown model(s): ${unknownModels.join(', ')} — dims &amp; weight may be incorrect</span>`
+      : '';
 
-    const poleRows = poles.map(p => `
-      <tr class="pole-row">
-        <td></td><td></td>
-        <td>${htmlEsc(p.model)}</td>
-        <td>${htmlEsc(p.flex)}</td>
-        <td>${htmlEsc(p.note)}</td>
-        <td>${htmlEsc(p.serial)}</td>
-        <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
-      </tr>`).join('');
-
-    pieceSections.push(`
-      <tr class="piece-hdr-row">
-        <td><strong>${pieceCount}</strong></td>
-        <td>${pt.label}</td>
-        <td></td><td></td><td></td><td></td>
-        <td>${lenIn}"</td><td>&times;</td><td>${pt.w}"</td><td>&times;</td><td>${pt.h}"</td>
-        <td>${cuFt}</td><td>${wtLbs}</td>
-      </tr>
-      ${unknownWarn ? `<tr><td colspan="13">${unknownWarn}</td></tr>` : ''}
-      ${poleRows}
-      <tr class="piece-sub-row">
-        <td colspan="11" style="text-align:right;font-style:italic;font-size:8pt;color:#888">Piece ${pieceCount} subtotal</td>
-        <td>${cuFt} ft³</td><td>${wtLbs} lbs &nbsp;(${wtKgs} kg)</td>
-      </tr>`);
+    pieceSections += `<div class="piece-block">
+      <div class="piece-hdr">
+        <span class="piece-badge">PIECE&nbsp;${pieceCount}</span>
+        <span class="piece-type-lbl">${htmlEsc(pt.label)}</span>
+        <span class="piece-dims-lbl">${dimsStr}</span>
+        <span class="piece-wt-lbl">${wtLbs}&nbsp;lbs &ndash; ${wtKgs}&nbsp;kg</span>
+        <span class="piece-cuft-lbl">${cuFt}&nbsp;cu&nbsp;ft</span>
+        ${unknownWarn}
+      </div>
+      <table class="pole-tbl">
+        <thead><tr>
+          <th class="tc" style="width:30px">#</th>
+          <th style="width:76px">Model</th>
+          <th style="width:70px">Flex Memo</th>
+          <th style="width:160px">Special Line Item Notes</th>
+          <th style="width:235px">Serial #</th>
+        </tr></thead>
+        <tbody>${poleRows}</tbody>
+      </table>
+    </div>`;
   });
 
   if (!pieceCount) { setActionErr('p2', 'No poles found — fill in pole models before downloading.'); return; }
 
-  const totPcs  = pieceCount;
+  const totLbs  = Math.round(totalLbs  * 10)  / 10;
   const totKgs  = Math.round(totalLbs * 0.453592 * 10) / 10;
-  const totLbs  = Math.round(totalLbs * 10) / 10;
-  const totCuFt = Math.round(totalCuFtRaw * 100) / 100;  // round raw total, not sum of rounded pieces
-
-  const refLine = soNum ? `IF: ${ifNum} &nbsp;·&nbsp; SO: ${soNum}` : `IF: ${ifNum}`;
+  const totCuFt = Math.round(totalCuFt * 100) / 100;
+  const totPcs  = pieceCount;
+  const refLine = soNum ? `${htmlEsc(ifNum)}&nbsp;&bull;&nbsp;SO:&nbsp;${htmlEsc(soNum)}` : htmlEsc(ifNum);
 
   const html = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>Packing List — ${ifNum}</title>
+<html lang="en"><head><meta charset="UTF-8">
+<title>Packing List FINAL — ${htmlEsc(ifNum)}</title>
 <style>
-@page{size:8.5in 11in;margin:0.5in;@bottom-center{content:"Page " counter(page) " of " counter(pages);font-family:Arial,sans-serif;font-size:8pt;color:#888}}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,Helvetica,sans-serif;font-size:9pt;color:#000;background:#fff}
-table.main-tbl{width:100%;border-collapse:collapse}
-table.main-tbl thead{display:table-header-group}
-table.main-tbl tfoot{display:table-footer-group}
-.lh-img{width:100%;height:auto;display:block;margin-bottom:8px}
-.doc-header{width:100%;margin-bottom:10px}
-.doc-header td{vertical-align:top;font-size:9pt}
-.doc-title{font-size:18pt;font-weight:900;letter-spacing:.04em;color:#000;text-align:right}
-.doc-sub{font-size:10pt;font-weight:700;color:#555;text-align:right;margin-top:2px}
-.ref-line{font-size:9pt;font-weight:700;color:#333;text-align:right;margin-top:4px}
-.doc-addr{font-size:8pt;color:#555;line-height:1.5}
-.cons-block{background:#f7f7f7;border:1px solid #ddd;border-radius:4px;padding:8px 12px;margin-bottom:10px}
-.cons-label{font-size:8pt;font-weight:700;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
-.cons-name{font-size:11pt;font-weight:900}
-.cons-addr{font-size:9pt;color:#444;white-space:pre-line}
-.meta-row{display:flex;gap:16px;margin-bottom:12px;font-size:9pt}
-.meta-cell{flex:1;background:#f7f7f7;border:1px solid #ddd;border-radius:4px;padding:6px 10px}
-.meta-lbl{font-size:7.5pt;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em}
-.meta-val{font-size:10pt;font-weight:700;margin-top:1px}
-table.pole-tbl{width:100%;border-collapse:collapse;font-size:8.5pt;margin-bottom:10px}
-table.pole-tbl th{background:#222;color:#fff;padding:5px 7px;text-align:left;font-size:8pt;letter-spacing:.05em}
-table.pole-tbl td{padding:4px 7px;border-bottom:1px solid #eee}
-table.pole-tbl .piece-hdr-row td{background:#f0f0f0;font-weight:700;border-top:2px solid #999;border-bottom:1px solid #bbb}
-table.pole-tbl .pole-row td{background:#fff}
-table.pole-tbl .piece-sub-row td{background:#fafafa;border-top:1px dashed #ccc;font-size:8pt}
-.unk-warn{background:#fff3cd;color:#856404;padding:3px 8px;font-size:8pt;border-left:3px solid #ffc107}
-.totals-bar{display:flex;gap:0;border:2px solid #222;margin:8px 0;border-radius:4px;overflow:hidden}
-.tot-cell{flex:1;text-align:center;padding:8px 4px;border-right:1px solid #ccc}
+@page {
+  size:letter portrait;
+  margin:0.25in 0.5in 0.5in;
+  @bottom-center {
+    content:"Page " counter(page) " of " counter(pages);
+    font-size:7pt;color:#aaa;font-family:Arial,sans-serif;
+  }
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{background:#ccc}
+body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background:#fff;
+     width:816px;margin:0 auto;padding:20px 0}
+.pw{width:100%;border-collapse:collapse;table-layout:fixed}
+.pw>thead>tr>td{padding-bottom:10px}
+.pw>tfoot>tr>td{padding-top:6px;border-top:1px solid #ddd;
+                font-size:7pt;color:#aaa;display:flex;
+                justify-content:space-between}
+.pw>tbody>tr>td{padding-top:14px;vertical-align:top}
+.doc-header{display:flex;justify-content:space-between;align-items:center}
+.lh-img{height:88px;width:auto}
+.doc-right{text-align:right;line-height:1.2}
+.doc-title{font-size:22pt;font-weight:900;letter-spacing:1px}
+.final-tag{display:inline-block;background:#c62828;color:#fff;font-size:8pt;
+           font-weight:800;padding:2px 7px;border-radius:3px;
+           letter-spacing:1.5px;vertical-align:middle;margin-left:7px}
+.doc-so{font-size:11pt;font-weight:bold;margin-top:3px}
+.info-bar{display:flex;border:1.5px solid #666;background:#fff;margin-top:0}
+.ib-cell{flex:1;padding:5px 10px}
+.ib-cell:first-child{flex:0 0 105px}
+.ib-cell:last-child{flex:0 0 155px;border-right:none}
+.ib-label{font-size:6.5pt;font-weight:bold;text-transform:uppercase;color:#777;margin-bottom:1px}
+.ib-value{font-size:10pt;font-weight:bold;line-height:1.3}
+.piece-block{break-inside:avoid;page-break-inside:avoid;
+             border:1.5px solid #444;border-radius:3px;
+             margin-bottom:14px;overflow:hidden}
+.piece-hdr{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+           padding:6px 12px;background:#ececec;border-bottom:1.5px solid #444}
+.piece-badge{background:#222;color:#fff;font-size:9.5pt;font-weight:900;
+             padding:3px 11px;border-radius:3px;white-space:nowrap;letter-spacing:.5px}
+.piece-type-lbl{font-size:11pt;font-weight:bold;flex:1;min-width:120px}
+.piece-dims-lbl{font-size:9.5pt;font-weight:bold;white-space:nowrap}
+.piece-wt-lbl{font-size:9.5pt;font-weight:bold;white-space:nowrap}
+.piece-cuft-lbl{font-size:8.5pt;color:#666;white-space:nowrap}
+.piece-warn{font-size:7.5pt;font-weight:bold;color:#b00;background:#fff3cd;border:1px solid #e0a800;border-radius:2px;padding:1px 6px;white-space:nowrap}
+.pole-tbl{width:100%;border-collapse:collapse}
+.pole-tbl th{background:#e4e4e4;padding:4px 8px;
+             font-size:7pt;font-weight:bold;text-transform:uppercase;
+             letter-spacing:.4px;text-align:left;
+             border-bottom:1.5px solid #888;border-right:1px solid #ccc}
+.pole-tbl th:last-child{border-right:none}
+.pole-tbl td{padding:5px 8px;vertical-align:middle;
+             border-bottom:1px solid #e0e0e0;border-right:1px solid #eee;
+             font-size:9.5pt}
+.pole-tbl td:last-child{border-right:none}
+.pole-tbl tbody tr:last-child td{border-bottom:none}
+.pole-tbl tbody tr:nth-child(even){background:#f8f8f8}
+.tc{text-align:center}
+.n{color:#888;font-size:8pt}
+.mdl{font-weight:bold;font-size:10.5pt;color:#000;letter-spacing:0.06em}
+.nte{color:#555;font-size:8.5pt}
+.mono{font-family:'Courier New',monospace;font-size:10.5pt;color:#333}
+.serial-blank{display:block;border-bottom:1px solid #bbb;
+              height:1.1em;width:88%;margin:1px 0}
+.totals-bar{display:flex;border:1.5px solid #444;border-radius:3px;
+            overflow:hidden;margin-bottom:22px;break-inside:avoid}
+.tot-cell{flex:1;padding:10px 6px;text-align:center;border-right:1px solid #ccc}
 .tot-cell:last-child{border-right:none}
-.tot-num{display:block;font-size:16pt;font-weight:900}
-.tot-lbl{display:block;font-size:7.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#888;margin-top:1px}
-.bottom-sec{display:flex;align-items:flex-end;justify-content:space-between;margin-top:16px;padding-top:10px;border-top:1px solid #ccc}
-.made-usa{font-size:8pt;font-weight:700;color:#555;line-height:1.6}
-.seal-img{width:72px;height:auto}
-.sig-block{text-align:right;font-size:8.5pt;color:#333;line-height:1.7}
-.sig-line{border-top:1px solid #333;width:220px;margin-left:auto;margin-bottom:4px}
-.certified{font-size:8pt;font-style:italic;color:#555;margin-bottom:4px}
-.no-print{text-align:center;padding:20px;display:none}
-@media screen{.no-print{display:block}}
+.tot-num{font-size:16pt;font-weight:900;display:block;line-height:1.1}
+.tot-lbl{font-size:7pt;text-transform:uppercase;font-weight:bold;
+         color:#666;letter-spacing:.5px}
+.bottom-sec{display:flex;justify-content:space-between;align-items:center;
+            padding-top:14px;border-top:1.5px solid #bbb;margin-top:8px;
+            break-inside:avoid}
+.made-usa{font-size:8pt;line-height:1.9;color:#333}
+.seal-img{height:110px;width:auto}
+.sig-block{text-align:center;font-size:9pt;line-height:1.5}
+.sig-line{border-top:1px solid #000;width:180px;margin:38px auto 5px}
+.no-print{margin:20px 0;text-align:center}
+.no-print button{padding:10px 30px;font-size:12px;cursor:pointer;
+                 background:#222;color:#fff;border:none;border-radius:4px}
+@media print{
+  html{background:#fff}
+  body{width:100%;padding:0;margin:0}
+  .no-print{display:none}
+  .piece-block{break-inside:avoid;page-break-inside:avoid}
+  .totals-bar{break-inside:avoid}
+  .bottom-sec{break-inside:avoid}
+}
 </style></head><body>
 
-<table class="main-tbl">
-  <thead><tr><td>
-    <img src="data:image/png;base64,${LH_B64}" class="lh-img" alt="">
-    <table class="doc-header"><tr>
-      <td class="doc-addr">
-        New Nevada Plastics dba UCS Spirit<br>
-        2180 Meridian Blvd, Minden NV 89423<br>
-        775-882-7114 &nbsp;·&nbsp; www.spiritpoles.com<br>
-        FED ID: 22-2768411
-      </td>
-      <td style="text-align:right">
-        <div class="doc-title">PACKING LIST</div>
-        <div class="ref-line">${refLine}</div>
-      </td>
-    </tr></table>
-    <div class="cons-block">
-      <div class="cons-label">Ultimate Consignee / Destination</div>
-      <div class="cons-name">${htmlEsc(cons)}</div>
-      <div class="cons-addr">${htmlEsc(consFull)}</div>
-    </div>
-    <div class="meta-row">
-      <div class="meta-cell"><div class="meta-lbl">Ship Date</div><div class="meta-val">${fmtDate}</div></div>
-      <div class="meta-cell"><div class="meta-lbl">Method</div><div class="meta-val">${htmlEsc(method)}</div></div>
-      <div class="meta-cell"><div class="meta-lbl">Incoterms</div><div class="meta-val">${htmlEsc(inco)}</div></div>
-      <div class="meta-cell"><div class="meta-lbl">Declared Value</div><div class="meta-val">${htmlEsc(goodsVal)}</div></div>
-      <div class="meta-cell"><div class="meta-lbl">Schedule B</div><div class="meta-val">${htmlEsc(schedB)}</div></div>
-    </div>
-  </td></tr></thead>
-  <tfoot><tr><td style="height:8px"></td></tr></tfoot>
-  <tbody><tr><td>
-
-    <table class="pole-tbl">
-      <thead>
-        <tr>
-          <th style="width:32px">#</th>
-          <th>Type</th>
-          <th style="width:56px">Model</th>
-          <th style="width:44px">Flex</th>
-          <th>Notes</th>
-          <th style="width:90px">Serial #</th>
-          <th style="width:50px">L (in)</th>
-          <th style="width:14px"></th>
-          <th style="width:44px">W (in)</th>
-          <th style="width:14px"></th>
-          <th style="width:44px">H (in)</th>
-          <th style="width:44px">Cu Ft</th>
-          <th style="width:64px">Wt (lbs)</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${pieceSections.join('')}
-      </tbody>
-    </table>
-
-    <div class="totals-bar">
-      <div class="tot-cell"><span class="tot-num">${totalPoles}</span><span class="tot-lbl">Poles</span></div>
-      <div class="tot-cell"><span class="tot-num">${totPcs}</span><span class="tot-lbl">Total Pieces</span></div>
-      <div class="tot-cell"><span class="tot-num">${totKgs}</span><span class="tot-lbl">kgs.</span></div>
-      <div class="tot-cell"><span class="tot-num">${totCuFt}</span><span class="tot-lbl">Cubic Feet</span></div>
-      <div class="tot-cell"><span class="tot-num">${totLbs}</span><span class="tot-lbl">lbs.</span></div>
-    </div>
-
-    <div class="bottom-sec">
-      <div class="made-usa">ALL PRODUCTS MADE IN THE USA<br>SCHEDULE B: ${htmlEsc(schedB)}<br>${fmtDate}</div>
-      <img src="data:image/png;base64,${SEAL_B64}" class="seal-img" alt="">
-      <div class="sig-block">
-        <div class="certified">Certified True and Correct</div>
-        <div class="sig-line"></div>
-        Austin Tilley<br>Office Assistant
+<table class="pw">
+  <thead>
+    <tr><td>
+      <div class="doc-header">
+        <img src="data:image/png;base64,${LH_B64}" class="lh-img" alt="UCS Spirit">
+        <div class="doc-right">
+          <div><span class="doc-title">PACKING LIST</span><span class="final-tag">FINAL</span></div>
+          <div class="doc-so">${refLine}</div>
+        </div>
       </div>
-    </div>
+      <div class="info-bar">
+        <div class="ib-cell"><div class="ib-label">Date</div><div class="ib-value">${htmlEsc(fmtDate)}</div></div>
+        <div class="ib-cell"><div class="ib-label">Ultimate Consignee / Destination</div><div class="ib-value">${htmlEsc(consFull || cons)}</div></div>
+        <div class="ib-cell"><div class="ib-label">Carrier</div><div class="ib-value">${htmlEsc(inco)}</div></div>
+      </div>
+    </td></tr>
+  </thead>
+  <tfoot>
+    <tr><td>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:7pt;color:#bbb;padding-top:5px;border-top:1px solid #e0e0e0">
+        <span>Printed:&nbsp;${printedDate}&nbsp;&bull;&nbsp;${refLine}&nbsp;&bull;&nbsp;FINAL</span>
+      </div>
+    </td></tr>
+  </tfoot>
+  <tbody>
+    <tr><td>
 
-  </td></tr></tbody>
+      ${pieceSections}
+
+      <div class="totals-bar">
+        <div class="tot-cell"><span class="tot-num">${totalPoles}</span><span class="tot-lbl">Poles</span></div>
+        <div class="tot-cell"><span class="tot-num">${totPcs}</span><span class="tot-lbl">Total Pieces</span></div>
+        <div class="tot-cell"><span class="tot-num">${totKgs}</span><span class="tot-lbl">kgs.</span></div>
+        <div class="tot-cell"><span class="tot-num">${totCuFt}</span><span class="tot-lbl">Cubic Feet</span></div>
+        <div class="tot-cell"><span class="tot-num">${totLbs}</span><span class="tot-lbl">lbs.</span></div>
+      </div>
+
+      <div class="bottom-sec">
+        <div class="made-usa">ALL PRODUCTS MADE IN THE USA<br>SCHEDULE B: 9506.91.0000<br>${htmlEsc(fmtDate)}</div>
+        <img src="data:image/png;base64,${SEAL_B64}" class="seal-img" alt="">
+        <div class="sig-block"><div class="sig-line"></div>Austin Tilley<br>Office Assistant</div>
+      </div>
+
+    </td></tr>
+  </tbody>
 </table>
 
 <div class="no-print">
@@ -1740,9 +1767,7 @@ table.pole-tbl .piece-sub-row td{background:#fafafa;border-top:1px dashed #ccc;f
   win.document.close();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SLI (Shipper's Letter of Instruction) — PDF popup
-// ─────────────────────────────────────────────────────────────────────────────
+
 function downloadSLI() {
   const containers = [...document.querySelectorAll('#packing-list-p2 .piece-container')];
   if (!containers.length) { setActionErr('p2', 'Add poles before generating the SLI.'); return; }
