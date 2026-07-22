@@ -220,7 +220,8 @@ export async function onRequestGet({ params, env }) {
         t.tranid,
         t.trandate,
         c.companyname,
-        t.shipaddress
+        t.shipaddress,
+        t.shipemail
       FROM transaction t
       LEFT JOIN customer c ON c.id = t.entity
       WHERE t.recordtype = 'itemfulfillment'
@@ -303,6 +304,7 @@ export async function onRequestGet({ params, env }) {
       date:         ifRec.trandate,
       customer:     ifRec.companyname || '',
       ship_address: shipAddr,
+      ship_email:   (ifRec.shipemail || '').trim(),
       lines:        lineItems,
       multiple_ifs: multipleIFs,
       all_ifs:      allIFs,

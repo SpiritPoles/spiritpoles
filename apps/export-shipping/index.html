@@ -356,10 +356,14 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <div class="field"><label>Consignee Full Address</label><textarea id="p2-consignee-full" placeholder="Full name, address, city, country..." oninput="autoResize(this)"></textarea></div>
       </div>
       <div class="field-row" style="grid-template-columns:1fr 1fr">
-        <div class="field"><label>Country of Destination</label><input id="p2-country" type="text" placeholder="e.g. New Zealand"></div>
+        <div class="field"><label>Country of Destination</label><input id="p2-country" type="text" placeholder="Auto-filled from address"></div>
         <div class="field"><label>Consignee Type (SLI)</label>
           <select id="p2-cons-type"><option>Reseller</option><option>Direct Consumer</option><option>Government Entity</option><option>Other/Unknown</option></select>
         </div>
+      </div>
+      <div class="field-row" style="grid-template-columns:1fr 1fr">
+        <div class="field"><label>Consignee Email</label><input id="p2-cons-email" type="email" placeholder="Auto-populated from NetSuite"></div>
+        <div class="field"><label>Consignee Phone</label><input id="p2-cons-phone" type="tel" placeholder="Enter manually"></div>
       </div>
       <div class="field-row tri">
         <div class="field"><label>Shipping Method</label>
@@ -704,6 +708,16 @@ function populateIFData(data) {
   setVal('p2-consignee-full', data.ship_address || '');
   const addrEl = document.getElementById('p2-consignee-full');
   if (addrEl) autoResize(addrEl);
+
+  // Auto-populate country from the last non-empty line of the ship address
+  if (data.ship_address) {
+    const addrLines = data.ship_address.split('\n').map(l => l.trim()).filter(Boolean);
+    const lastLine  = addrLines[addrLines.length - 1] || '';
+    if (lastLine) setVal('p2-country', lastLine);
+  }
+
+  // Auto-populate consignee email from NS shipping email field
+  if (data.ship_email) setVal('p2-cons-email', data.ship_email);
 
   // Expand IF lines (qty + serials[]) into one flat pole object per pole
   const poleData = [];
@@ -1820,6 +1834,8 @@ function downloadSLI() {
   const soNum        = v('p2-so')              || '';
   const cons         = v('p2-consignee')       || '';
   const consFull     = v('p2-consignee-full')  || cons;
+  const consEmail    = v('p2-cons-email')      || '';
+  const consPhone    = v('p2-cons-phone')      || '';
   const country      = v('p2-country')         || '';
   const consType     = v('p2-cons-type')       || 'Reseller';
   const shipDate     = v('p2-ship-date')       || '';
@@ -1845,8 +1861,6 @@ function downloadSLI() {
   const fmtDate = shipDate
     ? new Date(shipDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
     : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-
-  // Short date for signature block (M/D/YYYY)
   const shortDate = shipDate
     ? new Date(shipDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
     : new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
@@ -1855,9 +1869,9 @@ function downloadSLI() {
   const ffEntry = FREIGHT_FORWARDERS.find(ff => ff.name === forwarderKey);
   const fwdr    = ffEntry?.sli || null;
   const fwdrHTML = (fwdr && fwdr.name)
-    ? `<span class="bv" style="font-size:8.5pt">${htmlEsc(fwdr.name)}</span>` +
-      (fwdr.addr  ? `<br><span class="bsm">${htmlEsc(fwdr.addr)}</span>`  : '') +
-      (fwdr.phone ? `<br><span class="bsm">Ph: ${htmlEsc(fwdr.phone)}</span>` : '')
+    ? `<span class="fv" style="font-size:8.5pt">${htmlEsc(fwdr.name)}</span>` +
+      (fwdr.addr  ? `<br><span class="fs">${htmlEsc(fwdr.addr)}</span>`  : '') +
+      (fwdr.phone ? `<br><span class="fs">Ph: ${htmlEsc(fwdr.phone)}</span>` : '')
     : `<span style="color:#bbb;font-size:7pt;font-style:italic">(Forwarder completes this field)</span>`;
 
   // Collect piece / pole data
@@ -1903,6 +1917,10 @@ function downloadSLI() {
 
   const instructions = `FRAGILE! Handle with Care! ${totalPoles} vaulting pole${totalPoles > 1 ? 's' : ''} packed in ${totalPieces} piece${totalPieces > 1 ? 's' : ''}. Do not stack heavy items on top of containers.`;
 
+  // Consignee contact line (for Box 10)
+  const consContactLine = [consEmail ? `Email: ${consEmail}` : '', consPhone ? `Ph: ${consPhone}` : '']
+    .filter(Boolean).join(' &nbsp;&bull;&nbsp; ');
+
   const dimRows = pieceData.map(p =>
     `<tr>` +
     `<td>${p.num}</td>` +
@@ -1946,25 +1964,22 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
 .sli { border-collapse: collapse; width: 100%; table-layout: fixed; }
 .sli td { border: 1px solid #555; padding: 2px 4px; vertical-align: top; }
 
-/* Field label (small numbered header inside each box) */
-.fl {
-  display: block; font-size: 5.7pt; font-weight: 700; color: #333;
-  text-transform: uppercase; letter-spacing: 0.04em;
-  line-height: 1.2; margin-bottom: 1px;
-}
+/* Field label */
+.fl  { display: block; font-size: 5.7pt; font-weight: 700; color: #333;
+       text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.2; margin-bottom: 1px; }
 /* Field value */
-.fv { font-size: 8.5pt; font-weight: 700; line-height: 1.3; }
+.fv  { font-size: 8.5pt; font-weight: 700; line-height: 1.3; }
 /* Small body text */
-.fs { font-size: 8pt; line-height: 1.4; }
+.fs  { font-size: 8pt; line-height: 1.4; }
 /* Checkbox row */
-.fc { font-size: 8pt; line-height: 1.6; }
+.fc  { font-size: 8pt; line-height: 1.6; }
 
-/* Shading tokens */
-.bg-usppi  { background: #f0f2ff; }   /* boxes 1+2 — soft blue */
-.bg-cons   { background: #f0f2ff; }   /* box 10 — soft blue */
-.bg-state  { background: #f5f5f5; }   /* box 13/14 — light gray */
-.bg-instr  { background: #fffde7; }   /* instructions — warm cream */
-.bg-sub    { background: #f7f7f7; }   /* minor boxes */
+/* Shading */
+.bg-usppi  { background: #f0f2ff; }
+.bg-cons   { background: #f0f2ff; }
+.bg-state  { background: #f5f5f5; }
+.bg-instr  { background: #fffde7; }
+.bg-sub    { background: #f7f7f7; }
 
 /* ── Cargo items table ── */
 .items { border-collapse: collapse; width: 100%; table-layout: fixed; border-top: 2px solid #000; }
@@ -1978,36 +1993,21 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
 
 /* ── Dimensions table ── */
 .dims { border-collapse: collapse; width: 100%; }
-.dims th {
-  border: 1px solid #555; background: #eceff1;
-  font-size: 6.3pt; font-weight: 700; padding: 2px 3px; text-align: center;
-}
+.dims th { border: 1px solid #555; background: #eceff1; font-size: 6.3pt; font-weight: 700; padding: 2px 3px; text-align: center; }
 .dims td { border: 1px solid #555; font-size: 7.5pt; padding: 2px 3px; text-align: center; }
 .dims .tot { background: #f5f5f5; font-weight: 700; }
 
-/* ── Footer blocks (DDTC / cert / sig) ── */
+/* ── Footer blocks ── */
 .ddtc-row { border-collapse: collapse; width: 100%; table-layout: fixed; border-top: 2px solid #000; }
 .ddtc-row td { border: 1px solid #555; padding: 3px 5px; vertical-align: top; background: #fafafa; }
-.chk-blk {
-  border: 1px solid #555; border-top: 0;
-  padding: 3px 6px; font-size: 7pt; line-height: 1.7; background: #fafafa;
-}
-.cert-blk {
-  border: 1px solid #555; border-top: 0;
-  padding: 4px 6px; font-size: 6.8pt; line-height: 1.5; background: #fafafa;
-}
+.chk-blk  { border: 1px solid #555; border-top: 0; padding: 3px 6px; font-size: 7pt; line-height: 1.7; background: #fafafa; }
+.cert-blk { border: 1px solid #555; border-top: 0; padding: 4px 6px; font-size: 6.8pt; line-height: 1.5; background: #fafafa; }
 .sig-wrap { display: flex; }
-.sig-cell {
-  border: 1px solid #555; border-top: 0;
-  padding: 3px 5px; flex: 1; background: #fafafa;
-}
+.sig-cell { border: 1px solid #555; border-top: 0; padding: 3px 5px; flex: 1; background: #fafafa; }
 .sig-cell + .sig-cell { border-left: 0; }
-.sig-lbl { font-size: 5.8pt; font-weight: 700; display: block; text-transform: uppercase; letter-spacing: 0.04em; color: #333; }
-.sig-val { font-size: 8pt; line-height: 1.4; margin-top: 1px; }
-.sig-script {
-  font-family: 'Dancing Script', cursive;
-  font-size: 19pt; font-weight: 700; color: #1a237e; line-height: 1.1; margin-top: 2px;
-}
+.sig-lbl  { font-size: 5.8pt; font-weight: 700; display: block; text-transform: uppercase; letter-spacing: 0.04em; color: #333; }
+.sig-val  { font-size: 8pt; line-height: 1.4; margin-top: 1px; }
+.sig-script { font-family: 'Dancing Script', cursive; font-size: 19pt; font-weight: 700; color: #1a237e; line-height: 1.1; margin-top: 2px; }
 
 /* ── Print button ── */
 .no-print { text-align: center; padding: 20px; margin-top: 10px; }
@@ -2015,7 +2015,7 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
 </style>
 </head><body>
 
-<!-- ── Document header ───────────────────────────────────────────────── -->
+<!-- ── Document header ── -->
 <div class="doc-header">
   <div>
     <div class="doc-name">UCS SPIRIT</div>
@@ -2026,15 +2026,15 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
   </div>
 </div>
 
-<!-- ── Title bar ─────────────────────────────────────────────────────── -->
+<!-- ── Title bar ── -->
 <div class="sli-titlebar">
   <span class="sli-titlebar-main">Shipper&rsquo;s Letter of Instructions (SLI)</span>
   <span class="sli-titlebar-ref">${htmlEsc(ifNum)}${soNum ? '&nbsp;/&nbsp;' + htmlEsc(soNum) : ''}</span>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════════════ -->
-<!-- NUMBERED-BOX GRID — matches standard NCBFAA SLI model             -->
-<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- NUMBERED-BOX GRID — NCBFAA / Maersk standard layout       -->
+<!-- ═══════════════════════════════════════════════════════════ -->
 <table class="sli">
 <colgroup>
   <col style="width:8.33%"><col style="width:8.33%"><col style="width:8.34%">
@@ -2043,42 +2043,39 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
   <col style="width:8.33%"><col style="width:8.34%"><col style="width:8.33%">
 </colgroup>
 
-<!-- ── Row 1: Box 1 name / Box 3 Freight Location name / Box 5 Agent ── -->
+<!-- Row 1: Box 1 name | Box 3 FL name | Box 5 Forwarder (rowspan 2) -->
 <tr>
   <td colspan="5" class="bg-usppi">
     <span class="fl">1. USPPI Name</span>
     <div class="fv">New Nevada Plastics dba UCS Spirit</div>
   </td>
   <td colspan="3">
-    <span class="fl">3. Freight Location Company Name (if not USPPI)</span>
-    <div class="fs" style="color:#777;font-style:italic">Same as Box 1</div>
+    <span class="fl">3. Freight Location (if not USPPI)</span>
+    <div class="fs" style="color:#888;font-style:italic">Same as USPPI</div>
   </td>
   <td colspan="4" rowspan="2" style="vertical-align:top">
     <span class="fl">5. Forwarding Agent / IATA Cargo Agent Name &amp; Address</span>
-    <div style="min-height:54px">${fwdrHTML}</div>
-    <div style="border-top:1px solid #ddd;margin-top:4px;padding-top:2px">
+    <div style="min-height:52px">${fwdrHTML}</div>
+    <div style="border-top:1px solid #ddd;margin-top:3px;padding-top:2px">
       <span class="fl">I.D. No.</span>
       <div class="fs">${(fwdr && fwdr.iata) ? htmlEsc(fwdr.iata) : '&nbsp;'}</div>
     </div>
   </td>
 </tr>
 
-<!-- ── Row 2: Box 2 address / Box 4 Freight Location address ── -->
+<!-- Row 2: Box 2 address | Box 4 FL address -->
 <tr>
   <td colspan="5" class="bg-usppi">
     <span class="fl">2. USPPI Address Including ZIP Code</span>
-    <div class="fs">
-      2180 Meridian Blvd., Minden, NV 89423<br>
-      PH: +1 775 882 7114 &nbsp;&bull;&nbsp; EML: chrischappell@ucsspirit.com
-    </div>
+    <div class="fs">2180 Meridian Blvd., Minden, NV 89423<br>PH: +1 775 882 7114 &nbsp;&bull;&nbsp; chrischappell@ucsspirit.com</div>
   </td>
   <td colspan="3">
-    <span class="fl">4. Freight Location Address (if different from Box 2)</span>
-    <div style="min-height:28px">&nbsp;</div>
+    <span class="fl">4. Freight Location Address (if different)</span>
+    <div style="min-height:26px">&nbsp;</div>
   </td>
 </tr>
 
-<!-- ── Row 3: Box 6 EIN / Box 7 Related Party / Box 8 Ref# / Box 9 Routed Export ── -->
+<!-- Row 3: Box 6 EIN | Box 7 Related Party | Box 8 Ref# | Box 9 Routed Export — ALL SAME ROW -->
 <tr>
   <td colspan="3" class="bg-sub">
     <span class="fl">6. USPPI EIN (IRS) No.</span>
@@ -2098,14 +2095,15 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
   </td>
 </tr>
 
-<!-- ── Row 4: Box 10 Consignee / Box 11 Type / Box 12 Intermediate ── -->
+<!-- Row 4: Box 10 Consignee | Box 11 Type | Box 12 Intermediate -->
 <tr>
-  <td colspan="5" class="bg-cons" style="min-height:68px">
+  <td colspan="5" class="bg-cons" style="min-height:70px">
     <span class="fl">10. Ultimate Consignee Name &amp; Address</span>
     <div class="fv" style="white-space:pre-line;font-size:8.5pt">${htmlEsc(consFull || cons)}</div>
+    ${consContactLine ? `<div class="fs" style="margin-top:2px;color:#444">${consContactLine}</div>` : ''}
   </td>
   <td colspan="4" style="vertical-align:top">
-    <span class="fl">11. Ultimate Consignee Type (select one)</span>
+    <span class="fl">11. Ultimate Consignee Type</span>
     <div style="font-size:8pt;line-height:1.75">
       ${chkCT('Direct Consumer')} Direct Consumer<br>
       ${chkCT('Government Entity')} Government Entity<br>
@@ -2115,47 +2113,43 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
   </td>
   <td colspan="3" style="vertical-align:top">
     <span class="fl">12. Intermediate Consignee Name &amp; Address</span>
-    <div style="min-height:68px">&nbsp;</div>
+    <div style="min-height:70px">&nbsp;</div>
   </td>
 </tr>
 
-<!-- ── Row 5: Box 13 State / Box 14 Country / Box 15 Hazmat ── -->
+<!-- Row 5 (MAERSK LAYOUT): Box 13 State | Box 14 Country | Box 15 Hazmat | Instructions — ALL SAME ROW -->
 <tr>
-  <td colspan="3" class="bg-state">
+  <td colspan="2" class="bg-state">
     <span class="fl">13. State of Origin</span>
     <div class="fv">Nevada</div>
   </td>
-  <td colspan="4" class="bg-state">
+  <td colspan="3" class="bg-state">
     <span class="fl">14. Country of Ultimate Destination</span>
     <div class="fv">${htmlEsc(country) || '&nbsp;'}</div>
   </td>
-  <td colspan="5">
+  <td colspan="2">
     <span class="fl">15. Hazardous Material</span>
-    <div class="fc">${chkHazY} Yes &nbsp;&nbsp; ${chkHazN} No</div>
+    <div class="fc">${chkHazY} Yes<br>${chkHazN} No</div>
   </td>
-</tr>
-
-<!-- ── Row 6: Instructions to Forwarder (full width) ── -->
-<tr>
-  <td colspan="12" class="bg-instr" style="border-top:1.5px solid #f0c000">
+  <td colspan="5" class="bg-instr" style="border-left:1.5px solid #f0c000">
     <span class="fl" style="color:#7a6000">Instructions to Forwarding Agent / Carrier</span>
     <div class="fs">${htmlEsc(instructions)}</div>
   </td>
 </tr>
 
-<!-- ── Row 7: Box 16 In-Bond / Box 17 Entry / Box 18 FTZ / Box 19 TIB ── -->
+<!-- Row 6: Box 16 In-Bond | Box 17 Entry | Box 18 FTZ | Box 19 TIB -->
 <tr>
   <td colspan="3" class="bg-sub">
     <span class="fl">16. In-Bond Code</span>
-    <div style="min-height:20px">&nbsp;</div>
+    <div style="min-height:18px">&nbsp;</div>
   </td>
   <td colspan="3" class="bg-sub">
     <span class="fl">17. Entry Number</span>
-    <div style="min-height:20px">&nbsp;</div>
+    <div style="min-height:18px">&nbsp;</div>
   </td>
   <td colspan="3" class="bg-sub">
     <span class="fl">18. FTZ Identifier</span>
-    <div style="min-height:20px">&nbsp;</div>
+    <div style="min-height:18px">&nbsp;</div>
   </td>
   <td colspan="3">
     <span class="fl">19. TIB / Carnet?</span>
@@ -2163,7 +2157,7 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
   </td>
 </tr>
 
-<!-- ── Row 8: Incoterms ── -->
+<!-- Row 7: Incoterms -->
 <tr>
   <td colspan="9" class="bg-sub">
     <span class="fl">Incoterms&reg; 2020 (select one)</span>
@@ -2187,7 +2181,7 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
   </td>
 </tr>
 
-<!-- ── Row 9: Mode of Transport / Date / Port of Export ── -->
+<!-- Row 8: Mode | Date | Port of Export -->
 <tr>
   <td colspan="4">
     <span class="fl">Mode of Transport</span>
@@ -2206,20 +2200,20 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
 </tr>
 </table>
 
-<!-- ═══════════════════════════════════════════════════════════════════ -->
-<!-- CARGO LINE ITEMS — Boxes 20–29                                    -->
-<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- CARGO LINE ITEMS — Boxes 20–29                            -->
+<!-- ═══════════════════════════════════════════════════════════ -->
 <table class="items">
 <thead>
 <tr>
   <th style="width:4%">20.<br>D/F</th>
   <th style="width:27%">21. Schedule B / HTS Number<br>&amp; Commercial Commodity Description</th>
-  <th style="width:9%">22. Quantity in<br>Sched B / HTS</th>
+  <th style="width:9%">22. Qty in<br>Sched B / HTS</th>
   <th style="width:8%">23. DDTC Qty<br>&amp; Unit</th>
   <th style="width:9%">24. Shipping<br>Weight (kg)</th>
   <th style="width:9%">25. ECCN / EAR99<br>or USML Cat.</th>
   <th style="width:5%">26.<br>SME</th>
-  <th style="width:13%">27. Export License No. / License<br>Exception / DDTC Exempt / NLR</th>
+  <th style="width:13%">27. License No. / Exception<br>/ DDTC Exempt / NLR</th>
   <th style="width:10%">28. Value at Port<br>of Export (USD)</th>
   <th style="width:9%">29. License Value<br>by Item (USD)</th>
 </tr>
@@ -2250,7 +2244,7 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
 </tbody>
 </table>
 
-<!-- ── Package Dimensions (supplementary) ─────────────────────────── -->
+<!-- ── Package Dimensions (supplementary) ── -->
 <table class="dims">
 <thead>
 <tr>
@@ -2273,20 +2267,18 @@ ${dimRows}
 </tbody>
 </table>
 
-<!-- ═══════════════════════════════════════════════════════════════════ -->
-<!-- DDTC / AUTHORIZATION / CERTIFICATION                              -->
-<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- DDTC / AUTHORIZATION / CERTIFICATION                      -->
+<!-- ═══════════════════════════════════════════════════════════ -->
 <table class="ddtc-row">
-<colgroup>
-  <col style="width:58%"><col style="width:42%">
-</colgroup>
+<colgroup><col style="width:58%"><col style="width:42%"></colgroup>
 <tr>
   <td>
-    <span class="fl">30. DDTC Applicant Registration Number (if applicable &mdash; ITAR items only)</span>
+    <span class="fl">30. DDTC Applicant Registration Number (if applicable — ITAR items only)</span>
     <div style="min-height:14px">&nbsp;</div>
   </td>
   <td>
-    <span class="fl">31. Eligible Party Certification (for ITAR-controlled items)</span>
+    <span class="fl">31. Eligible Party Certification (ITAR-controlled items)</span>
     <div class="fc">&#9744; Yes &nbsp;&nbsp;&nbsp; &#9745; No &mdash; Item is EAR99; no ITAR restriction applies</div>
   </td>
 </tr>
@@ -2303,7 +2295,7 @@ ${dimRows}
   <strong>34. CERTIFICATION:</strong>&nbsp; I certify that the statements made and all information contained herein are true and correct. I understand that civil and criminal penalties, including forfeiture and sale, may be imposed for making false or fraudulent statements herein, failing to provide the requested information, or for violation of U.S. laws on exportation (13&nbsp;U.S.C.&nbsp;&sect;305; 22&nbsp;U.S.C.&nbsp;&sect;401; 18&nbsp;U.S.C.&nbsp;&sect;1001; 50&nbsp;U.S.C.&nbsp;App.&nbsp;&sect;2410).
 </div>
 
-<!-- ── Signature Block ─────────────────────────────────────────────── -->
+<!-- ── Signature Block ── -->
 <div class="sig-wrap">
   <div class="sig-cell" style="flex:1.5">
     <span class="sig-lbl">35. USPPI E-mail Address</span>
