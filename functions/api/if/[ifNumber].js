@@ -184,7 +184,8 @@ export async function onRequestGet({ params, env }) {
 
       for (const c of candidates) {
         try {
-          const rec = await nsGet(`${restBase}/${c.id}`, env, 1);
+          // ?fields=createdFrom returns ~100 bytes instead of the full IF record
+          const rec = await nsGet(`${restBase}/${c.id}?fields=createdFrom`, env, 1);
           if (String(rec.createdFrom?.id || '') === soIdStr) {
             ifRows.push({ id: c.id, tranid: c.tranid, trandate: c.trandate });
           }
@@ -247,7 +248,7 @@ export async function onRequestGet({ params, env }) {
     if (!soNumber) {
       try {
         const ifRestRec = await nsGet(
-          `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment/${ifRec.id}`,
+          `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment/${ifRec.id}?fields=createdFrom`,
           env, 1
         );
         // refName is e.g. "Sales Order #SO33870"
@@ -256,58 +257,37 @@ export async function onRequestGet({ params, env }) {
       } catch (_) { /* non-fatal */ }
     }
 
-    // ── 2. Line items ────────────────────────────────────────────────────────
-    const lines = await suiteQL(`
-      SELECT
-        tl.id        AS line_id,
-        tl.item,
-        i.itemid,
-        i.displayname,
-        tl.quantity
-      FROM transactionline tl
-      JOIN item i ON i.id = tl.item
-      WHERE tl.transaction = ${ifRec.id}
-      AND   tl.mainline    = 'F'
-      AND   tl.taxline     = 'F'
-      AND   tl.item        IS NOT NULL
-      ORDER BY tl.linesequencenumber
-      FETCH FIRST 200 ROWS ONLY
-    `, env);
+    // ── 2 & 3. Line items + serial numbers via REST (mirrors Phase 1 SO handler) ──
+    // SuiteQL returns internal bin-transfer lines (mixed +/- qty) and can't access
+    // serial numbers (inventorynumberitem table is invalid). REST expandSubResources
+    // gives clean user-facing item lines with inventoryDetail serials in one call.
+    const ifRestUrl = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment/${ifRec.id}?expandSubResources=true`;
+    const ifRest    = await nsGet(ifRestUrl, env);
 
-    // SuiteQL returns IF line quantities as negative — use Math.abs()
-    const lineItems = (lines.items || []).map(l => ({
-      line_id:   l.line_id,
-      item_id:   l.item,
-      item_code: l.itemid      || '',
-      item_name: l.displayname || l.itemid || '',
-      qty:       Math.abs(Math.round(parseFloat(l.quantity) || 0)),
-      serials:   [],
-    }));
+    const rawItems  = ifRest.item?.items || [];
+    const lineItems = [];
 
-    // ── 3. Serial numbers ────────────────────────────────────────────────────
-    try {
-      const snRes = await suiteQL(`
-        SELECT
-          invn.transactionline,
-          sn.inventorynumber AS serial_number
-        FROM inventorynumberitem invn
-        JOIN inventorynumber sn ON sn.id = invn.inventorynumber
-        WHERE invn.transaction = ${ifRec.id}
-        ORDER BY invn.transactionline, sn.inventorynumber
-        FETCH FIRST 500 ROWS ONLY
-      `, env);
+    for (const li of rawItems) {
+      const itemRef = typeof li.item === 'object' ? (li.item?.refName || '') : String(li.item || '');
+      if (!itemRef) continue;
 
-      const snMap = {};
-      for (const r of (snRes.items || [])) {
-        const lid = String(r.transactionline);
-        if (!snMap[lid]) snMap[lid] = [];
-        snMap[lid].push(r.serial_number);
-      }
-      for (const li of lineItems) {
-        li.serials = snMap[String(li.line_id)] || [];
-      }
-    } catch (_) {
-      // Serial number query failed — proceed without them
+      const qty = Math.abs(Math.round(parseFloat(li.quantity) || 0));
+      if (!qty) continue;
+
+      // Serial numbers from inventoryDetail subrecord (issueInventoryNumber = outgoing)
+      const invDetail  = li.inventoryDetail  || li.inventorydetail;
+      const invAssign  = invDetail?.inventoryAssignment || invDetail?.inventoryassignment;
+      const assignments = invAssign?.items || [];
+      const serials = assignments
+        .map(a => a.issueInventoryNumber?.refName || a.inventorynumber?.refName || '')
+        .filter(Boolean);
+
+      lineItems.push({
+        item_code: itemRef,
+        item_name: itemRef,
+        qty,
+        serials,
+      });
     }
 
     return new Response(JSON.stringify({

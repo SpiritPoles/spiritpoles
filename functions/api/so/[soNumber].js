@@ -172,27 +172,10 @@ export async function onRequestGet({ params, env }) {
     const so = rows[0];
     const shipAddr = (so.shipaddress || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 
-    // 1b. Look up linked Item Fulfillment number (non-fatal — IF may not exist yet)
-    // NS SuiteQL: createdfrom on transaction table triggers UNEXPECTED_ERROR in both
-    // WHERE and SELECT on broad queries. Use entity-scoped list + parallel REST checks.
-    let ifNumber = '';
-    try {
-      const ifList = await suiteQL(
-        `SELECT t.id, t.tranid FROM transaction t
-         WHERE t.recordtype = 'itemfulfillment' AND t.entity = ${so.entity}
-         ORDER BY t.trandate DESC FETCH FIRST 10 ROWS ONLY`,
-        env
-      );
-      const soIdStr  = String(so.id);
-      const restBase = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment`;
-      // Sequential (not parallel) — parallel calls hit NS 429 concurrency limit
-      for (const c of (ifList.items || [])) {
-        try {
-          const rec = await nsGet(`${restBase}/${c.id}`, env, 1);
-          if (String(rec.createdFrom?.id || '') === soIdStr) { ifNumber = c.tranid; break; }
-        } catch (_) { /* skip */ }
-      }
-    } catch (_) { /* non-fatal */ }
+    // 1b. IF number lookup removed — createdfrom is inaccessible via SuiteQL and the
+    // sequential REST check adds too much latency to Phase 1. Phase 2 handles SO→IF
+    // resolution via its own dedicated endpoint.
+    const ifNumber = '';
 
     // 2. REST Record API — gets subtotal + full line items with custom fields & serials
     // expandSubResources=true inlines inventoryDetail subrecords per line.
