@@ -283,6 +283,16 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <button class="btn btn-outline btn-sm" onclick="addBlankPoleRow()">+ Add Pole</button>
         <button class="btn btn-outline btn-sm" onclick="recalcPacking()" title="Re-run auto-grouping algorithm">&#8635; Re-calculate</button>
       </div>
+      <!-- Phase 1 Accessories inline -->
+      <div id="acc-card-p1" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--tgbr)">
+        <div class="card-title">Accessories &amp; Additional Items</div>
+        <div style="font-size:11px;color:var(--ts);margin-bottom:8px">Non-pole items on this order. Assign packing details in Phase 2.</div>
+        <div id="acc-summary-p1" style="font-size:12px;color:var(--tp);margin-bottom:10px"></div>
+        <div class="field">
+          <label>Packing Notes (accessories)</label>
+          <textarea id="p1-acc-notes" placeholder="e.g. Pole bags go in Tube 2. Tips in small box." style="min-height:52px" oninput="autoResize(this)"></textarea>
+        </div>
+      </div>
       <div class="divider"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <div class="card-title" style="margin-bottom:0">Packing Summary</div>
@@ -292,19 +302,9 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <div class="total-box"><div class="total-val" id="t-pieces">—</div><div class="total-lbl">Pieces</div></div>
         <div class="total-box"><div class="total-val" id="t-poles">—</div><div class="total-lbl">Poles</div></div>
         <div class="total-box"><div class="total-val" id="t-weight">—</div><div class="total-lbl">Total kg</div></div>
+        <div class="total-box" id="t-acc-box" style="display:none"><div class="total-val" id="t-acc">—</div><div class="total-lbl">Accessories</div></div>
       </div>
       <div id="packing-breakdown"></div>
-    </div>
-
-    <!-- Phase 1 Accessories Summary -->
-    <div class="card" id="acc-card-p1" style="display:none">
-      <div class="card-title">Accessories &amp; Additional Items</div>
-      <div style="font-size:11px;color:var(--ts);margin-bottom:8px">Non-pole items on this order. Assign packing details in Phase 2.</div>
-      <div id="acc-summary-p1" style="font-size:12px;color:var(--tp);margin-bottom:10px"></div>
-      <div class="field">
-        <label>Packing Notes (accessories)</label>
-        <textarea id="p1-acc-notes" placeholder="e.g. Pole bags go in Tube 2. Tips in small box." style="min-height:52px" oninput="autoResize(this)"></textarea>
-      </div>
     </div>
 
     <!-- Freight Forwarders -->
@@ -450,6 +450,15 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <button class="btn btn-outline btn-sm" onclick="addBlankPoleRow('packing-list-p2')">+ Add Pole</button>
         <button class="btn btn-outline btn-sm" onclick="recalcPacking('packing-list-p2')" title="Re-run auto-grouping algorithm">&#8635; Re-calculate</button>
       </div>
+      <!-- Accessories & Additional Items inline -->
+      <div id="acc-card-p2" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--tgbr)">
+        <div class="card-title">Accessories &amp; Additional Items</div>
+        <div style="font-size:11px;color:var(--ts);margin-bottom:10px">
+          Items from the order that are not vaulting poles. Assign each item to an existing piece (packs inside a tube) or to a new Small Box, or mark as Not Shipping.
+        </div>
+        <div id="accessories-list-p2"></div>
+        <div id="acc-group-btns-p2" style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"></div>
+      </div>
       <div class="divider"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <div class="card-title" style="margin-bottom:0">Packing Summary</div>
@@ -459,18 +468,9 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <div class="total-box"><div class="total-val" id="t-pieces-p2">—</div><div class="total-lbl">Pieces</div></div>
         <div class="total-box"><div class="total-val" id="t-poles-p2">—</div><div class="total-lbl">Poles</div></div>
         <div class="total-box"><div class="total-val" id="t-weight-p2">—</div><div class="total-lbl">Total kg</div></div>
+        <div class="total-box" id="t-acc-box-p2" style="display:none"><div class="total-val" id="t-acc-p2">—</div><div class="total-lbl">Accessories</div></div>
       </div>
       <div id="packing-breakdown-p2"></div>
-    </div>
-
-    <!-- Accessories & Additional Items -->
-    <div class="card" id="acc-card-p2" style="display:none">
-      <div class="card-title">Accessories &amp; Additional Items</div>
-      <div style="font-size:11px;color:var(--ts);margin-bottom:10px">
-        Items from the order that are not vaulting poles. Assign each item to an existing piece (packs inside a tube) or to a new Small Box, or mark as Not Shipping.
-      </div>
-      <div id="accessories-list-p2"></div>
-      <div id="acc-group-btns-p2" style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"></div>
     </div>
 
     <!-- Actions -->
@@ -672,20 +672,26 @@ async function fetchSO() {
     }
     buildPackingView(poleData);
 
-    // Show Phase 1 accessories card
+    // Show Phase 1 accessories section
     const accCardP1 = document.getElementById('acc-card-p1');
     const accSummaryP1 = document.getElementById('acc-summary-p1');
+    const totalAccQty = p1AccData.reduce((s, a) => s + a.qty, 0);
     if (p1AccData.length && accCardP1 && accSummaryP1) {
       accSummaryP1.innerHTML = p1AccData.map(a =>
-        `<div style="padding:2px 0;border-bottom:1px solid var(--border)">
-          <span style="font-weight:600">${a.qty}×</span> ${a.item_name}
-          <span style="color:var(--ts);font-size:10px;margin-left:6px">${a.item_code}</span>
+        `<div style="padding:3px 0;border-bottom:1px solid var(--tgbr)">
+          <span style="font-weight:600">${a.qty}×</span> ${htmlEsc(a.item_name)}
+          <span style="color:var(--ts);font-size:10px;margin-left:6px">${htmlEsc(a.item_code)}</span>
         </div>`
       ).join('');
       accCardP1.style.display = '';
     } else if (accCardP1) {
       accCardP1.style.display = 'none';
     }
+    // Set accessories total box
+    const tAccBox = document.getElementById('t-acc-box');
+    const tAcc    = document.getElementById('t-acc');
+    if (tAccBox) tAccBox.style.display = p1AccData.length ? '' : 'none';
+    if (tAcc)    tAcc.textContent = totalAccQty || '—';
 
     const accPart = p1AccData.length ? `, ${p1AccData.length} accessor${p1AccData.length === 1 ? 'y' : 'ies'}` : '';
     setFetchStatus('p1', `✓ Loaded ${data.so_number} — ${data.customer}${poleData.length ? ` (${poleData.length} poles${accPart})` : ' — no poles found'}`, 'ok');
@@ -1290,6 +1296,21 @@ function updatePackingTotals(listId = 'packing-list') {
   containers.forEach((c) => {
     const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
     const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+
+    if (pt.configDims) {
+      // Small-box (accessories) piece — read custom dims and acc weight
+      pieceSeq++;
+      const L      = parseFloat(c.querySelector('.sb-len')?.value) || 0;
+      const W      = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
+      const H      = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
+      const accWt  = parseFloat(c.dataset.accessoryWt || 0) + pt.extra_wt;
+      const wtLbs  = Math.round(accWt * 10) / 10;
+      const wtKg   = Math.round(accWt * 0.453592 * 10) / 10;
+      totalLbs += wtLbs;
+      pieceRows.push({ num: pieceSeq, label: pt.label, lenIn: L, w: W, h: H, wtLbs, wtKg, poleCount: 0, isAccBox: true });
+      return;
+    }
+
     const models  = Array.from(c.querySelectorAll('.pr-model'))
       .map(inp => parseInt(inp.value) || 0).filter(Boolean);
     totalPoles += models.length;
@@ -1308,13 +1329,22 @@ function updatePackingTotals(listId = 'packing-list') {
   // Compute total kg from total lbs (not sum of per-piece kg) — avoids rounding drift
   const totalKg = Math.round(totalLbs * 0.453592 * 10) / 10;
 
-  const n = containers.length;
+  const n = pieceRows.length;
   const tPieces = document.getElementById(`t-pieces${sfx}`);
   const tPoles  = document.getElementById(`t-poles${sfx}`);
   const tWeight = document.getElementById(`t-weight${sfx}`);
   if (tPieces) tPieces.textContent = n          || '—';
   if (tPoles)  tPoles.textContent  = totalPoles  || '—';
-  if (tWeight) tWeight.textContent = totalPoles  ? totalKg + ' kg' : '—';
+  if (tWeight) tWeight.textContent = (n || totalPoles) ? totalKg + ' kg' : '—';
+
+  // Accessories count box (Phase 2 only)
+  if (sfx === '-p2') {
+    const accCount = (typeof p2Accessories !== 'undefined') ? p2Accessories.filter(a => a.assignedTo !== 'not-shipping').length : 0;
+    const tAccBox = document.getElementById('t-acc-box-p2');
+    const tAcc    = document.getElementById('t-acc-p2');
+    if (tAccBox) tAccBox.style.display = accCount ? '' : 'none';
+    if (tAcc)    tAcc.textContent = accCount || '—';
+  }
 
   // Per-piece breakdown table
   const bd = document.getElementById(`packing-breakdown${sfx}`);
@@ -1334,8 +1364,8 @@ function updatePackingTotals(listId = 'packing-list') {
           <tr>
             <td><strong>${r.num}</strong></td>
             <td>${r.label}</td>
-            <td style="text-align:center">${r.poleCount}</td>
-            <td class="bd-dims">${r.lenIn}" × ${r.w}" × ${r.h}"</td>
+            <td style="text-align:center">${r.isAccBox ? '—' : r.poleCount}</td>
+            <td class="bd-dims">${r.lenIn && r.w && r.h ? `${r.lenIn}" × ${r.w}" × ${r.h}"` : (r.isAccBox ? 'Enter dims above' : `${r.lenIn}" × ${r.w}" × ${r.h}"`)}</td>
             <td>${r.wtLbs} lbs &nbsp;·&nbsp; ${r.wtKg} kg</td>
           </tr>`).join('')}
         <tr style="font-weight:800;border-top:1px solid var(--tgbr)">
