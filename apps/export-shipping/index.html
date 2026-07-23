@@ -683,9 +683,10 @@ async function fetchSO() {
     const totalAccQty   = p1AccData.reduce((s, a) => s + a.qty, 0); // total units
     if (p1AccData.length && accCardP1 && accSummaryP1) {
       accSummaryP1.innerHTML = p1AccData.map(a =>
-        `<div style="padding:3px 0;border-bottom:1px solid var(--tgbr)">
-          <span style="font-weight:600">${a.qty}×</span> ${htmlEsc(a.item_name)}
-          <span style="color:var(--ts);font-size:10px;margin-left:6px">${htmlEsc(a.item_code)}</span>
+        `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--tgbr)">
+          <span style="font-weight:700;font-size:12px;color:var(--tp);white-space:nowrap">${a.qty}×</span>
+          <span style="font-size:11px;font-weight:700;color:var(--tp);white-space:nowrap">${htmlEsc(a.item_code)}</span>
+          <span style="font-size:12px;color:var(--tp);flex:1">${htmlEsc(a.item_name)}</span>
         </div>`
       ).join('');
       accCardP1.style.display = '';
@@ -1121,21 +1122,17 @@ function buildAccessoriesPanel(items) {
     }).join('');
 
     list.innerHTML = p2Accessories.map((acc, idx) => `
-      <div class="acc-row" data-idx="${idx}" style="padding:6px 0;border-bottom:1px solid var(--tgbr)">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
-          <span style="font-weight:700;font-size:12px;color:var(--pink)">${acc.qty}×</span>
-          <span style="flex:1;font-size:12px;font-weight:600;color:var(--tp)">${htmlEsc(acc.item_name || acc.item_code)}</span>
-          <span style="color:var(--ts);font-size:10px">${htmlEsc(acc.item_code)}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ts)">Assign to:</span>
-          <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp);flex:1"
-            onchange="onAccAssign(this,${idx})">
-            ${pieceOpts}
-            <option value="new-box">+ New Small Box</option>
-            <option value="not-shipping">Not Shipping</option>
-          </select>
-        </div>
+      <div class="acc-row" data-idx="${idx}" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--tgbr);flex-wrap:wrap">
+        <span style="font-weight:700;font-size:12px;color:var(--tp);white-space:nowrap">${acc.qty}×</span>
+        <span style="font-size:11px;font-weight:700;color:var(--tp);white-space:nowrap">${htmlEsc(acc.item_code)}</span>
+        <span style="font-size:12px;color:var(--tp);flex:1;min-width:100px">${htmlEsc(acc.item_name || acc.item_code)}</span>
+        <span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ts);white-space:nowrap">Assign to:</span>
+        <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp)"
+          onchange="onAccAssign(this,${idx})">
+          ${pieceOpts}
+          <option value="new-box">+ New Small Box</option>
+          <option value="not-shipping">Not Shipping</option>
+        </select>
       </div>`).join('');
 
     // Restore saved selections
