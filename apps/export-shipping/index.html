@@ -437,7 +437,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       </div>
       <div class="field-row solo">
         <div class="field"><label>Forwarding Agent (populates SLI Box 5)</label>
-          <select id="p2-forwarder">
+          <select id="p2-forwarder" onchange="onP2ForwarderChange(this)">
             <option value="">— Select Forwarder —</option>
             <option>AIT</option>
             <option>Maersk / Pilot</option>
@@ -445,7 +445,11 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
             <option>Global Shipping Services</option>
             <option>Dynasty / Erixmar</option>
             <option>SAIA</option>
+            <option value="other">Other (enter email below)</option>
           </select>
+          <div id="p2-other-email-wrap" style="display:none;margin-top:8px">
+            <input id="p2-other-email" type="email" placeholder="Enter forwarding agent email" style="width:100%;box-sizing:border-box">
+          </div>
         </div>
       </div>
       <div class="note">Standard UCS Spirit defaults — edit any field per shipment as needed.</div>
@@ -490,6 +494,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
     <div class="action-row">
       <button class="btn btn-red" onclick="downloadPackingListP2()">&#128438; PRINT PACKING LIST - FINAL</button>
       <button class="btn btn-grey" onclick="downloadSLI()">&#128438; PRINT Shipper's Letter of Instruction</button>
+      <button class="btn btn-blue" onclick="emailShippingDocs()">&#9993; Email Shipping Docs</button>
     </div>
     <div class="action-err" id="action-err-p2"></div>
     <div class="log" id="log-p2"></div>
@@ -3236,6 +3241,153 @@ Office Assistant
 UCS Spirit | ${SHIPPER.phone} | ${SHIPPER.email}`;
 
   return { subject, body };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 2 — FORWARDING AGENT "OTHER" TOGGLE
+// ─────────────────────────────────────────────────────────────────────────────
+function onP2ForwarderChange(sel) {
+  const wrap = document.getElementById('p2-other-email-wrap');
+  if (wrap) wrap.style.display = sel.value === 'other' ? '' : 'none';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 2 — SHIPPING DOCS EMAIL BUILDER
+// ─────────────────────────────────────────────────────────────────────────────
+function buildShippingDocsEmail(ffName) {
+  const ifNum    = v('if-num')            || '';
+  const soNum    = v('p2-so')             || '';
+  const cons     = v('p2-consignee')      || '(consignee)';
+  const consFull = v('p2-consignee-full') || cons;
+  const country  = v('p2-country')        || '';
+  const method   = v('p2-method')         || '';
+  const incoterm = v('p2-incoterm')       || '';
+  const schedB   = v('p2-schedule-b')     || '';
+  const goodsVal = v('p2-goods-value')    || '';
+  const namedPl  = v('p2-named-place')    || '';
+  const portExp  = v('p2-port-export')    || '';
+  const carrier  = v('shipping-carrier')  || '';
+  const shipDate = v('p2-ship-date')      || '';
+
+  const fmtDate = shipDate
+    ? new Date(shipDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const pieces   = document.getElementById('t-pieces-p2')?.textContent?.trim() || '—';
+  const poles    = document.getElementById('t-poles-p2')?.textContent?.trim()  || '—';
+  const weightKg = document.getElementById('t-weight-p2')?.textContent?.trim() || '—';
+
+  const ref = [soNum, ifNum].filter(Boolean).join(' / ') || '(order ref)';
+
+  const subject = `Shipping Docs – ${ref} – ${cons}${shipDate ? ' | ' + fmtDate : ''}`;
+
+  const body = `Hello ${ffName || 'Team'},
+
+Please find the shipping documents attached for the export shipment below.
+
+DOCUMENTS ATTACHED:
+  [ ] Packing List (generated from UCS Spirit app)
+  [ ] Shipper's Letter of Instruction (generated from UCS Spirit app)
+
+ADDITIONAL NS DOCUMENTS TO ATTACH BEFORE SENDING:
+  [ ] Packing Slip / Item Fulfillment${ifNum ? ' – ' + ifNum : ''} (print from NetSuite)
+  [ ] Commercial Invoice / Sales Order${soNum ? ' – ' + soNum : ''} (print from NetSuite)
+
+───────────────────────────────────────
+  SHIPMENT DETAILS${ref ? ' – ' + ref : ''}
+───────────────────────────────────────
+
+Consignee / Destination:
+  ${consFull}${country ? '\n  ' + country : ''}
+
+Shipping Method:      ${method}
+Incoterms:            ${incoterm}${carrier ? '\nShipping Carrier:     ' + carrier : ''}
+Port of Export:       ${portExp || '—'}
+Port of Destination:  ${namedPl || '—'}
+Schedule B / HS Code: ${schedB}
+Declared Value (USD): ${goodsVal || '—'}
+
+Pieces:       ${pieces}
+Poles:        ${poles}
+Total Weight: ${weightKg} kg
+
+Ship Date:    ${fmtDate}
+
+───────────────────────────────────────
+  SHIPPER / PICKUP
+───────────────────────────────────────
+
+${SHIPPER.company}
+${SHIPPER.address}
+Phone:   ${SHIPPER.phone}
+Email:   ${SHIPPER.email}
+Hours:   ${SHIPPER.hours}
+Contact: ${SHIPPER.contact}
+
+───────────────────────────────────────
+
+Thank you,
+Austin Tilley
+Office Assistant
+UCS Spirit | ${SHIPPER.phone} | ${SHIPPER.email}`;
+
+  return { subject, body };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 2 — EMAIL SHIPPING DOCS
+// ─────────────────────────────────────────────────────────────────────────────
+async function emailShippingDocs() {
+  const forwarderKey = v('p2-forwarder') || '';
+  const logEl = document.getElementById('log-p2');
+
+  let toAddr = '';
+  let ccList = [];
+  let ffName = '';
+
+  if (forwarderKey === 'other') {
+    toAddr = (document.getElementById('p2-other-email')?.value || '').trim();
+    ffName = 'Team';
+    if (!toAddr || !toAddr.includes('@')) {
+      logMsg('p2', '⚠️  Please enter a valid email in the "Other" field.');
+      return;
+    }
+  } else if (forwarderKey) {
+    const ffEntry = FREIGHT_FORWARDERS.find(ff => ff.name === forwarderKey);
+    if (!ffEntry) { logMsg('p2', '⚠️  Forwarder not found.'); return; }
+    toAddr = ffEntry.to;
+    ccList = [...(ffEntry.cc || []), ...INTERNAL_CC.filter(e => e !== ffEntry.to)];
+    ffName = ffEntry.name;
+  } else {
+    logMsg('p2', '⚠️  Please select a Forwarding Agent (or choose "Other") before emailing.');
+    return;
+  }
+
+  logMsg('p2', 'Signing in to Microsoft…');
+  let token;
+  try { token = await getToken(); }
+  catch (e) { logMsg('p2', 'Auth error: ' + e.message); return; }
+
+  logMsg('p2', `Creating draft for ${ffName}…`);
+  const { subject, body } = buildShippingDocsEmail(ffName);
+
+  try {
+    const msg = await createDraftViaGraph(token, toAddr, ccList, subject, body);
+    if (logEl) logEl.style.display = 'block';
+    logMsg('p2', '✅ Draft created — ');
+    const link = document.createElement('a');
+    link.href = msg.webLink;
+    link.target = '_blank';
+    link.textContent = 'Open in Outlook';
+    link.style.cssText = 'color:inherit;font-weight:bold;text-decoration:underline';
+    if (logEl) logEl.appendChild(link);
+    if (logEl) logEl.appendChild(document.createTextNode(
+      '\n⚠️  Attach before sending: Packing List, SLI, NS Packing Slip (' +
+      (v('if-num') || 'IF') + '), NS Invoice (' + (v('p2-so') || 'SO') + ').'
+    ));
+  } catch (e) {
+    logMsg('p2', '❌ ' + e.message);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
