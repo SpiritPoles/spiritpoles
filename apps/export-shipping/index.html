@@ -119,6 +119,8 @@ body.light .piece-dims-box{background:rgba(0,0,0,0.06)}
 .pole-row-p1[draggable]{cursor:grab}
 .pole-row-p1.dragging{opacity:.35}
 .piece-poles.drag-over{background:rgba(232,18,125,0.06);border-radius:6px}
+.acc-row[draggable]{cursor:grab}
+.piece-container.acc-drop-target{outline:2px dashed var(--accent,#e8127d);background:rgba(232,18,125,0.05)}
 /* Packing breakdown table */
 .breakdown-table{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
 .breakdown-table th{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ts);padding:4px 6px;text-align:left;border-bottom:1px solid var(--tgbr)}
@@ -1120,7 +1122,10 @@ function buildAccessoriesPanel(items, ph = '2') {
     }).join('');
 
     list.innerHTML = accArr.map((acc, idx) => `
-      <div class="acc-row" data-idx="${idx}" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--tgbr);flex-wrap:wrap">
+      <div class="acc-row" data-idx="${idx}" draggable="true"
+        ondragstart="onAccRowDragStart(event,${idx},'${ph}')"
+        ondragend="onAccRowDragEnd(event)"
+        style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--tgbr);flex-wrap:wrap">
         <span style="font-weight:700;font-size:12px;color:var(--tp);white-space:nowrap">${acc.qty}×</span>
         <span style="font-size:11px;font-weight:700;color:var(--tp);white-space:nowrap">${htmlEsc(acc.item_code)}</span>
         <span style="font-size:12px;color:var(--tp);flex:1;min-width:100px">${htmlEsc(acc.item_name || acc.item_code)}</span>
@@ -1185,6 +1190,7 @@ function updateAccessorySmallBox(ph = '2') {
   let boxContainer = list.querySelector('.piece-container[data-acc-box="1"]');
   if (boxItems.length === 0) {
     if (boxContainer) { boxContainer.remove(); renumberPieces(listId); }
+    removeAccBoxDimsRow(ph);
     return;
   }
   if (!boxContainer) {
@@ -1198,18 +1204,62 @@ function updateAccessorySmallBox(ph = '2') {
   const totalWt = boxItems.reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
   boxContainer.dataset.accessoryWt = totalWt.toFixed(1);
 
+  // Hide the piece container's sb-dims (user enters dims via inline panel row instead)
+  const sbDimsEl = boxContainer.querySelector('.sb-dims');
+  if (sbDimsEl) sbDimsEl.style.display = 'none';
+
   // Show items summary in the box header note
   let note = boxContainer.querySelector('.acc-box-note');
   if (!note) {
     note = document.createElement('div');
     note.className = 'acc-box-note';
     note.style.cssText = 'font-size:11px;color:var(--ts);padding:4px 10px 6px';
-    boxContainer.querySelector('.sb-dims').after(note);
+    boxContainer.insertBefore(note, boxContainer.querySelector('.piece-col-hdr'));
   }
   note.innerHTML = '<strong>Contents:</strong> ' +
     boxItems.map(a => `${a.qty}× ${htmlEsc(a.item_name || a.item_code)}`).join(', ');
+
+  // Manage inline dims row in acc panel (appears near the group buttons)
+  const btnDiv = document.getElementById(`acc-group-btns-p${ph}`);
+  if (btnDiv) {
+    let dimsRow = document.getElementById(`sb-dims-inline-p${ph}`);
+    if (!dimsRow) {
+      dimsRow = document.createElement('div');
+      dimsRow.id = `sb-dims-inline-p${ph}`;
+      dimsRow.style.cssText = 'margin-top:8px;padding:7px 10px;background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--tp)';
+      dimsRow.innerHTML = `
+        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ts);white-space:nowrap">📦 Box Dims (in):</span>
+        <input type="number" class="sbi-L"  placeholder="L" style="width:54px;font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:4px;padding:3px 6px;color:var(--tp)">
+        <span style="color:var(--ts)">×</span>
+        <input type="number" class="sbi-W"  placeholder="W" style="width:46px;font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:4px;padding:3px 6px;color:var(--tp)">
+        <span style="color:var(--ts)">×</span>
+        <input type="number" class="sbi-H"  placeholder="H" style="width:46px;font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:4px;padding:3px 6px;color:var(--tp)">
+        <span style="color:var(--ts);margin:0 4px">|</span>
+        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ts);white-space:nowrap">Weight:</span>
+        <input type="number" class="sbi-Wt" placeholder="lbs" style="width:56px;font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:4px;padding:3px 6px;color:var(--tp)">
+      `;
+      btnDiv.after(dimsRow);
+      // Wire input → sync to piece container
+      ['sbi-L','sbi-W','sbi-H','sbi-Wt'].forEach(cls => {
+        dimsRow.querySelector(`.${cls}`).addEventListener('input', () => syncSbDims(ph));
+      });
+      // Pre-fill from piece container if values already entered
+      const get = cls => boxContainer.querySelector(cls)?.value || '';
+      dimsRow.querySelector('.sbi-L').value  = get('.sb-len');
+      dimsRow.querySelector('.sbi-W').value  = get('.sb-w');
+      dimsRow.querySelector('.sbi-H').value  = get('.sb-h');
+      dimsRow.querySelector('.sbi-Wt').value = get('.sb-wt');
+    }
+  }
+
   calcPieceDims(boxContainer);
   updatePackingTotals(listId);
+}
+
+// Remove inline dims row when small box is removed
+function removeAccBoxDimsRow(ph) {
+  const dimsRow = document.getElementById(`sb-dims-inline-p${ph}`);
+  if (dimsRow) dimsRow.remove();
 }
 
 // Returns accessories assigned to a given piece index (for document output)
@@ -1225,9 +1275,79 @@ function refreshAccessoryPanel(ph = '2') {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DRAG-AND-DROP — move poles between piece containers
+// DRAG-AND-DROP — move poles AND accessories between piece containers
 // ─────────────────────────────────────────────────────────────────────────────
 let _dragRow = null;  // the .pole-row-p1 being dragged
+let _dragAcc = null;  // { idx, ph } — accessory row being dragged
+
+// ── Accessory drag handlers ───────────────────────────────────────────────────
+function onAccRowDragStart(e, idx, ph) {
+  _dragAcc = { idx, ph };
+  e.currentTarget.style.opacity = '0.4';
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', `acc:${idx}:${ph}`);
+}
+
+function onAccRowDragEnd(e) {
+  e.currentTarget.style.opacity = '';
+  document.querySelectorAll('.piece-container.acc-drop-target')
+    .forEach(el => el.classList.remove('acc-drop-target'));
+  _dragAcc = null;
+}
+
+function onPieceAccDragOver(e) {
+  if (!_dragAcc) return;
+  e.preventDefault();
+  e.stopPropagation();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('acc-drop-target');
+}
+
+function onPieceAccDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    e.currentTarget.classList.remove('acc-drop-target');
+  }
+}
+
+function onPieceAccDrop(e, containerEl) {
+  if (!_dragAcc) return;
+  e.preventDefault();
+  e.stopPropagation();
+  containerEl.classList.remove('acc-drop-target');
+
+  const { idx, ph } = _dragAcc;
+  const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
+  const arr    = ph === '1' ? p1Accessories : p2Accessories;
+  const isAccBox = containerEl.dataset.accBox === '1';
+
+  if (isAccBox) {
+    arr[idx].assignedTo = 'new-box';
+  } else {
+    const nonAccPieces = [...document.querySelectorAll(`#${listId} .piece-container`)]
+      .filter(c => !c.dataset.accBox);
+    const pieceIdx = nonAccPieces.indexOf(containerEl);
+    if (pieceIdx >= 0) arr[idx].assignedTo = `piece-${pieceIdx}`;
+  }
+
+  updateAccessorySmallBox(ph);
+  refreshAccessoryPanel(ph);
+  _dragAcc = null;
+}
+
+// Sync inline acc-panel dims inputs → hidden sb-* inputs on the piece container
+function syncSbDims(ph) {
+  const listId      = ph === '1' ? 'packing-list' : 'packing-list-p2';
+  const boxContainer = document.querySelector(`#${listId} .piece-container[data-acc-box="1"]`);
+  const dimsRow      = document.getElementById(`sb-dims-inline-p${ph}`);
+  if (!boxContainer || !dimsRow) return;
+  const set = (cls, val) => { const el = boxContainer.querySelector(cls); if (el) el.value = val; };
+  set('.sb-len', dimsRow.querySelector('.sbi-L').value);
+  set('.sb-w',   dimsRow.querySelector('.sbi-W').value);
+  set('.sb-h',   dimsRow.querySelector('.sbi-H').value);
+  set('.sb-wt',  dimsRow.querySelector('.sbi-Wt').value);
+  calcPieceDims(boxContainer);
+  updatePackingTotals(listId);
+}
 
 function onPoleRowDragStart(e) {
   _dragRow = e.currentTarget;
@@ -1391,8 +1511,12 @@ function updatePackingTotals(listId = 'packing-list') {
         <tr style="font-weight:800;border-top:1px solid var(--tgbr)">
           <td colspan="2">Totals</td>
           <td style="text-align:center">${(() => {
-            const aQty = Array.isArray(accArr) ? accArr.filter(a => a.assignedTo !== 'not-shipping').reduce((s,a) => s+a.qty, 0) : 0;
-            return totalPoles + (aQty ? `<br><span style="font-size:9px;color:var(--ts);font-weight:400">${aQty} acc. items</span>` : '');
+            const aQty  = Array.isArray(accArr) ? accArr.filter(a => a.assignedTo !== 'not-shipping').reduce((s,a) => s+a.qty, 0) : 0;
+            const grand = totalPoles + aQty;
+            const sub   = (totalPoles && aQty)
+              ? `<br><span style="font-size:9px;color:var(--ts);font-weight:400">${totalPoles} poles + ${aQty} items</span>`
+              : '';
+            return (grand || '—') + sub;
           })()}</td>
           <td></td>
           <td>${Math.round(totalLbs*10)/10} lbs &nbsp;·&nbsp; ${totalKg} kg</td>
@@ -1461,11 +1585,15 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
     <div class="piece-foot" style="${isSmallBox ? 'display:none' : ''}">
       <button class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 9px" onclick="addPoleToPiece(this)">+ Add Pole</button>
     </div>`;
-  // Wire drop zone on piece-poles
+  // Wire drop zone on piece-poles (for pole drag-drop)
   const polesDiv = div.querySelector('.piece-poles');
   polesDiv.addEventListener('dragover',  onPolesDragOver);
   polesDiv.addEventListener('dragleave', onPolesDragLeave);
   polesDiv.addEventListener('drop',      onPolesDrop);
+  // Wire the whole piece container as acc drop target
+  div.addEventListener('dragover',  onPieceAccDragOver);
+  div.addEventListener('dragleave', onPieceAccDragLeave);
+  div.addEventListener('drop',      e => onPieceAccDrop(e, div));
   for (const p of poles) addPoleRowToContainer(div, p);
   return div;
 }
