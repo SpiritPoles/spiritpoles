@@ -2083,7 +2083,7 @@ function downloadPackingListPDF() {
     poles.forEach((pole, j) => {
       const serialDisplay = pole.serial
         ? `<span class="mono">${htmlEsc(pole.serial)}</span>`
-        : `<span class="serial-blank"></span>`;
+        : '';
       const flexDisplay = pole.flex ? `<strong>${htmlEsc(pole.flex)}</strong>` : '';
       poleRows += `<tr>
           <td class="tc n">${j + 1}</td>
@@ -2273,7 +2273,6 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
         <div class="ib-cell"><div class="ib-label">Date</div><div class="ib-value">${htmlEsc(fmtDate)}</div></div>
         <div class="ib-cell"><div class="ib-label">Ultimate Consignee / Destination</div><div class="ib-value">${htmlEsc(consFull || cons)}</div></div>
         <div class="ib-cell"><div class="ib-label">Shipping Carrier</div><div class="ib-value">${htmlEsc(shipCarrier)}</div></div>
-        <div class="ib-cell"><div class="ib-label">Method / Incoterms</div><div class="ib-value">${htmlEsc([shipMethod, inco].filter(Boolean).join(' · '))}</div></div>
       </div>
     </td></tr>
   </thead>
