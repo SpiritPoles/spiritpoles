@@ -184,6 +184,8 @@ export async function onRequestGet({ params, env }) {
     const subtotal = parseFloat(rec.subtotal ?? rec.total ?? 0);
     const portOfDest = rec.custbody_mctms_swa_code?.refName
       || (typeof rec.custbody_mctms_swa_code === 'string' ? rec.custbody_mctms_swa_code : '') || '';
+    const shippingCarrier = rec.custbodyshipping_carriers_cpc?.refName
+      || (typeof rec.custbodyshipping_carriers_cpc === 'string' ? rec.custbodyshipping_carriers_cpc : '') || '';
     const shipEmail = (
       rec.custbody_ucs_shipping_email ||
       rec.shipEmail ||
@@ -256,6 +258,7 @@ export async function onRequestGet({ params, env }) {
       ship_email:          shipEmail,
       declared_value:      Math.round(subtotal * 100) / 100,
       port_of_destination: portOfDest,
+      shipping_carrier:    shippingCarrier,
       lines:               lineItems,
     }), { status: 200, headers: CORS });
 

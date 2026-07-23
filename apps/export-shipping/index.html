@@ -265,16 +265,17 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
             <option>Air</option><option>Ocean FCL</option><option>Ocean LCL</option><option>Ground</option>
           </select>
         </div>
+        <div class="field"><label>Shipping Carrier</label><input id="shipping-carrier" type="text" placeholder="Auto-filled from NetSuite"></div>
         <div class="field"><label>Incoterms</label>
           <select id="incoterm">
             <option>CIP Air</option><option>CIP Ocean</option><option>DAP</option><option>EXW</option><option>FOB</option><option>DDP</option>
           </select>
         </div>
-        <div class="field"><label>Declared Value (USD)</label><input id="goods-value" type="text" placeholder="$8,516.00"></div>
       </div>
-      <div class="field-row" style="grid-template-columns:170px 1fr">
+      <div class="field-row tri">
         <div class="field"><label>Schedule B / HS Code</label><input id="schedule-b" type="text" value="9506.91.0000"></div>
         <div class="field"><label>Port of Destination</label><input id="port-of-dest" type="text" placeholder="Auto-filled from NetSuite"></div>
+        <div class="field"><label>Declared Value (USD)</label><input id="goods-value" type="text" placeholder="$8,516.00"></div>
       </div>
     </div>
 
@@ -659,6 +660,7 @@ async function fetchSO() {
     if (addrEl) autoResize(addrEl);
     if (data.declared_value) setVal('goods-value', `$${data.declared_value.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`);
     if (data.port_of_destination) setVal('port-of-dest', data.port_of_destination);
+    if (data.shipping_carrier)    setVal('shipping-carrier', data.shipping_carrier);
 
     // Build packing view from individual poles; collect accessories
     const poleData = [];
@@ -1993,11 +1995,13 @@ function downloadPackingListPDF() {
   const containers = [...document.querySelectorAll('#packing-list .piece-container')];
   if (!containers.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
 
-  const soNum    = v('so')             || 'XXXXX';
-  const cons     = v('consignee')      || '';
-  const consFull = v('consignee-full') || cons;
-  const shipDate = v('ship-date')      || '';
-  const inco     = v('incoterm')       || '';
+  const soNum        = v('so')               || 'XXXXX';
+  const cons         = v('consignee')        || '';
+  const consFull     = v('consignee-full')   || cons;
+  const shipDate     = v('ship-date')        || '';
+  const inco         = v('incoterm')         || '';
+  const shipCarrier  = v('shipping-carrier') || '';
+  const shipMethod   = v('method')           || '';
 
   const fmtDate = shipDate
     ? new Date(shipDate + 'T00:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
@@ -2268,7 +2272,8 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
       <div class="info-bar">
         <div class="ib-cell"><div class="ib-label">Date</div><div class="ib-value">${htmlEsc(fmtDate)}</div></div>
         <div class="ib-cell"><div class="ib-label">Ultimate Consignee / Destination</div><div class="ib-value">${htmlEsc(consFull || cons)}</div></div>
-        <div class="ib-cell"><div class="ib-label">Carrier</div><div class="ib-value">${htmlEsc(inco)}</div></div>
+        <div class="ib-cell"><div class="ib-label">Shipping Carrier</div><div class="ib-value">${htmlEsc(shipCarrier)}</div></div>
+        <div class="ib-cell"><div class="ib-label">Method / Incoterms</div><div class="ib-value">${htmlEsc([shipMethod, inco].filter(Boolean).join(' · '))}</div></div>
       </div>
     </td></tr>
   </thead>
@@ -2297,8 +2302,6 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
 
       <div class="bottom-sec">
         <div class="made-usa">ALL PRODUCTS MADE IN THE USA<br>SCHEDULE B: 9506.91.0000<br>${htmlEsc(fmtDate)}</div>
-        <img src="data:image/png;base64,${SEAL_B64}" class="seal-img" alt="">
-        <div class="sig-block"><div class="sig-line"></div>Austin Tilley<br>Office Assistant</div>
       </div>
 
     </td></tr>
