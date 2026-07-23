@@ -302,7 +302,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <div class="total-box"><div class="total-val" id="t-pieces">—</div><div class="total-lbl">Pieces</div></div>
         <div class="total-box"><div class="total-val" id="t-poles">—</div><div class="total-lbl">Poles</div></div>
         <div class="total-box"><div class="total-val" id="t-weight">—</div><div class="total-lbl">Total kg</div></div>
-        <div class="total-box" id="t-acc-box" style="display:none"><div class="total-val" id="t-acc">—</div><div class="total-lbl">Accessories</div></div>
+        <div class="total-box" id="t-acc-box" style="display:none;grid-column:2"><div class="total-val" id="t-acc">—</div><div class="total-lbl">Accessories</div></div>
       </div>
       <div id="packing-breakdown"></div>
     </div>
@@ -458,6 +458,10 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         </div>
         <div id="accessories-list-p2"></div>
         <div id="acc-group-btns-p2" style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"></div>
+        <div class="field" style="margin-top:12px">
+          <label>Packing Notes (accessories)</label>
+          <textarea id="p2-acc-notes" placeholder="e.g. Pole bags go in Tube 2. Tips in small box." style="min-height:52px" oninput="autoResize(this)"></textarea>
+        </div>
       </div>
       <div class="divider"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -468,7 +472,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         <div class="total-box"><div class="total-val" id="t-pieces-p2">—</div><div class="total-lbl">Pieces</div></div>
         <div class="total-box"><div class="total-val" id="t-poles-p2">—</div><div class="total-lbl">Poles</div></div>
         <div class="total-box"><div class="total-val" id="t-weight-p2">—</div><div class="total-lbl">Total kg</div></div>
-        <div class="total-box" id="t-acc-box-p2" style="display:none"><div class="total-val" id="t-acc-p2">—</div><div class="total-lbl">Accessories</div></div>
+        <div class="total-box" id="t-acc-box-p2" style="display:none;grid-column:2"><div class="total-val" id="t-acc-p2">—</div><div class="total-lbl">Accessories</div></div>
       </div>
       <div id="packing-breakdown-p2"></div>
     </div>
@@ -675,7 +679,8 @@ async function fetchSO() {
     // Show Phase 1 accessories section
     const accCardP1 = document.getElementById('acc-card-p1');
     const accSummaryP1 = document.getElementById('acc-summary-p1');
-    const totalAccQty = p1AccData.reduce((s, a) => s + a.qty, 0);
+    const totalAccItems = p1AccData.length;           // distinct item types
+    const totalAccQty   = p1AccData.reduce((s, a) => s + a.qty, 0); // total units
     if (p1AccData.length && accCardP1 && accSummaryP1) {
       accSummaryP1.innerHTML = p1AccData.map(a =>
         `<div style="padding:3px 0;border-bottom:1px solid var(--tgbr)">
@@ -690,10 +695,10 @@ async function fetchSO() {
     // Set accessories total box
     const tAccBox = document.getElementById('t-acc-box');
     const tAcc    = document.getElementById('t-acc');
-    if (tAccBox) tAccBox.style.display = p1AccData.length ? '' : 'none';
-    if (tAcc)    tAcc.textContent = totalAccQty || '—';
+    if (tAccBox) tAccBox.style.display = totalAccItems ? '' : 'none';
+    if (tAcc)    tAcc.textContent = totalAccQty || '—';   // show total units in tile
 
-    const accPart = p1AccData.length ? `, ${p1AccData.length} accessor${p1AccData.length === 1 ? 'y' : 'ies'}` : '';
+    const accPart = totalAccItems ? `, ${totalAccItems} accessor${totalAccItems === 1 ? 'y' : 'ies'}` : '';
     setFetchStatus('p1', `✓ Loaded ${data.so_number} — ${data.customer}${poleData.length ? ` (${poleData.length} poles${accPart})` : ' — no poles found'}`, 'ok');
   } catch (err) {
     setFetchStatus('p1', `Error: ${err.message}`, 'err');
@@ -971,13 +976,14 @@ function calcPieceDims(container) {
   const el      = container.querySelector('.piece-dims-wt');
   if (!el) return;
 
-  // Small Box: reads L/W/H from custom inputs, weight from accessory data
+  // Small Box: reads L/W/H + optional manual weight from custom inputs
   if (pt.configDims) {
-    const L = parseFloat(container.querySelector('.sb-len')?.value) || 0;
-    const W = parseFloat(container.querySelector('.sb-w')?.value)   || 0;
-    const H = parseFloat(container.querySelector('.sb-h')?.value)   || 0;
-    const wtLbs = parseFloat(container.dataset.accessoryWt || 0) + pt.extra_wt;
-    const wtKg  = Math.round(wtLbs * 0.453592 * 10) / 10;
+    const L        = parseFloat(container.querySelector('.sb-len')?.value) || 0;
+    const W        = parseFloat(container.querySelector('.sb-w')?.value)   || 0;
+    const H        = parseFloat(container.querySelector('.sb-h')?.value)   || 0;
+    const manualWt = parseFloat(container.querySelector('.sb-wt')?.value)  || 0;
+    const wtLbs    = manualWt > 0 ? manualWt : (parseFloat(container.dataset.accessoryWt || 0) + pt.extra_wt);
+    const wtKg     = Math.round(wtLbs * 0.453592 * 10) / 10;
     el.textContent = L && W && H ? `${L}" × ${W}" × ${H}" · ${wtLbs} lbs · ${wtKg} kg` : 'Enter dimensions ↑';
     return;
   }
@@ -1114,15 +1120,21 @@ function buildAccessoriesPanel(items) {
     }).join('');
 
     list.innerHTML = p2Accessories.map((acc, idx) => `
-      <div class="acc-row" data-idx="${idx}" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--tgbr);flex-wrap:wrap">
-        <span style="font-weight:700;font-size:12px;min-width:36px;text-align:right;color:var(--pink)">${acc.qty}×</span>
-        <span style="flex:1;font-size:12px;color:var(--tp)">${htmlEsc(acc.item_name || acc.item_code)}</span>
-        <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 6px;color:var(--tp)"
-          onchange="onAccAssign(this,${idx})">
-          ${pieceOpts}
-          <option value="new-box">+ New Small Box</option>
-          <option value="not-shipping">Not Shipping</option>
-        </select>
+      <div class="acc-row" data-idx="${idx}" style="padding:6px 0;border-bottom:1px solid var(--tgbr)">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+          <span style="font-weight:700;font-size:12px;color:var(--pink)">${acc.qty}×</span>
+          <span style="flex:1;font-size:12px;font-weight:600;color:var(--tp)">${htmlEsc(acc.item_name || acc.item_code)}</span>
+          <span style="color:var(--ts);font-size:10px">${htmlEsc(acc.item_code)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ts)">Assign to:</span>
+          <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp);flex:1"
+            onchange="onAccAssign(this,${idx})">
+            ${pieceOpts}
+            <option value="new-box">+ New Small Box</option>
+            <option value="not-shipping">Not Shipping</option>
+          </select>
+        </div>
       </div>`).join('');
 
     // Restore saved selections
@@ -1298,21 +1310,25 @@ function updatePackingTotals(listId = 'packing-list') {
     const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
 
     if (pt.configDims) {
-      // Small-box (accessories) piece — read custom dims and acc weight
+      // Small-box (accessories) piece — read custom dims; manual weight overrides calculated
       pieceSeq++;
-      const L      = parseFloat(c.querySelector('.sb-len')?.value) || 0;
-      const W      = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
-      const H      = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
-      const accWt  = parseFloat(c.dataset.accessoryWt || 0) + pt.extra_wt;
-      const wtLbs  = Math.round(accWt * 10) / 10;
-      const wtKg   = Math.round(accWt * 0.453592 * 10) / 10;
+      const L        = parseFloat(c.querySelector('.sb-len')?.value) || 0;
+      const W        = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
+      const H        = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
+      const manualWt = parseFloat(c.querySelector('.sb-wt')?.value)  || 0;
+      const accWt    = manualWt > 0 ? manualWt : (parseFloat(c.dataset.accessoryWt || 0) + pt.extra_wt);
+      const wtLbs    = Math.round(accWt * 10) / 10;
+      const wtKg     = Math.round(accWt * 0.453592 * 10) / 10;
       totalLbs += wtLbs;
-      pieceRows.push({ num: pieceSeq, label: pt.label, lenIn: L, w: W, h: H, wtLbs, wtKg, poleCount: 0, isAccBox: true });
+      const accCount = (typeof p2Accessories !== 'undefined')
+        ? p2Accessories.filter(a => a.assignedTo === 'new-box').reduce((s, a) => s + a.qty, 0)
+        : 0;
+      pieceRows.push({ num: pieceSeq, label: pt.label, lenIn: L, w: W, h: H, wtLbs, wtKg, poleCount: 0, isAccBox: true, accCount });
       return;
     }
 
     const models  = Array.from(c.querySelectorAll('.pr-model'))
-      .map(inp => parseInt(inp.value) || 0).filter(Boolean);
+      .map(inp => (inp.value || '').trim()).filter(Boolean);
     totalPoles += models.length;
     if (models.length) {
       pieceSeq++;
@@ -1337,13 +1353,15 @@ function updatePackingTotals(listId = 'packing-list') {
   if (tPoles)  tPoles.textContent  = totalPoles  || '—';
   if (tWeight) tWeight.textContent = (n || totalPoles) ? totalKg + ' kg' : '—';
 
-  // Accessories count box (Phase 2 only)
+  // Accessories count box (Phase 2 only) — show total qty of assigned items
   if (sfx === '-p2') {
-    const accCount = (typeof p2Accessories !== 'undefined') ? p2Accessories.filter(a => a.assignedTo !== 'not-shipping').length : 0;
+    const accQty = (typeof p2Accessories !== 'undefined')
+      ? p2Accessories.filter(a => a.assignedTo !== 'not-shipping').reduce((s, a) => s + a.qty, 0)
+      : 0;
     const tAccBox = document.getElementById('t-acc-box-p2');
     const tAcc    = document.getElementById('t-acc-p2');
-    if (tAccBox) tAccBox.style.display = accCount ? '' : 'none';
-    if (tAcc)    tAcc.textContent = accCount || '—';
+    if (tAccBox) tAccBox.style.display = accQty ? '' : 'none';
+    if (tAcc)    tAcc.textContent = accQty || '—';
   }
 
   // Per-piece breakdown table
@@ -1354,7 +1372,7 @@ function updatePackingTotals(listId = 'packing-list') {
     <table class="breakdown-table">
       <thead>
         <tr>
-          <th>#</th><th>Type</th><th>Poles</th>
+          <th>#</th><th>Type</th><th>Poles / Items</th>
           <th>Dimensions (L × W × H)</th>
           <th>Weight</th>
         </tr>
@@ -1364,8 +1382,8 @@ function updatePackingTotals(listId = 'packing-list') {
           <tr>
             <td><strong>${r.num}</strong></td>
             <td>${r.label}</td>
-            <td style="text-align:center">${r.isAccBox ? '—' : r.poleCount}</td>
-            <td class="bd-dims">${r.lenIn && r.w && r.h ? `${r.lenIn}" × ${r.w}" × ${r.h}"` : (r.isAccBox ? 'Enter dims above' : `${r.lenIn}" × ${r.w}" × ${r.h}"`)}</td>
+            <td style="text-align:center">${r.isAccBox ? (r.accCount ? `${r.accCount} items` : '—') : r.poleCount}</td>
+            <td class="bd-dims">${r.isAccBox ? (r.lenIn && r.w && r.h ? `${r.lenIn}" × ${r.w}" × ${r.h}"` : 'Enter dims above') : `${r.lenIn}" × ${r.w}" × ${r.h}"`}</td>
             <td>${r.wtLbs} lbs &nbsp;·&nbsp; ${r.wtKg} kg</td>
           </tr>`).join('')}
         <tr style="font-weight:800;border-top:1px solid var(--tgbr)">
@@ -1421,13 +1439,15 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
       <div class="piece-dims-box"><span class="piece-dims-wt">—</span></div>
     </div>
     <div class="sb-dims" style="display:${isSmallBox ? 'flex' : 'none'};gap:6px;padding:5px 10px;align-items:center;font-size:11px;flex-wrap:wrap">
-      <label style="font-weight:600;color:var(--tp)">Dimensions (inches):</label>
-      <input class="sb-len" type="number" placeholder="Length" style="width:68px" oninput="calcPieceDims(this.closest('.piece-container'))">
+      <label style="font-weight:600;color:var(--tp)">Dimensions (in):</label>
+      <input class="sb-len" type="number" placeholder="L" style="width:58px" oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list-p2')">
       <span style="color:var(--tp)">×</span>
-      <input class="sb-w"   type="number" placeholder="Width"  style="width:58px" oninput="calcPieceDims(this.closest('.piece-container'))">
+      <input class="sb-w"   type="number" placeholder="W" style="width:50px" oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list-p2')">
       <span style="color:var(--tp)">×</span>
-      <input class="sb-h"   type="number" placeholder="Height" style="width:58px" oninput="calcPieceDims(this.closest('.piece-container'))">
-      <span style="color:var(--ts);font-size:10px">(required for packing list)</span>
+      <input class="sb-h"   type="number" placeholder="H" style="width:50px" oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list-p2')">
+      <span style="color:var(--ts);margin:0 4px">|</span>
+      <label style="font-weight:600;color:var(--tp)">Weight (lbs):</label>
+      <input class="sb-wt"  type="number" placeholder="lbs" style="width:58px" oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list-p2')">
     </div>
     <div class="piece-col-hdr" style="${isSmallBox ? 'display:none' : ''}">
       <span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span></span>
