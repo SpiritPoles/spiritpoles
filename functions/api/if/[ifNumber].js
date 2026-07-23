@@ -263,6 +263,8 @@ export async function onRequestGet({ params, env }) {
     // gives clean user-facing item lines with inventoryDetail serials in one call.
     const ifRestUrl = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment/${ifRec.id}?expandSubResources=true`;
     const ifRest    = await nsGet(ifRestUrl, env);
+    const namedPlace = ifRest.custbody_mctms_swa_code?.refName
+      || (typeof ifRest.custbody_mctms_swa_code === 'string' ? ifRest.custbody_mctms_swa_code : '') || '';
 
     const rawItems  = ifRest.item?.items || [];
     const lineItems = [];
@@ -288,11 +290,19 @@ export async function onRequestGet({ params, env }) {
         .map(a => a.issueInventoryNumber?.refName || a.inventorynumber?.refName || '')
         .filter(Boolean);
 
+      const flexMemo = typeof li.custcol_ucs_flex_memo === 'string'
+        ? li.custcol_ucs_flex_memo
+        : (li.custcol_ucs_flex_memo?.refName || '');
+      const lineNote = typeof li.custcol_nssc_notes === 'string'
+        ? li.custcol_nssc_notes.trim() : '';
+
       lineItems.push({
         item_code: itemCode,
         item_name: dispName || itemCode,
         qty,
         serials,
+        flex_memo: flexMemo,
+        note:      lineNote,
       });
     }
 
@@ -307,6 +317,7 @@ export async function onRequestGet({ params, env }) {
       customer:     ifRec.companyname || '',
       ship_address: shipAddr,
       ship_email:   shipEmail,
+      named_place:  namedPlace,
       lines:        lineItems,
       multiple_ifs: multipleIFs,
       all_ifs:      allIFs,

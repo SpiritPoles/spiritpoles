@@ -182,6 +182,8 @@ export async function onRequestGet({ params, env }) {
     const recUrl  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/salesorder/${so.id}?expandSubResources=true`;
     const rec     = await nsGet(recUrl, env);
     const subtotal = parseFloat(rec.subtotal ?? rec.total ?? 0);
+    const portOfDest = rec.custbody_mctms_swa_code?.refName
+      || (typeof rec.custbody_mctms_swa_code === 'string' ? rec.custbody_mctms_swa_code : '') || '';
 
     // Parse all line items from item sublist (poles + accessories)
     const rawItems = rec.item?.items || rec.item || [];
@@ -238,14 +240,15 @@ export async function onRequestGet({ params, env }) {
     }
 
     return new Response(JSON.stringify({
-      so_number:      so.tranid,
-      if_number:      ifNumber,
-      internal_id:    so.id,
-      date:           so.trandate,
-      customer:       so.companyname || '',
-      ship_address:   shipAddr,
-      declared_value: Math.round(subtotal * 100) / 100,
-      lines:          lineItems,
+      so_number:         so.tranid,
+      if_number:         ifNumber,
+      internal_id:       so.id,
+      date:              so.trandate,
+      customer:          so.companyname || '',
+      ship_address:      shipAddr,
+      declared_value:    Math.round(subtotal * 100) / 100,
+      port_of_destination: portOfDest,
+      lines:             lineItems,
     }), { status: 200, headers: CORS });
 
   } catch (err) {
