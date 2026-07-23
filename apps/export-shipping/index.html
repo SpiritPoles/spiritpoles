@@ -175,7 +175,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
 .total-lbl{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--ts);margin-top:2px}
 
 /* Results */
-#result-list{display:flex;flex-direction:column;gap:10px}
+#result-list,#result-list-p2{display:flex;flex-direction:column;gap:10px}
 .result-row{padding:12px 16px;border-radius:10px;border:1px solid;display:flex;align-items:center;gap:12px}
 .result-ok{border-color:rgba(76,175,80,0.3);background:rgba(76,175,80,0.07)}
 .result-fail{border-color:rgba(229,57,53,0.3);background:rgba(229,57,53,0.07)}
@@ -189,7 +189,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
 .divider{height:1px;background:var(--tgbr);margin:18px 0}
 
 /* Log */
-.log{font-size:11px;font-family:monospace;color:var(--ts);background:var(--tgb);border-radius:8px;padding:12px;max-height:120px;overflow-y:auto;margin-top:14px;display:none}
+.log{font-size:12px;font-family:monospace;color:var(--ts);background:var(--tgb);border-radius:8px;padding:14px 16px;max-height:220px;overflow-y:auto;margin-top:14px;display:none;line-height:1.65}
 
 /* Action row */
 .action-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:20px}
@@ -222,16 +222,16 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
     <button class="tab" onclick="switchTab(2)">Phase 2 — Final Packing List &amp; SLI</button>
   </div>
 
+  <!-- Auth bar — global, required for Outlook drafts in both phases -->
+  <div id="auth-bar">
+    <span class="auth-status" id="auth-label">Not signed in — required to create Outlook drafts</span>
+    <button class="btn btn-primary btn-sm" id="signin-btn" onclick="handleSignIn()">&#128274; Sign in with Microsoft</button>
+  </div>
+
   <!-- ═══════════════════════════════════════════════════════════════
        PHASE 1
   ═══════════════════════════════════════════════════════════════ -->
   <div class="tab-panel active" id="panel-1">
-
-    <!-- Auth bar -->
-    <div id="auth-bar">
-      <span class="auth-status" id="auth-label">Not signed in — required to create Outlook drafts</span>
-      <button class="btn btn-primary btn-sm" id="signin-btn" onclick="handleSignIn()">&#128274; Sign in with Microsoft</button>
-    </div>
 
     <!-- NetSuite fetch -->
     <div class="sl">Load from NetSuite</div>
@@ -494,10 +494,16 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
     <div class="action-row">
       <button class="btn btn-red" onclick="downloadPackingListP2()">&#128438; PRINT PACKING LIST - FINAL</button>
       <button class="btn btn-grey" onclick="downloadSLI()">&#128438; PRINT Shipper's Letter of Instruction</button>
-      <button class="btn btn-blue" onclick="emailShippingDocs()">&#9993; Email Shipping Docs</button>
+      <button class="btn btn-blue" id="email-docs-btn" onclick="emailShippingDocs()" disabled>&#9993; Email Shipping Docs</button>
     </div>
     <div class="action-err" id="action-err-p2"></div>
     <div class="log" id="log-p2"></div>
+
+    <!-- Draft Results -->
+    <div id="results-section-p2" style="display:none;margin-top:24px">
+      <div class="sl">Draft Results</div>
+      <div id="result-list-p2"></div>
+    </div>
 
   </div><!-- /panel-2 -->
 
@@ -3371,22 +3377,34 @@ async function emailShippingDocs() {
   logMsg('p2', `Creating draft for ${ffName}…`);
   const { subject, body } = buildShippingDocsEmail(ffName);
 
+  const ifNum = v('if-num') || 'IF';
+  const soNum = v('p2-so') || 'SO';
+
   try {
     const msg = await createDraftViaGraph(token, toAddr, ccList, subject, body);
-    if (logEl) logEl.style.display = 'block';
-    logMsg('p2', '✅ Draft created — ');
-    const link = document.createElement('a');
-    link.href = msg.webLink;
-    link.target = '_blank';
-    link.textContent = 'Open in Outlook';
-    link.style.cssText = 'color:inherit;font-weight:bold;text-decoration:underline';
-    if (logEl) logEl.appendChild(link);
-    if (logEl) logEl.appendChild(document.createTextNode(
-      '\n⚠️  Attach before sending: Packing List, SLI, NS Packing Slip (' +
-      (v('if-num') || 'IF') + '), NS Invoice (' + (v('p2-so') || 'SO') + ').'
-    ));
+    logMsg('p2', '✅ Draft created.');
+    document.getElementById('results-section-p2').style.display = 'block';
+    document.getElementById('result-list-p2').innerHTML = `
+      <div class="result-row result-ok">
+        <span class="result-icon">&#10003;</span>
+        <span class="result-name">${htmlEsc(ffName || toAddr)}</span>
+        <a class="result-link" href="${msg.webLink}" target="_blank">Open in Outlook &#8594;</a>
+      </div>
+      <div style="font-size:11.5px;color:var(--ts);padding:10px 6px 2px;line-height:1.8">
+        <strong>Before sending, attach:</strong><br>
+        &nbsp;&nbsp;&#9679; Packing List &amp; SLI — download from the buttons above<br>
+        &nbsp;&nbsp;&#9679; Packing Slip — ${htmlEsc(ifNum)} (print from NetSuite)<br>
+        &nbsp;&nbsp;&#9679; Commercial Invoice — ${htmlEsc(soNum)} (print from NetSuite)
+      </div>`;
   } catch (e) {
     logMsg('p2', '❌ ' + e.message);
+    document.getElementById('results-section-p2').style.display = 'block';
+    document.getElementById('result-list-p2').innerHTML = `
+      <div class="result-row result-fail">
+        <span class="result-icon">&#10007;</span>
+        <span class="result-name">${htmlEsc(ffName || toAddr)}</span>
+        <span class="result-err">${htmlEsc(e.message)}</span>
+      </div>`;
   }
 }
 
@@ -3515,19 +3533,22 @@ async function initMsal() {
 }
 
 function setAuthUI(account) {
-  const label  = document.getElementById('auth-label');
-  const btn    = document.getElementById('signin-btn');
-  const create = document.getElementById('create-btn');
+  const label     = document.getElementById('auth-label');
+  const btn       = document.getElementById('signin-btn');
+  const create    = document.getElementById('create-btn');
+  const emailDocs = document.getElementById('email-docs-btn');
   if (account) {
-    label.innerHTML = `Signed in as <span class="auth-user">${account.username}</span>`;
-    btn.textContent = 'Sign out';
-    btn.onclick     = handleSignOut;
-    create.disabled = false;
+    label.innerHTML    = `Signed in as <span class="auth-user">${account.username}</span>`;
+    btn.textContent    = 'Sign out';
+    btn.onclick        = handleSignOut;
+    if (create)    create.disabled    = false;
+    if (emailDocs) emailDocs.disabled = false;
   } else {
-    label.textContent = 'Not signed in — required to create Outlook drafts';
-    btn.innerHTML     = '&#128274; Sign in with Microsoft';
-    btn.onclick       = handleSignIn;
-    create.disabled   = true;
+    label.textContent  = 'Not signed in — required to create Outlook drafts';
+    btn.innerHTML      = '&#128274; Sign in with Microsoft';
+    btn.onclick        = handleSignIn;
+    if (create)    create.disabled    = true;
+    if (emailDocs) emailDocs.disabled = true;
   }
 }
 
