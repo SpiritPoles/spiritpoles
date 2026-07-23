@@ -652,7 +652,7 @@ async function fetchSO() {
 
     // Build packing view from individual poles; collect accessories
     const poleData = [];
-    const p1AccData = [];
+    p1AccData = []; // reset global
     for (const line of (data.lines || [])) {
       const kind = classifyItem(line.item_code || '', line.item_name || '');
       if (kind === 'pole') {
@@ -1100,6 +1100,7 @@ function renumberPieces(listId = 'packing-list') {
 // ─────────────────────────────────────────────────────────────────────────────
 // ACCESSORIES — state + UI for non-pole / non-crossbar items
 // ─────────────────────────────────────────────────────────────────────────────
+let p1AccData     = []; // [{item_code, item_name, qty}] — filled by fetchSO, read by PDF
 let p2Accessories = []; // [{item_code, item_name, qty, assignedTo}]
                         // assignedTo: 'piece-N' (0-based) | 'new-box' | 'not-shipping'
 
@@ -1733,7 +1734,35 @@ function downloadPackingListPDF() {
   const totLbs  = Math.round(totalLbs  * 10)  / 10;
   const totKgs  = Math.round(totalLbs * 0.453592 * 10) / 10;
   const totCuFt = Math.round(totalCuFt * 100) / 100;
-  const totPcs  = pieceCount; // only count pieces that actually had poles
+  const totPcs  = pieceCount;
+  const totAccQty = p1AccData.reduce((s, a) => s + a.qty, 0);
+
+  // Accessories block for Phase 1 PDF
+  const p1AccNotes = (document.getElementById('p1-acc-notes')?.value || '').trim();
+  let accSection = '';
+  if (p1AccData.length) {
+    const accRows = p1AccData.map(a =>
+      `<tr>
+         <td>${htmlEsc(a.item_name || a.item_code)}</td>
+         <td style="text-align:center;font-weight:bold">${a.qty}</td>
+         <td style="color:#888;font-size:8.5pt">${htmlEsc(a.item_code)}</td>
+       </tr>`).join('');
+    accSection = `<div class="piece-block" style="margin-bottom:14px">
+      <div class="piece-hdr" style="background:#f5f5e0">
+        <span class="piece-badge" style="background:#666">ACCESSORIES</span>
+        <span class="piece-type-lbl">Additional Items</span>
+        ${p1AccNotes ? `<span style="font-size:8.5pt;color:#555;font-style:italic;flex:2">${htmlEsc(p1AccNotes)}</span>` : ''}
+      </div>
+      <table class="pole-tbl">
+        <thead><tr>
+          <th>Item Description</th>
+          <th style="width:55px;text-align:center">Qty</th>
+          <th style="width:130px">Item Code</th>
+        </tr></thead>
+        <tbody>${accRows}</tbody>
+      </table>
+    </div>`;
+  }
 
 
 
@@ -1881,8 +1910,11 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
 
       ${pieceSections}
 
+      ${accSection}
+
       <div class="totals-bar">
         <div class="tot-cell"><span class="tot-num">${totalPoles}</span><span class="tot-lbl">Poles</span></div>
+        ${totAccQty ? `<div class="tot-cell"><span class="tot-num">${totAccQty}</span><span class="tot-lbl">Acc. Items</span></div>` : ''}
         <div class="tot-cell"><span class="tot-num">${totPcs}</span><span class="tot-lbl">Total Pieces</span></div>
         <div class="tot-cell"><span class="tot-num">${totKgs}</span><span class="tot-lbl">kgs.</span></div>
         <div class="tot-cell"><span class="tot-num">${totCuFt}</span><span class="tot-lbl">Cubic Feet</span></div>
@@ -1933,8 +1965,9 @@ function downloadPackingListP2() {
 
   let totalPoles = 0, totalLbs = 0, totalCuFt = 0, pieceCount = 0;
   let pieceSections = '';
+  let poleContainerIdx = 0; // 0-based index among non-acc-box pieces (matches assignedTo 'piece-N')
 
-  containers.forEach((c, i) => {
+  containers.forEach((c) => {
     const typeKey   = c.querySelector('.piece-type-sel')?.value || 'large-tube';
     const pt        = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
     const isSmBox   = !!pt.configDims;
@@ -1944,8 +1977,10 @@ function downloadPackingListP2() {
       note:   row.querySelector('.pr-note')?.value   || '',
       serial: row.querySelector('.pr-serial')?.value || '',
     })).filter(p => p.model);
-    // Accessories assigned to THIS piece (by index in the non-acc-box pieces)
-    const pieceAccs = getAccForPiece(i);
+
+    // Accessories assigned to THIS pole piece (index among non-acc-box containers)
+    const pieceAccs = isSmBox ? [] : getAccForPiece(poleContainerIdx);
+    if (!isSmBox) poleContainerIdx++;
 
     // Skip empty non-small-box pieces with no accessories
     if (!poles.length && !isSmBox && !pieceAccs.length) return;
@@ -1953,14 +1988,15 @@ function downloadPackingListP2() {
 
     let lenIn, wtLbs, wtKgs, cuFt, dimsStr, unknownWarn;
     if (isSmBox) {
-      // Small Box: read custom dims from DOM inputs
-      const L = parseFloat(c.querySelector('.sb-len')?.value) || 0;
-      const W = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
-      const H = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
-      const accWt = p2Accessories.filter(a => a.assignedTo === 'new-box')
-                      .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
+      // Small Box: use manual sb-wt if entered, else fall back to acc unit weights + tare
+      const L        = parseFloat(c.querySelector('.sb-len')?.value) || 0;
+      const W        = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
+      const H        = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
+      const manualWt = parseFloat(c.querySelector('.sb-wt')?.value)  || 0;
+      const accWt    = p2Accessories.filter(a => a.assignedTo === 'new-box')
+                         .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
       lenIn    = L;
-      wtLbs    = Math.round((accWt + pt.extra_wt) * 10) / 10;
+      wtLbs    = manualWt > 0 ? manualWt : Math.round((accWt + pt.extra_wt) * 10) / 10;
       wtKgs    = Math.round(wtLbs * 0.453592 * 10) / 10;
       cuFt     = (L && W && H) ? Math.round(L * W * H / 1728 * 100) / 100 : 0;
       dimsStr  = (L && W && H) ? `${L}" &times; ${W}" &times; ${H}"` : '<em style="color:#c00">— dims required —</em>';
@@ -2039,11 +2075,18 @@ function downloadPackingListP2() {
 
   if (!pieceCount) { setActionErr('p2', 'No poles found — fill in pole models before downloading.'); return; }
 
-  const totLbs  = Math.round(totalLbs  * 10)  / 10;
-  const totKgs  = Math.round(totalLbs * 0.453592 * 10) / 10;
-  const totCuFt = Math.round(totalCuFt * 100) / 100;
-  const totPcs  = pieceCount;
-  const refLine = soNum ? `${htmlEsc(ifNum)}&nbsp;&bull;&nbsp;SO:&nbsp;${htmlEsc(soNum)}` : htmlEsc(ifNum);
+  const totLbs    = Math.round(totalLbs  * 10)  / 10;
+  const totKgs    = Math.round(totalLbs * 0.453592 * 10) / 10;
+  const totCuFt   = Math.round(totalCuFt * 100) / 100;
+  const totPcs    = pieceCount;
+  const refLine   = soNum ? `${htmlEsc(ifNum)}&nbsp;&bull;&nbsp;SO:&nbsp;${htmlEsc(soNum)}` : htmlEsc(ifNum);
+  const totalAccQty = p2Accessories.filter(a => a.assignedTo !== 'not-shipping').reduce((s,a) => s+a.qty, 0);
+  const p2AccNotes  = (document.getElementById('p2-acc-notes')?.value || '').trim();
+  const accNotesBlock = p2AccNotes
+    ? `<div style="margin-bottom:14px;padding:8px 12px;border:1px solid #ddd;border-radius:3px;font-size:9pt;color:#444">
+         <strong style="font-size:7pt;text-transform:uppercase;letter-spacing:.5px;color:#888">Accessory Packing Notes</strong><br>${htmlEsc(p2AccNotes)}
+       </div>`
+    : '';
 
   const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
@@ -2169,8 +2212,11 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
 
       ${pieceSections}
 
+      ${accNotesBlock}
+
       <div class="totals-bar">
         <div class="tot-cell"><span class="tot-num">${totalPoles}</span><span class="tot-lbl">Poles</span></div>
+        ${totalAccQty ? `<div class="tot-cell"><span class="tot-num">${totalAccQty}</span><span class="tot-lbl">Acc. Items</span></div>` : ''}
         <div class="tot-cell"><span class="tot-num">${totPcs}</span><span class="tot-lbl">Total Pieces</span></div>
         <div class="tot-cell"><span class="tot-num">${totKgs}</span><span class="tot-lbl">kgs.</span></div>
         <div class="tot-cell"><span class="tot-num">${totCuFt}</span><span class="tot-lbl">Cubic Feet</span></div>
