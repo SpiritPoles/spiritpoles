@@ -141,6 +141,15 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
 .pr-note{font-size:12px !important}
 .pr-serial{font-family:monospace;font-size:11px !important}
 .piece-foot{padding:4px 10px 8px;display:flex;gap:6px}
+/* Pack config bar */
+.pack-cfg-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:7px 10px;background:var(--tgb);border:1px solid var(--tgbr);border-radius:8px;margin-bottom:10px}
+.pack-cfg-lbl{font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--ts);white-space:nowrap}
+.pack-method-sel{background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;padding:5px 8px;font-size:11px;font-weight:700;color:var(--tp);outline:none;cursor:pointer;font-family:inherit;transition:border-color .18s}
+.pack-method-sel:focus{border-color:rgba(232,18,125,0.5)}
+.pack-method-sel option{background:#252525;color:#ede6d8}
+.pack-custom-row{gap:5px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--ts);font-weight:600}
+.pack-custom-row input{background:var(--tgb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 5px;font-size:11px;font-weight:700;color:var(--tp);text-align:center;outline:none;width:38px;font-family:inherit}
+.pack-custom-row input:focus{border-color:rgba(232,18,125,0.5)}
 
 /* Pole rows Phase 2 — with serial numbers */
 .pole-row-p2{background:var(--tgb);border:1px solid var(--tgbr);border-radius:10px;padding:12px;margin-bottom:8px}
@@ -281,6 +290,32 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
     <!-- Poles & Packing -->
     <div class="card">
       <div class="card-title">Poles &amp; Packing</div>
+      <div class="pack-cfg-bar">
+        <span class="pack-cfg-lbl">Pack Method</span>
+        <select id="pack-method-sel-p1" class="pack-method-sel" onchange="onPackMethodChange(this,'packing-list')">
+          <option value="auto">Auto — Large 7, Small 3</option>
+          <option value="" disabled>── Large Tube ──</option>
+          <option value="u8">Large Tube · 8 per piece</option>
+          <option value="u7">Large Tube · 7 per piece</option>
+          <option value="u6">Large Tube · 6 per piece</option>
+          <option value="u5">Large Tube · 5 per piece</option>
+          <option value="u4">Large Tube · 4 per piece</option>
+          <option value="" disabled>── Small Tube ──</option>
+          <option value="s4">Small Tube · 4 per piece</option>
+          <option value="s3">Small Tube · 3 per piece</option>
+          <option value="s2">Small Tube · 2 per piece</option>
+          <option value="" disabled>── Advanced ──</option>
+          <option value="custom">Custom settings...</option>
+        </select>
+        <div id="pack-custom-p1" class="pack-custom-row" style="display:none">
+          <span>Large: pref</span><input id="ov-lp-p1" type="number" min="1" max="8" value="7" title="Large tube preferred poles per piece">
+          <span>max</span><input id="ov-lm-p1" type="number" min="1" max="8" value="8" title="Large tube max poles per piece">
+          <span>· Small: pref</span><input id="ov-sp-p1" type="number" min="1" max="4" value="3" title="Small tube preferred poles per piece">
+          <span>max</span><input id="ov-sm-p1" type="number" min="1" max="4" value="4" title="Small tube max poles per piece">
+          <span>· Use large if ≥</span><input id="ov-th-p1" type="number" min="1" max="20" value="5" title="Use large tube when this many poles remain">
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="applyPackMethod('packing-list')">&#8635; Apply &amp; Re-pack</button>
+      </div>
       <div id="packing-list"></div>
       <div style="display:flex;gap:8px;padding:6px 0 2px;border-top:1px solid var(--tgbr);margin-top:4px">
         <button class="btn btn-outline btn-sm" onclick="addBlankPoleRow()">+ Add Pole</button>
@@ -453,6 +488,32 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
     <!-- Poles & Packing (mirrors Phase 1 exactly) -->
     <div class="card">
       <div class="card-title">Poles &amp; Packing</div>
+      <div class="pack-cfg-bar">
+        <span class="pack-cfg-lbl">Pack Method</span>
+        <select id="pack-method-sel-p2" class="pack-method-sel" onchange="onPackMethodChange(this,'packing-list-p2')">
+          <option value="auto">Auto — Large 7, Small 3</option>
+          <option value="" disabled>── Large Tube ──</option>
+          <option value="u8">Large Tube · 8 per piece</option>
+          <option value="u7">Large Tube · 7 per piece</option>
+          <option value="u6">Large Tube · 6 per piece</option>
+          <option value="u5">Large Tube · 5 per piece</option>
+          <option value="u4">Large Tube · 4 per piece</option>
+          <option value="" disabled>── Small Tube ──</option>
+          <option value="s4">Small Tube · 4 per piece</option>
+          <option value="s3">Small Tube · 3 per piece</option>
+          <option value="s2">Small Tube · 2 per piece</option>
+          <option value="" disabled>── Advanced ──</option>
+          <option value="custom">Custom settings...</option>
+        </select>
+        <div id="pack-custom-p2" class="pack-custom-row" style="display:none">
+          <span>Large: pref</span><input id="ov-lp-p2" type="number" min="1" max="8" value="7" title="Large tube preferred poles per piece">
+          <span>max</span><input id="ov-lm-p2" type="number" min="1" max="8" value="8" title="Large tube max poles per piece">
+          <span>· Small: pref</span><input id="ov-sp-p2" type="number" min="1" max="4" value="3" title="Small tube preferred poles per piece">
+          <span>max</span><input id="ov-sm-p2" type="number" min="1" max="4" value="4" title="Small tube max poles per piece">
+          <span>· Use large if ≥</span><input id="ov-th-p2" type="number" min="1" max="20" value="5" title="Use large tube when this many poles remain">
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="applyPackMethod('packing-list-p2')">&#8635; Apply &amp; Re-pack</button>
+      </div>
       <div id="packing-list-p2"></div>
       <div style="display:flex;gap:8px;padding:6px 0 2px;border-top:1px solid var(--tgbr);margin-top:4px">
         <button class="btn btn-outline btn-sm" onclick="addBlankPoleRow('packing-list-p2')">+ Add Pole</button>
@@ -565,6 +626,54 @@ const POLE_WEIGHT_LBS = {
 const LARGE_TUBE = { w:8, h:8, extra_wt:35, extra_len:6, max:8, prefer:7 };
 const SMALL_TUBE = { w:6, h:6, extra_wt:25, extra_len:6, max:4, prefer:3 };
 const ALL_MODELS = Object.keys(POLE_LENGTH_IN).map(Number).sort((a,b)=>a-b);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PACK METHOD CONFIG
+// threshold = use large tube if remaining >= threshold; else small
+// preset 'u*' → always large (threshold=1); preset 's*' → always small (threshold=99)
+// ─────────────────────────────────────────────────────────────────────────────
+const PACK_PRESETS = {
+  auto: { largePrefer:7, largeMax:8, smallPrefer:3, smallMax:4, threshold:5 },
+  u8:   { largePrefer:8, largeMax:8, smallPrefer:3, smallMax:4, threshold:1 },
+  u7:   { largePrefer:7, largeMax:7, smallPrefer:3, smallMax:4, threshold:1 },
+  u6:   { largePrefer:6, largeMax:6, smallPrefer:3, smallMax:4, threshold:1 },
+  u5:   { largePrefer:5, largeMax:5, smallPrefer:3, smallMax:4, threshold:1 },
+  u4:   { largePrefer:4, largeMax:4, smallPrefer:3, smallMax:4, threshold:1 },
+  s4:   { largePrefer:7, largeMax:8, smallPrefer:4, smallMax:4, threshold:99 },
+  s3:   { largePrefer:7, largeMax:8, smallPrefer:3, smallMax:3, threshold:99 },
+  s2:   { largePrefer:7, largeMax:8, smallPrefer:2, smallMax:2, threshold:99 },
+};
+const PACK_CONFIGS = {};
+
+function getPackConfig(listId) {
+  return PACK_CONFIGS[listId] || { ...PACK_PRESETS.auto };
+}
+
+function onPackMethodChange(sel, listId) {
+  const suffix = listId === 'packing-list' ? 'p1' : 'p2';
+  const row = document.getElementById(`pack-custom-${suffix}`);
+  if (!row) return;
+  row.style.display = sel.value === 'custom' ? 'flex' : 'none';
+}
+
+function applyPackMethod(listId) {
+  const suffix = listId === 'packing-list' ? 'p1' : 'p2';
+  const sel = document.getElementById(`pack-method-sel-${suffix}`);
+  if (!sel) return;
+  if (sel.value === 'custom') {
+    const lp = parseInt(document.getElementById(`ov-lp-${suffix}`)?.value) || 7;
+    const lm = parseInt(document.getElementById(`ov-lm-${suffix}`)?.value) || 8;
+    const sp = parseInt(document.getElementById(`ov-sp-${suffix}`)?.value) || 3;
+    const sm = parseInt(document.getElementById(`ov-sm-${suffix}`)?.value) || 4;
+    const th = parseInt(document.getElementById(`ov-th-${suffix}`)?.value) || 5;
+    PACK_CONFIGS[listId] = { largePrefer: Math.max(1,lp), largeMax: Math.max(1,lm),
+                              smallPrefer: Math.max(1,sp), smallMax: Math.max(1,sm),
+                              threshold: Math.max(1,th) };
+  } else {
+    PACK_CONFIGS[listId] = { ...(PACK_PRESETS[sel.value] || PACK_PRESETS.auto) };
+  }
+  recalcPacking(listId);
+}
 
 // ── Crossbar item codes → packing length & weight ─────────────────────────────
 // 755-132RM = HJ Crossbar (158"), 755-133RM = PV Crossbar (177")
@@ -896,7 +1005,11 @@ function setFetchStatus(phase, msg, cls) {
 // ─────────────────────────────────────────────────────────────────────────────
 // PACKING ALGORITHM
 // ─────────────────────────────────────────────────────────────────────────────
-function packPoles(poleList) {
+function packPoles(poleList, cfg = null) {
+  const c = cfg || PACK_PRESETS.auto;
+  const activeLarge = { ...LARGE_TUBE, prefer: c.largePrefer, max: c.largeMax };
+  const activeSmall = { ...SMALL_TUBE, prefer: c.smallPrefer, max: c.smallMax };
+
   const expanded = [];
   for (const { model, qty } of poleList) {
     const m = parseInt(model);
@@ -907,7 +1020,7 @@ function packPoles(poleList) {
   const pieces = [];
   let remaining = [...expanded];
   while (remaining.length > 0) {
-    const tube      = remaining.length >= 5 ? LARGE_TUBE : SMALL_TUBE;
+    const tube      = remaining.length >= c.threshold ? activeLarge : activeSmall;
     const batchSize = remaining.length === tube.max ? tube.max : Math.min(tube.prefer, remaining.length);
     const batch     = remaining.splice(0, batchSize);
     const longestModel = batch[0];
@@ -924,14 +1037,18 @@ function packPoles(poleList) {
       weight_lbs:     totalWtLbs,
       weight_kg:      totalWtKg,
       cu_ft:          cuFt,
-      type: tube === LARGE_TUBE ? 'Large' : 'Small',
+      type: tube === activeLarge ? 'Large' : 'Small',
     });
   }
   return pieces;
 }
 
 // Like packPoles but tracks model, flex, and sn per individual pole (for Excel)
-function packPolesDetailed(poleList) {
+function packPolesDetailed(poleList, cfg = null) {
+  const c = cfg || PACK_PRESETS.auto;
+  const activeLarge = { ...LARGE_TUBE, prefer: c.largePrefer, max: c.largeMax };
+  const activeSmall = { ...SMALL_TUBE, prefer: c.smallPrefer, max: c.smallMax };
+
   const expanded = [];
   for (const item of poleList) {
     const m = parseInt(item.model);
@@ -944,7 +1061,7 @@ function packPolesDetailed(poleList) {
   const pieces = [];
   let remaining = [...expanded];
   while (remaining.length > 0) {
-    const tube      = remaining.length >= 5 ? LARGE_TUBE : SMALL_TUBE;
+    const tube      = remaining.length >= c.threshold ? activeLarge : activeSmall;
     const batchSize = remaining.length === tube.max ? tube.max : Math.min(tube.prefer, remaining.length);
     const batch     = remaining.splice(0, batchSize);
     const longestModel = batch[0].model;
@@ -957,7 +1074,7 @@ function packPolesDetailed(poleList) {
       poles: batch,
       tube_length_in: tubeLen, tube_width_in: tube.w, tube_height_in: tube.h,
       weight_lbs: totalWtLbs, weight_kg: totalWtKg, cu_ft: cuFt,
-      type: tube === LARGE_TUBE ? 'Large' : 'Small',
+      type: tube === activeLarge ? 'Large' : 'Small',
     });
   }
   return pieces;
@@ -1747,13 +1864,17 @@ function buildPackingView(polesArray, listId = 'packing-list') {
   // Sort descending by model# (largest → smallest) for optimal packing
   const sorted = [...polesArray].sort((a, b) => (parseInt(b.model) || 0) - (parseInt(a.model) || 0));
 
+  const cfg = getPackConfig(listId);
+  const activeLarge = { ...LARGE_TUBE, prefer: cfg.largePrefer, max: cfg.largeMax };
+  const activeSmall = { ...SMALL_TUBE, prefer: cfg.smallPrefer, max: cfg.smallMax };
+
   const pieces = [];
   let rem = [...sorted];
   while (rem.length) {
-    const typeKey = rem.length >= 5 ? 'large-tube' : 'small-tube';
-    const pt      = PIECE_TYPES[typeKey];
-    const tube    = typeKey === 'large-tube' ? LARGE_TUBE : SMALL_TUBE;
-    const bSize   = rem.length === tube.max ? tube.max : Math.min(tube.prefer, rem.length);
+    const useLarge = rem.length >= cfg.threshold;
+    const typeKey  = useLarge ? 'large-tube' : 'small-tube';
+    const tube     = useLarge ? activeLarge : activeSmall;
+    const bSize    = rem.length === tube.max ? tube.max : Math.min(tube.prefer, rem.length);
     pieces.push({ typeKey, poles: rem.splice(0, bSize) });
   }
 
@@ -3223,7 +3344,7 @@ async function createDrafts() {
   if (!v('consignee'))   { setActionErr('p1', 'Enter a Consignee name.'); return; }
   if (!activeFFs.length) { setActionErr('p1', 'Select at least one freight forwarder.'); return; }
 
-  const pieces = packPoles(poleRows);
+  const pieces = packPoles(poleRows, getPackConfig('packing-list'));
 
   let token;
   try { token = await getToken(); }
