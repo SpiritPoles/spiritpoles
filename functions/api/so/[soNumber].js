@@ -183,7 +183,7 @@ export async function onRequestGet({ params, env }) {
     const rec     = await nsGet(recUrl, env);
     const subtotal = parseFloat(rec.subtotal ?? rec.total ?? 0);
 
-    // Parse individual pole lines from item sublist
+    // Parse all line items from item sublist (poles + accessories)
     const rawItems = rec.item?.items || rec.item || [];
     const lineItems = [];
 
@@ -191,40 +191,48 @@ export async function onRequestGet({ params, env }) {
       // item field may be object {id, refName} or a string
       const itemRef  = typeof li.item === 'object' ? (li.item?.refName || '') : String(li.item || '');
       const dispName = typeof li.custcol_ucs_display_name === 'string' ? li.custcol_ucs_display_name : '';
+      if (!itemRef) continue;
 
-      // Only include actual pole items (model number parseable)
-      const model = parseModelNum(itemRef) || parseModelNum(dispName);
-      if (!model) continue;
-
-      // CrossFlex flex memo (absent on standard poles)
-      const flexMemo = li.custcol_ucs_flex_memo?.refName
-        ?? (typeof li.custcol_ucs_flex_memo === 'string' ? li.custcol_ucs_flex_memo : '')
-        ?? '';
-
-      // Special instructions (line-item note field)
-      const note = typeof li.custcol_nssc_notes === 'string' ? li.custcol_nssc_notes.trim() : '';
-
-      // Serial numbers from inventory detail
-      const invDetail  = li.inventoryDetail  || li.inventorydetail;
-      const invAssign  = invDetail?.inventoryAssignment || invDetail?.inventoryassignment;
-      const assignments = invAssign?.items || [];
-      const serials    = assignments
-        .map(a => a.issueInventoryNumber?.refName || a.inventorynumber?.refName || '')
-        .filter(Boolean);
-
-      // qty on SOs is typically 1 per serialized pole; normalize and expand
-      const qty = Math.max(1, Math.abs(Math.round(parseFloat(li.quantity) || 1)));
+      const qty  = Math.max(1, Math.abs(Math.round(parseFloat(li.quantity) || 1)));
       const rate = parseFloat(li.rate) || 0;
 
-      for (let i = 0; i < qty; i++) {
+      // Check if this is a pole (model number parseable)
+      const model = parseModelNum(itemRef) || parseModelNum(dispName);
+
+      if (model) {
+        // ── Pole item — expand one entry per unit with serial/flex ──────────
+        const flexMemo = li.custcol_ucs_flex_memo?.refName
+          ?? (typeof li.custcol_ucs_flex_memo === 'string' ? li.custcol_ucs_flex_memo : '')
+          ?? '';
+        const note = typeof li.custcol_nssc_notes === 'string' ? li.custcol_nssc_notes.trim() : '';
+        const invDetail   = li.inventoryDetail  || li.inventorydetail;
+        const invAssign   = invDetail?.inventoryAssignment || invDetail?.inventoryassignment;
+        const assignments = invAssign?.items || [];
+        const serials     = assignments
+          .map(a => a.issueInventoryNumber?.refName || a.inventorynumber?.refName || '')
+          .filter(Boolean);
+
+        for (let i = 0; i < qty; i++) {
+          lineItems.push({
+            item_code: itemRef,
+            item_name: dispName || itemRef,
+            flex_memo: flexMemo,
+            serial:    serials[i] || '',
+            note:      note,
+            qty:       1,
+            rate:      rate,
+          });
+        }
+      } else {
+        // ── Non-pole item (accessory, crossbar, etc.) — single entry with qty ──
         lineItems.push({
-          item_code:  itemRef,
-          item_name:  dispName || itemRef,
-          flex_memo:  flexMemo,
-          serial:     serials[i] || '',
-          note:       note,
-          qty:        1,
-          rate:       rate,
+          item_code: itemRef,
+          item_name: dispName || itemRef,
+          flex_memo: '',
+          serial:    '',
+          note:      '',
+          qty:       qty,
+          rate:      rate,
         });
       }
     }
