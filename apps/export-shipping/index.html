@@ -1226,17 +1226,17 @@ function updateAccessorySmallBox(ph = '2') {
     if (!dimsRow) {
       dimsRow = document.createElement('div');
       dimsRow.id = `sb-dims-inline-p${ph}`;
-      dimsRow.style.cssText = 'margin-top:8px;padding:7px 10px;background:var(--tb);border:1px solid var(--tgbr);border-radius:6px;font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--tp)';
+      dimsRow.style.cssText = 'margin-top:8px;padding:8px 12px;background:rgba(232,18,125,0.07);border:1.5px solid var(--accent,#e8127d);border-radius:6px;font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--tp)';
       dimsRow.innerHTML = `
-        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ts);white-space:nowrap">📦 Box Dims (in):</span>
-        <input type="number" class="sbi-L"  placeholder="L" style="width:54px;font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:4px;padding:3px 6px;color:var(--tp)">
+        <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--accent,#e8127d);white-space:nowrap">📦 Box Dims (in):</span>
+        <input type="number" class="sbi-L"  placeholder="L" style="width:54px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
         <span style="color:var(--ts)">×</span>
-        <input type="number" class="sbi-W"  placeholder="W" style="width:46px;font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:4px;padding:3px 6px;color:var(--tp)">
+        <input type="number" class="sbi-W"  placeholder="W" style="width:46px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
         <span style="color:var(--ts)">×</span>
-        <input type="number" class="sbi-H"  placeholder="H" style="width:46px;font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:4px;padding:3px 6px;color:var(--tp)">
+        <input type="number" class="sbi-H"  placeholder="H" style="width:46px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
         <span style="color:var(--ts);margin:0 4px">|</span>
-        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ts);white-space:nowrap">Weight:</span>
-        <input type="number" class="sbi-Wt" placeholder="lbs" style="width:56px;font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:4px;padding:3px 6px;color:var(--tp)">
+        <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--accent,#e8127d);white-space:nowrap">Weight:</span>
+        <input type="number" class="sbi-Wt" placeholder="lbs" style="width:56px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
       `;
       btnDiv.after(dimsRow);
       // Wire input → sync to piece container
