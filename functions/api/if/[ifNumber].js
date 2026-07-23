@@ -293,9 +293,9 @@ export async function onRequestGet({ params, env }) {
       const flexMemo = typeof li.custcol_ucs_flex_memo === 'string'
         ? li.custcol_ucs_flex_memo
         : (li.custcol_ucs_flex_memo?.refName || '');
-      const lineNote = typeof li.custcol_nssc_notes === 'string'
-        ? li.custcol_nssc_notes.trim()
-        : (li.custcol_nssc_notes?.value || li.custcol_nssc_notes?.refName || '').trim();
+      const lineNote = typeof li.custcolcust_ucs_special_instructions === 'string'
+        ? li.custcolcust_ucs_special_instructions.trim()
+        : (li.custcolcust_ucs_special_instructions?.value || li.custcolcust_ucs_special_instructions?.refName || '').trim();
 
       lineItems.push({
         item_code: itemCode,

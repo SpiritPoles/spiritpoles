@@ -211,9 +211,9 @@ export async function onRequestGet({ params, env }) {
         const flexMemo = li.custcol_ucs_flex_memo?.refName
           ?? (typeof li.custcol_ucs_flex_memo === 'string' ? li.custcol_ucs_flex_memo : '')
           ?? '';
-        const note = typeof li.custcol_nssc_notes === 'string'
-          ? li.custcol_nssc_notes.trim()
-          : (li.custcol_nssc_notes?.value || li.custcol_nssc_notes?.refName || '').trim();
+        const note = typeof li.custcolcust_ucs_special_instructions === 'string'
+          ? li.custcolcust_ucs_special_instructions.trim()
+          : (li.custcolcust_ucs_special_instructions?.value || li.custcolcust_ucs_special_instructions?.refName || '').trim();
         const invDetail   = li.inventoryDetail  || li.inventorydetail;
         const invAssign   = invDetail?.inventoryAssignment || invDetail?.inventoryassignment;
         const assignments = invAssign?.items || [];
