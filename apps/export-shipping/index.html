@@ -286,9 +286,10 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       <!-- Phase 1 Accessories inline -->
       <div id="acc-card-p1" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--tgbr)">
         <div class="card-title">Accessories &amp; Additional Items</div>
-        <div style="font-size:11px;color:var(--ts);margin-bottom:8px">Non-pole items on this order. Assign packing details in Phase 2.</div>
-        <div id="acc-summary-p1" style="font-size:12px;color:var(--tp);margin-bottom:10px"></div>
-        <div class="field">
+        <div style="font-size:11px;color:var(--ts);margin-bottom:10px">Items from this order. Assign each to a piece, new box, or mark not shipping.</div>
+        <div id="accessories-list-p1"></div>
+        <div id="acc-group-btns-p1" style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"></div>
+        <div class="field" style="margin-top:12px">
           <label>Packing Notes (accessories)</label>
           <textarea id="p1-acc-notes" placeholder="e.g. Pole bags go in Tube 2. Tips in small box." style="min-height:52px" oninput="autoResize(this)"></textarea>
         </div>
@@ -652,7 +653,7 @@ async function fetchSO() {
 
     // Build packing view from individual poles; collect accessories
     const poleData = [];
-    p1AccData = []; // reset global
+    const p1AccItems = []; // local collection — passed to buildAccessoriesPanel
     for (const line of (data.lines || [])) {
       const kind = classifyItem(line.item_code || '', line.item_name || '');
       if (kind === 'pole') {
@@ -669,36 +670,18 @@ async function fetchSO() {
           serial: line.serial   || '',
         });
       } else {
-        // Crossbars and accessories both shown in Phase 1 accessories summary
+        // Crossbars and accessories — collect for Phase 1 accessories panel
         const qty = line.qty || 1;
-        p1AccData.push({ item_code: line.item_code || '', item_name: line.item_name || line.item_code || '', qty });
+        p1AccItems.push({ item_code: line.item_code || '', item_name: line.item_name || line.item_code || '', qty });
       }
     }
     buildPackingView(poleData);
+    // Build Phase 1 accessories panel (sets p1Accessories global, shows/hides acc-card-p1, sets tile)
+    buildAccessoriesPanel(p1AccItems, '1');
+    // Refresh dropdowns after piece containers are rendered
+    setTimeout(() => refreshAccessoryPanel('1'), 50);
 
-    // Show Phase 1 accessories section
-    const accCardP1 = document.getElementById('acc-card-p1');
-    const accSummaryP1 = document.getElementById('acc-summary-p1');
-    const totalAccItems = p1AccData.length;           // distinct item types
-    const totalAccQty   = p1AccData.reduce((s, a) => s + a.qty, 0); // total units
-    if (p1AccData.length && accCardP1 && accSummaryP1) {
-      accSummaryP1.innerHTML = p1AccData.map(a =>
-        `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--tgbr)">
-          <span style="font-weight:700;font-size:12px;color:var(--tp);white-space:nowrap">${a.qty}×</span>
-          <span style="font-size:11px;font-weight:700;color:var(--tp);white-space:nowrap">${htmlEsc(a.item_code)}</span>
-          <span style="font-size:12px;color:var(--tp);flex:1">${htmlEsc(a.item_name)}</span>
-        </div>`
-      ).join('');
-      accCardP1.style.display = '';
-    } else if (accCardP1) {
-      accCardP1.style.display = 'none';
-    }
-    // Set accessories total box
-    const tAccBox = document.getElementById('t-acc-box');
-    const tAcc    = document.getElementById('t-acc');
-    if (tAccBox) tAccBox.style.display = totalAccItems ? '' : 'none';
-    if (tAcc)    tAcc.textContent = totalAccQty || '—';   // show total units in tile
-
+    const totalAccItems = p1AccItems.length; // distinct item types for status line
     const accPart = totalAccItems ? `, ${totalAccItems} accessor${totalAccItems === 1 ? 'y' : 'ies'}` : '';
     setFetchStatus('p1', `✓ Loaded ${data.so_number} — ${data.customer}${poleData.length ? ` (${poleData.length} poles${accPart})` : ' — no poles found'}`, 'ok');
   } catch (err) {
@@ -883,12 +866,14 @@ function populateIFData(data) {
   }
 
   // ── Accessories panel ─────────────────────────────────────────────────────
-  buildAccessoriesPanel(accData);
+  buildAccessoriesPanel(accData, '2');
   // After building pieces, refresh accessory dropdown options
-  setTimeout(refreshAccessoryPanel, 50);
+  setTimeout(() => refreshAccessoryPanel('2'), 50);
 
   const totalPoles = poleData.length;
-  setFetchStatus('p2', `✓ Loaded ${data.if_number} (${data.so_number}) — ${data.customer} · ${totalPoles} poles`, 'ok');
+  const totalAccTypes = accData.length; // distinct non-pole item types
+  const accPart2 = totalAccTypes ? `, ${totalAccTypes} accessor${totalAccTypes === 1 ? 'y' : 'ies'}` : '';
+  setFetchStatus('p2', `✓ Loaded ${data.if_number} (${data.so_number}) — ${data.customer} · ${totalPoles} poles${accPart2}`, 'ok');
 }
 
 function setFetchStatus(phase, msg, cls) {
@@ -1095,40 +1080,53 @@ function renumberPieces(listId = 'packing-list') {
     if (b) b.textContent = `Piece ${i + 1}`;
   });
   // Keep accessory assignment dropdown in sync with current pieces
-  if (listId === 'packing-list-p2') refreshAccessoryPanel();
+  if (listId === 'packing-list-p2') refreshAccessoryPanel('2');
+  if (listId === 'packing-list')    refreshAccessoryPanel('1');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ACCESSORIES — state + UI for non-pole / non-crossbar items
 // ─────────────────────────────────────────────────────────────────────────────
-let p1AccData     = []; // [{item_code, item_name, qty}] — filled by fetchSO, read by PDF
-let p2Accessories = []; // [{item_code, item_name, qty, assignedTo}]
+let p1Accessories = []; // [{item_code, item_name, qty, assignedTo}] — phase 1 acc state
+let p2Accessories = []; // [{item_code, item_name, qty, assignedTo}] — phase 2 acc state
                         // assignedTo: 'piece-N' (0-based) | 'new-box' | 'not-shipping'
 
-function buildAccessoriesPanel(items) {
-  p2Accessories = items.map(it => ({ ...it, assignedTo: 'not-shipping' }));
-  const card = document.getElementById('acc-card-p2');
-  const list = document.getElementById('accessories-list-p2');
-  if (!items.length) { card.style.display = 'none'; return; }
-  card.style.display = '';
+// ph = '1' or '2' — which phase's accessory state to use
+function buildAccessoriesPanel(items, ph = '2') {
+  const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
+  if (ph === '1') { p1Accessories = items.map(it => ({ ...it, assignedTo: 'not-shipping' })); }
+  else            { p2Accessories = items.map(it => ({ ...it, assignedTo: 'not-shipping' })); }
+
+  const card = document.getElementById(`acc-card-p${ph}`);
+  const list = document.getElementById(`accessories-list-p${ph}`);
+  if (!items.length) { if (card) card.style.display = 'none'; return; }
+  if (card) card.style.display = '';
+
+  // Update accessories tile count
+  const totalAccQty = items.reduce((s, a) => s + a.qty, 0);
+  const tAccBox = document.getElementById(ph === '1' ? 't-acc-box' : 't-acc-box-p2');
+  const tAcc    = document.getElementById(ph === '1' ? 't-acc'     : 't-acc-p2');
+  if (tAccBox) tAccBox.style.display = totalAccQty ? '' : 'none';
+  if (tAcc)    tAcc.textContent = totalAccQty || '—';
 
   function render() {
-    // Build piece options from current packing-list-p2 containers (exclude acc small-box)
-    const pieces = [...document.querySelectorAll('#packing-list-p2 .piece-container')]
+    const accArr = ph === '1' ? p1Accessories : p2Accessories;
+    // Build piece options from current packing list containers (exclude acc small-box)
+    const pieces = [...document.querySelectorAll(`#${listId} .piece-container`)]
       .filter(c => !c.dataset.accBox);
     const pieceOpts = pieces.map((c, i) => {
       const label = c.querySelector('.piece-num-badge')?.textContent || `Piece ${i+1}`;
       return `<option value="piece-${i}">Pack in ${label}</option>`;
     }).join('');
 
-    list.innerHTML = p2Accessories.map((acc, idx) => `
+    list.innerHTML = accArr.map((acc, idx) => `
       <div class="acc-row" data-idx="${idx}" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--tgbr);flex-wrap:wrap">
         <span style="font-weight:700;font-size:12px;color:var(--tp);white-space:nowrap">${acc.qty}×</span>
         <span style="font-size:11px;font-weight:700;color:var(--tp);white-space:nowrap">${htmlEsc(acc.item_code)}</span>
         <span style="font-size:12px;color:var(--tp);flex:1;min-width:100px">${htmlEsc(acc.item_name || acc.item_code)}</span>
         <span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ts);white-space:nowrap">Assign to:</span>
         <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp)"
-          onchange="onAccAssign(this,${idx})">
+          onchange="onAccAssign(this,${idx},'${ph}')">
           ${pieceOpts}
           <option value="new-box">+ New Small Box</option>
           <option value="not-shipping">Not Shipping</option>
@@ -1136,53 +1134,57 @@ function buildAccessoriesPanel(items) {
       </div>`).join('');
 
     // Restore saved selections
-    p2Accessories.forEach((acc, idx) => {
+    accArr.forEach((acc, idx) => {
       const sel = list.querySelector(`.acc-row[data-idx="${idx}"] .acc-assign`);
       if (sel && acc.assignedTo) sel.value = acc.assignedTo;
     });
 
     // Render dynamic group-action buttons
-    const btnDiv = document.getElementById('acc-group-btns-p2');
+    const btnDiv = document.getElementById(`acc-group-btns-p${ph}`);
     if (btnDiv) {
       const pieceBtns = pieces.map((c, i) => {
         const lbl = c.querySelector('.piece-num-badge')?.textContent || `Piece ${i+1}`;
-        return `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('piece-${i}')">All → ${lbl}</button>`;
+        return `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('piece-${i}','${ph}')">All → ${lbl}</button>`;
       }).join('');
       btnDiv.innerHTML =
         pieceBtns +
-        `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('new-box')">All → New Small Box</button>` +
-        `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('not-shipping')" style="opacity:.7">All → Not Shipping</button>`;
+        `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('new-box','${ph}')">All → New Small Box</button>` +
+        `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('not-shipping','${ph}')" style="opacity:.7">All → Not Shipping</button>`;
     }
 
-    updateAccessorySmallBox();
+    updateAccessorySmallBox(ph);
   }
 
   list._render = render;
   render();
 }
 
-function onAccAssign(sel, idx) {
-  p2Accessories[idx].assignedTo = sel.value;
-  updateAccessorySmallBox();
+function onAccAssign(sel, idx, ph = '2') {
+  const arr = ph === '1' ? p1Accessories : p2Accessories;
+  arr[idx].assignedTo = sel.value;
+  updateAccessorySmallBox(ph);
 }
 
-function assignAllAccessories(target) {
-  p2Accessories.forEach(acc => acc.assignedTo = target);
+function assignAllAccessories(target, ph = '2') {
+  const arr = ph === '1' ? p1Accessories : p2Accessories;
+  arr.forEach(acc => acc.assignedTo = target);
   // Re-render dropdown selections WITHOUT resetting state (don't call buildAccessoriesPanel)
-  const list = document.getElementById('accessories-list-p2');
+  const list = document.getElementById(`accessories-list-p${ph}`);
   if (list && list._render) list._render();
-  updateAccessorySmallBox();
+  updateAccessorySmallBox(ph);
 }
 
 // Creates / updates a single shared Small Box piece container for accessory items
-function updateAccessorySmallBox() {
-  const list = document.getElementById('packing-list-p2');
-  const boxItems = p2Accessories.filter(a => a.assignedTo === 'new-box');
+function updateAccessorySmallBox(ph = '2') {
+  const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
+  const accArr = ph === '1' ? p1Accessories : p2Accessories;
+  const list   = document.getElementById(listId);
+  const boxItems = accArr.filter(a => a.assignedTo === 'new-box');
 
   // Find or create the accessories small-box piece
   let boxContainer = list.querySelector('.piece-container[data-acc-box="1"]');
   if (boxItems.length === 0) {
-    if (boxContainer) { boxContainer.remove(); renumberPieces('packing-list-p2'); }
+    if (boxContainer) { boxContainer.remove(); renumberPieces(listId); }
     return;
   }
   if (!boxContainer) {
@@ -1190,7 +1192,7 @@ function updateAccessorySmallBox() {
     boxContainer = createPieceContainer(pieceNum, 'small-box', []);
     boxContainer.dataset.accBox = '1';
     list.appendChild(boxContainer);
-    renumberPieces('packing-list-p2');
+    renumberPieces(listId);
   }
   // Store total accessory weight on the container (for calcPieceDims)
   const totalWt = boxItems.reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
@@ -1207,17 +1209,18 @@ function updateAccessorySmallBox() {
   note.innerHTML = '<strong>Contents:</strong> ' +
     boxItems.map(a => `${a.qty}× ${htmlEsc(a.item_name || a.item_code)}`).join(', ');
   calcPieceDims(boxContainer);
-  updatePackingTotals('packing-list-p2');
+  updatePackingTotals(listId);
 }
 
 // Returns accessories assigned to a given piece index (for document output)
-function getAccForPiece(pieceIdx) {
-  return p2Accessories.filter(a => a.assignedTo === `piece-${pieceIdx}`);
+function getAccForPiece(pieceIdx, ph = '2') {
+  const arr = ph === '1' ? p1Accessories : p2Accessories;
+  return arr.filter(a => a.assignedTo === `piece-${pieceIdx}`);
 }
 
 // Re-render accessory dropdown when packing pieces change
-function refreshAccessoryPanel() {
-  const list = document.getElementById('accessories-list-p2');
+function refreshAccessoryPanel(ph = '2') {
+  const list = document.getElementById(`accessories-list-p${ph}`);
   if (list && list._render) list._render();
 }
 
@@ -1299,6 +1302,7 @@ function sortPolesBySize(container) {
 // listId = 'packing-list' (Phase 1) or 'packing-list-p2' (Phase 2)
 function updatePackingTotals(listId = 'packing-list') {
   const sfx        = listId === 'packing-list' ? '' : '-p2';
+  const accArr     = sfx === '-p2' ? p2Accessories : p1Accessories; // phase-appropriate array
   const containers = document.querySelectorAll(`#${listId} .piece-container`);
   let totalPoles = 0, totalLbs = 0, pieceSeq = 0;
   const pieceRows = [];
@@ -1318,8 +1322,8 @@ function updatePackingTotals(listId = 'packing-list') {
       const wtLbs    = Math.round(accWt * 10) / 10;
       const wtKg     = Math.round(accWt * 0.453592 * 10) / 10;
       totalLbs += wtLbs;
-      const accCount = (typeof p2Accessories !== 'undefined')
-        ? p2Accessories.filter(a => a.assignedTo === 'new-box').reduce((s, a) => s + a.qty, 0)
+      const accCount = Array.isArray(accArr)
+        ? accArr.filter(a => a.assignedTo === 'new-box').reduce((s, a) => s + a.qty, 0)
         : 0;
       pieceRows.push({ num: pieceSeq, label: pt.label, lenIn: L, w: W, h: H, wtLbs, wtKg, poleCount: 0, isAccBox: true, accCount });
       return;
@@ -1351,13 +1355,13 @@ function updatePackingTotals(listId = 'packing-list') {
   if (tPoles)  tPoles.textContent  = totalPoles  || '—';
   if (tWeight) tWeight.textContent = (n || totalPoles) ? totalKg + ' kg' : '—';
 
-  // Accessories count box (Phase 2 only) — show total qty of assigned items
-  if (sfx === '-p2') {
-    const accQty = (typeof p2Accessories !== 'undefined')
-      ? p2Accessories.filter(a => a.assignedTo !== 'not-shipping').reduce((s, a) => s + a.qty, 0)
+  // Accessories count box (both phases) — show total qty of active (non-not-shipping) items
+  {
+    const accQty = Array.isArray(accArr)
+      ? accArr.filter(a => a.assignedTo !== 'not-shipping').reduce((s, a) => s + a.qty, 0)
       : 0;
-    const tAccBox = document.getElementById('t-acc-box-p2');
-    const tAcc    = document.getElementById('t-acc-p2');
+    const tAccBox = document.getElementById(sfx === '-p2' ? 't-acc-box-p2' : 't-acc-box');
+    const tAcc    = document.getElementById(sfx === '-p2' ? 't-acc-p2'     : 't-acc');
     if (tAccBox) tAccBox.style.display = accQty ? '' : 'none';
     if (tAcc)    tAcc.textContent = accQty || '—';
   }
@@ -1386,7 +1390,10 @@ function updatePackingTotals(listId = 'packing-list') {
           </tr>`).join('')}
         <tr style="font-weight:800;border-top:1px solid var(--tgbr)">
           <td colspan="2">Totals</td>
-          <td style="text-align:center">${totalPoles}</td>
+          <td style="text-align:center">${(() => {
+            const aQty = Array.isArray(accArr) ? accArr.filter(a => a.assignedTo !== 'not-shipping').reduce((s,a) => s+a.qty, 0) : 0;
+            return totalPoles + (aQty ? `<br><span style="font-size:9px;color:var(--ts);font-weight:400">${aQty} acc. items</span>` : '');
+          })()}</td>
           <td></td>
           <td>${Math.round(totalLbs*10)/10} lbs &nbsp;·&nbsp; ${totalKg} kg</td>
         </tr>
@@ -1657,32 +1664,64 @@ function downloadPackingListPDF() {
 
   let totalPoles = 0, totalLbs = 0, totalCuFt = 0, pieceCount = 0;
   let pieceSections = '';
+  let poleContainerIdx = 0; // 0-based among non-acc-box pieces (matches p1Accessories assignedTo)
 
-  containers.forEach((c, i) => {
-    const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
-    const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
-    const poles   = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
+  containers.forEach((c) => {
+    const typeKey   = c.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt        = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const isSmBox   = !!pt.configDims;
+    const poles     = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
       model:  row.querySelector('.pr-model')?.value  || '',
       flex:   row.querySelector('.pr-flex')?.value   || '',
       note:   row.querySelector('.pr-note')?.value   || '',
       serial: row.querySelector('.pr-serial')?.value || '',
     })).filter(p => p.model);
 
-    if (!poles.length) return;  // skip empty pieces — no poles to pack
+    // Accessories assigned to THIS pole piece (index among non-acc-box containers)
+    const pieceAccs = isSmBox ? [] : getAccForPiece(poleContainerIdx, '1');
+    if (!isSmBox) poleContainerIdx++;
+
+    // Skip empty non-small-box pieces with no accessories
+    if (!poles.length && !isSmBox && !pieceAccs.length) return;
     pieceCount++;
 
-    const models        = poles.map(p => parseInt(p.model) || 0).filter(Boolean);
-    const longest       = models.length ? Math.max(...models) : 0;
-    const unknownModels = models.filter(m => !POLE_LENGTH_IN[m]);
-    const lenIn   = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
-    const wtPoles = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
-    const wtLbs   = Math.round((wtPoles + pt.extra_wt) * 10) / 10;
-    const wtKgs   = Math.round(wtLbs * 0.453592 * 10) / 10;   // 1dp — matches totals row
-    const cuFt    = lenIn ? Math.round(lenIn * pt.w * pt.h / 1728 * 100) / 100 : 0;
+    let lenIn, wtLbs, wtKgs, cuFt, dimsStr, unknownWarn;
+    if (isSmBox) {
+      const L        = parseFloat(c.querySelector('.sb-len')?.value) || 0;
+      const W        = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
+      const H        = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
+      const manualWt = parseFloat(c.querySelector('.sb-wt')?.value)  || 0;
+      const accWt    = p1Accessories.filter(a => a.assignedTo === 'new-box')
+                         .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
+      lenIn    = L;
+      wtLbs    = manualWt > 0 ? manualWt : Math.round((accWt + pt.extra_wt) * 10) / 10;
+      wtKgs    = Math.round(wtLbs * 0.453592 * 10) / 10;
+      cuFt     = (L && W && H) ? Math.round(L * W * H / 1728 * 100) / 100 : 0;
+      dimsStr  = (L && W && H) ? `${L}" &times; ${W}" &times; ${H}"` : '<em style="color:#c00">— dims required —</em>';
+      unknownWarn = '';
+    } else {
+      const models        = poles.map(p => parseInt(p.model) || 0).filter(Boolean);
+      const longest       = models.length ? Math.max(...models) : 0;
+      const unknownModels = models.filter(m => !POLE_LENGTH_IN[m]);
+      lenIn    = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
+      const wtPoles = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
+      wtLbs    = Math.round((wtPoles + pt.extra_wt) * 10) / 10;
+      wtKgs    = Math.round(wtLbs * 0.453592 * 10) / 10;
+      cuFt     = lenIn ? Math.round(lenIn * pt.w * pt.h / 1728 * 100) / 100 : 0;
+      dimsStr  = lenIn ? `${lenIn}" &times; ${pt.w}" &times; ${pt.h}"` : '';
+      unknownWarn = unknownModels.length
+        ? `<span class="piece-warn">&#9888; Unknown model(s): ${unknownModels.join(', ')} — dims &amp; weight may be incorrect</span>` : '';
+    }
 
     totalPoles += poles.length;
     totalLbs   += wtLbs;
     totalCuFt  += cuFt;
+
+    // Accessory rows appended to the bottom of any pole piece
+    const accRowsHtml = pieceAccs.length
+      ? `<tr><td colspan="5" style="padding:4px 6px;background:#f5f5e8;font-size:8pt;color:#555;font-style:italic">
+           Also in this piece: ${pieceAccs.map(a => `${a.qty}× ${htmlEsc(a.item_name||a.item_code)}`).join(', ')}
+         </td></tr>` : '';
 
     let poleRows = '';
     poles.forEach((pole, j) => {
@@ -1699,10 +1738,24 @@ function downloadPackingListPDF() {
         </tr>`;
     });
 
-    const dimsStr     = lenIn ? `${lenIn}" &times; ${pt.w}" &times; ${pt.h}"` : '';
-    const unknownWarn = unknownModels.length
-      ? `<span class="piece-warn">&#9888; Unknown model(s): ${unknownModels.join(', ')} — dims &amp; weight may be incorrect</span>`
-      : '';
+    const contentTable = isSmBox
+      ? `<table class="pole-tbl"><thead><tr>
+           <th>Item</th><th style="width:60px;text-align:center">Qty</th>
+         </tr></thead><tbody>
+         ${p1Accessories.filter(a=>a.assignedTo==='new-box').map(a=>
+           `<tr><td>${htmlEsc(a.item_name||a.item_code)}</td><td style="text-align:center">${a.qty}</td></tr>`
+         ).join('') || '<tr><td colspan="2" style="color:#aaa;font-style:italic">No items assigned</td></tr>'}
+         </tbody></table>`
+      : `<table class="pole-tbl">
+         <thead><tr>
+           <th class="tc" style="width:30px">#</th>
+           <th style="width:76px">Model</th>
+           <th style="width:70px">Flex Memo</th>
+           <th style="width:160px">Special Line Item Notes</th>
+           <th style="width:235px">Serial #</th>
+         </tr></thead>
+         <tbody>${poleRows}${accRowsHtml}</tbody>
+         </table>`;
 
     pieceSections += `<div class="piece-block">
       <div class="piece-hdr">
@@ -1713,16 +1766,7 @@ function downloadPackingListPDF() {
         <span class="piece-cuft-lbl">${cuFt}&nbsp;cu&nbsp;ft</span>
         ${unknownWarn}
       </div>
-      <table class="pole-tbl">
-        <thead><tr>
-          <th class="tc" style="width:30px">#</th>
-          <th style="width:76px">Model</th>
-          <th style="width:70px">Flex Memo</th>
-          <th style="width:160px">Special Line Item Notes</th>
-          <th style="width:235px">Serial #</th>
-        </tr></thead>
-        <tbody>${poleRows}</tbody>
-      </table>
+      ${contentTable}
     </div>`;
   });
 
@@ -1732,34 +1776,15 @@ function downloadPackingListPDF() {
   const totKgs  = Math.round(totalLbs * 0.453592 * 10) / 10;
   const totCuFt = Math.round(totalCuFt * 100) / 100;
   const totPcs  = pieceCount;
-  const totAccQty = p1AccData.reduce((s, a) => s + a.qty, 0);
+  const totAccQty = p1Accessories.filter(a => a.assignedTo !== 'not-shipping').reduce((s, a) => s + a.qty, 0);
 
-  // Accessories block for Phase 1 PDF
+  // Accessory packing notes block (appears above totals bar)
   const p1AccNotes = (document.getElementById('p1-acc-notes')?.value || '').trim();
-  let accSection = '';
-  if (p1AccData.length) {
-    const accRows = p1AccData.map(a =>
-      `<tr>
-         <td>${htmlEsc(a.item_name || a.item_code)}</td>
-         <td style="text-align:center;font-weight:bold">${a.qty}</td>
-         <td style="color:#888;font-size:8.5pt">${htmlEsc(a.item_code)}</td>
-       </tr>`).join('');
-    accSection = `<div class="piece-block" style="margin-bottom:14px">
-      <div class="piece-hdr" style="background:#f5f5e0">
-        <span class="piece-badge" style="background:#666">ACCESSORIES</span>
-        <span class="piece-type-lbl">Additional Items</span>
-        ${p1AccNotes ? `<span style="font-size:8.5pt;color:#555;font-style:italic;flex:2">${htmlEsc(p1AccNotes)}</span>` : ''}
-      </div>
-      <table class="pole-tbl">
-        <thead><tr>
-          <th>Item Description</th>
-          <th style="width:55px;text-align:center">Qty</th>
-          <th style="width:130px">Item Code</th>
-        </tr></thead>
-        <tbody>${accRows}</tbody>
-      </table>
-    </div>`;
-  }
+  const accNotesBlock = p1AccNotes
+    ? `<div style="margin-bottom:14px;padding:8px 12px;border:1px solid #ddd;border-radius:3px;font-size:9pt;color:#444">
+         <strong style="font-size:7pt;text-transform:uppercase;letter-spacing:.5px;color:#888">Accessory Packing Notes</strong><br>${htmlEsc(p1AccNotes)}
+       </div>`
+    : '';
 
 
 
@@ -1907,7 +1932,7 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
 
       ${pieceSections}
 
-      ${accSection}
+      ${accNotesBlock}
 
       <div class="totals-bar">
         <div class="tot-cell"><span class="tot-num">${totalPoles}</span><span class="tot-lbl">Poles</span></div>
