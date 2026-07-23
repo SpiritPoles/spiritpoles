@@ -184,6 +184,11 @@ export async function onRequestGet({ params, env }) {
     const subtotal = parseFloat(rec.subtotal ?? rec.total ?? 0);
     const portOfDest = rec.custbody_mctms_swa_code?.refName
       || (typeof rec.custbody_mctms_swa_code === 'string' ? rec.custbody_mctms_swa_code : '') || '';
+    const shipEmail = (
+      rec.custbody_ucs_shipping_email ||
+      rec.shipEmail ||
+      rec.shipemail || ''
+    ).toString().trim();
 
     // Parse all line items from item sublist (poles + accessories)
     const rawItems = rec.item?.items || rec.item || [];
@@ -206,7 +211,9 @@ export async function onRequestGet({ params, env }) {
         const flexMemo = li.custcol_ucs_flex_memo?.refName
           ?? (typeof li.custcol_ucs_flex_memo === 'string' ? li.custcol_ucs_flex_memo : '')
           ?? '';
-        const note = typeof li.custcol_nssc_notes === 'string' ? li.custcol_nssc_notes.trim() : '';
+        const note = typeof li.custcol_nssc_notes === 'string'
+          ? li.custcol_nssc_notes.trim()
+          : (li.custcol_nssc_notes?.value || li.custcol_nssc_notes?.refName || '').trim();
         const invDetail   = li.inventoryDetail  || li.inventorydetail;
         const invAssign   = invDetail?.inventoryAssignment || invDetail?.inventoryassignment;
         const assignments = invAssign?.items || [];
@@ -240,15 +247,16 @@ export async function onRequestGet({ params, env }) {
     }
 
     return new Response(JSON.stringify({
-      so_number:         so.tranid,
-      if_number:         ifNumber,
-      internal_id:       so.id,
-      date:              so.trandate,
-      customer:          so.companyname || '',
-      ship_address:      shipAddr,
-      declared_value:    Math.round(subtotal * 100) / 100,
+      so_number:           so.tranid,
+      if_number:           ifNumber,
+      internal_id:         so.id,
+      date:                so.trandate,
+      customer:            so.companyname || '',
+      ship_address:        shipAddr,
+      ship_email:          shipEmail,
+      declared_value:      Math.round(subtotal * 100) / 100,
       port_of_destination: portOfDest,
-      lines:             lineItems,
+      lines:               lineItems,
     }), { status: 200, headers: CORS });
 
   } catch (err) {

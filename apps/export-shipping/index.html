@@ -1179,6 +1179,7 @@ function buildAccessoriesPanel(items, ph = '2') {
         <span style="font-weight:700;font-size:12px;color:var(--tp);white-space:nowrap">${acc.qty}×</span>
         <span style="font-size:11px;font-weight:700;color:var(--tp);white-space:nowrap">${htmlEsc(acc.item_code)}</span>
         <span style="font-size:12px;color:var(--tp);flex:1;min-width:100px">${htmlEsc(acc.item_name || acc.item_code)}</span>
+        ${acc.splitGroup ? `<button class="btn btn-outline btn-sm" onclick="unSplitAccessory(${idx},'${ph}')" style="font-size:9px;padding:2px 7px;opacity:.8;color:var(--accent,#e8127d)" title="Merge all splits back into one row">↩ Un-split</button>` : ''}
         ${acc.qty > 1 ? `<button class="btn btn-outline btn-sm" onclick="splitAccessory(${idx},'${ph}')" style="font-size:9px;padding:2px 7px;opacity:.8" title="Split into separate rows">✂ Split</button>` : ''}
         <span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ts);white-space:nowrap">Assign to:</span>
         <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp)"
@@ -1230,8 +1231,8 @@ function assignAllAccessories(target, ph = '2') {
   updateAccessorySmallBox(ph);
 }
 
-// Split an accessory with qty > 1 into two separate entries
-// Default: splits 1 unit off (creating qty-1 + 1). Prompts for custom split qty.
+// Split an accessory with qty > 1 into two separate entries.
+// Tags both entries with a shared splitGroup ID so they can be merged back.
 function splitAccessory(idx, ph = '2') {
   const arr = ph === '1' ? p1Accessories : p2Accessories;
   const acc = arr[idx];
@@ -1248,12 +1249,42 @@ function splitAccessory(idx, ph = '2') {
     }
   }
 
+  // Reuse existing group ID if this item was already split, otherwise create one
+  const groupId = acc.splitGroup || `sg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const remaining = acc.qty - splitQty;
-  // Modify existing entry in place, insert new entry after it
-  arr[idx] = { ...acc, qty: remaining };
-  arr.splice(idx + 1, 0, { ...acc, qty: splitQty });
 
-  // Re-render panel
+  arr[idx] = { ...acc, qty: remaining, splitGroup: groupId };
+  arr.splice(idx + 1, 0, { ...acc, qty: splitQty, splitGroup: groupId });
+
+  const list = document.getElementById(`accessories-list-p${ph}`);
+  if (list && list._render) list._render();
+  updateAccessorySmallBox(ph);
+}
+
+// Merge all split pieces back into one entry (reverses splitAccessory)
+function unSplitAccessory(idx, ph = '2') {
+  const arr = ph === '1' ? p1Accessories : p2Accessories;
+  const acc = arr[idx];
+  if (!acc?.splitGroup) return;
+  const groupId = acc.splitGroup;
+
+  // Sum up all items in this split group
+  const totalQty = arr.filter(a => a.splitGroup === groupId).reduce((s, a) => s + a.qty, 0);
+  // Find position of the first group item (to insert merged entry there)
+  const firstPos = arr.findIndex(a => a.splitGroup === groupId);
+  // Build merged entry (use first item's assignedTo)
+  const firstItem = arr[firstPos];
+  const merged = { ...firstItem, qty: totalQty, splitGroup: undefined };
+  delete merged.splitGroup;
+
+  // Replace all group items with the merged entry
+  const rebuilt = arr.filter(a => a.splitGroup !== groupId);
+  rebuilt.splice(firstPos, 0, merged);
+
+  // Mutate array in place
+  if (ph === '1') { p1Accessories.length = 0; p1Accessories.push(...rebuilt); }
+  else            { p2Accessories.length = 0; p2Accessories.push(...rebuilt); }
+
   const list = document.getElementById(`accessories-list-p${ph}`);
   if (list && list._render) list._render();
   updateAccessorySmallBox(ph);

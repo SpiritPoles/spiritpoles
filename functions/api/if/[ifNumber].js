@@ -294,7 +294,8 @@ export async function onRequestGet({ params, env }) {
         ? li.custcol_ucs_flex_memo
         : (li.custcol_ucs_flex_memo?.refName || '');
       const lineNote = typeof li.custcol_nssc_notes === 'string'
-        ? li.custcol_nssc_notes.trim() : '';
+        ? li.custcol_nssc_notes.trim()
+        : (li.custcol_nssc_notes?.value || li.custcol_nssc_notes?.refName || '').trim();
 
       lineItems.push({
         item_code: itemCode,
@@ -306,8 +307,12 @@ export async function onRequestGet({ params, env }) {
       });
     }
 
-    // ship_email comes from the REST record (shipemail is blocked in SuiteQL — triggers 500)
-    const shipEmail = (ifRest.shipEmail || ifRest.shipemail || '').trim();
+    // Shipping email: prefer custom field custbody_ucs_shipping_email; fall back to NS standard shipEmail
+    const shipEmail = (
+      ifRest.custbody_ucs_shipping_email ||
+      ifRest.shipEmail ||
+      ifRest.shipemail || ''
+    ).toString().trim();
 
     return new Response(JSON.stringify({
       if_number:    ifRec.tranid,
