@@ -1096,8 +1096,8 @@ let p2Accessories = []; // [{item_code, item_name, qty, assignedTo}] — phase 2
 // ph = '1' or '2' — which phase's accessory state to use
 function buildAccessoriesPanel(items, ph = '2') {
   const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
-  if (ph === '1') { p1Accessories = items.map(it => ({ ...it, assignedTo: 'not-shipping' })); }
-  else            { p2Accessories = items.map(it => ({ ...it, assignedTo: 'not-shipping' })); }
+  if (ph === '1') { p1Accessories = items.map(it => ({ ...it, assignedTo: 'new-box' })); }
+  else            { p2Accessories = items.map(it => ({ ...it, assignedTo: 'new-box' })); }
 
   const card = document.getElementById(`acc-card-p${ph}`);
   const list = document.getElementById(`accessories-list-p${ph}`);
