@@ -554,28 +554,37 @@ const INTERNAL_CC = ['stevechappell@ucsspirit.com', 'chrischappell@ucsspirit.com
 // ─────────────────────────────────────────────────────────────────────────────
 // POLE DATA
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Pole length (inches) & weight (lbs) — sourced from Reference Sheet ────────
+// Values grouped into spreadsheet buckets; intermediate models use the same
+// tube length as their nearest production size. Source: Packing Dims and Wt.xlsx
 const POLE_LENGTH_IN = {
-  235:112,240:114,245:116,250:118,255:120,260:122,265:124,270:126,
-  275:128,280:130,285:132,290:134,295:136,300:138,305:140,310:142,
-  315:144,320:146,325:148,330:150,335:152,340:154,345:156,350:162,
-  355:164,360:166,365:168,370:174,375:176,380:178,385:180,390:182,
-  395:184,400:192,405:194,410:196,415:198,420:200,425:202,430:204,
-  435:206,440:208,445:212,450:214,455:216,460:218,465:220,470:222,
-  475:226,480:228,485:230,490:232,495:234,500:236,505:238,510:240,
-  515:242,520:244,
+  235:112, 240:112, 245:112, 250:112, 255:112, 260:112, 265:112, 270:112,
+  275:112, 280:112, 285:112, 290:112, 295:112, 300:112,
+  305:132, 310:132, 315:132, 320:132, 325:132, 330:132, 335:132, 340:132, 345:132,
+  350:142, 355:142, 360:142, 365:142,
+  370:150, 375:150, 380:150,
+  385:162, 390:162, 395:162, 400:162, 405:162, 410:162,
+  415:174, 420:174, 425:174, 430:174, 435:174, 440:174,
+  445:186, 450:186, 455:186, 460:186, 465:186, 470:186,
+  475:198, 480:198, 485:198, 490:198, 495:198,
+  500:201, 505:201,
+  510:208, 515:208, 520:208,
 };
 const POLE_WEIGHT_LBS = {
-  235:3.5,240:3.8,245:4.0,250:4.2,255:4.5,260:4.7,265:4.9,270:5.1,
-  275:5.3,280:5.6,285:5.8,290:6.0,295:6.3,300:6.5,305:6.7,310:7.0,
-  315:7.2,320:7.5,325:7.7,330:8.0,335:8.2,340:8.5,345:8.7,350:9.0,
-  355:9.3,360:9.6,365:9.9,370:10.2,375:10.5,380:10.8,385:11.1,390:11.4,
-  395:11.7,400:12.5,405:12.9,410:13.2,415:13.6,420:14.0,425:14.4,430:14.8,
-  435:15.2,440:15.6,445:16.0,450:16.5,455:16.9,460:17.4,465:17.8,470:18.3,
-  475:18.8,480:19.3,485:19.8,490:20.3,495:20.8,500:21.3,505:21.8,510:22.4,
-  515:22.9,520:23.5,
+  235:5, 240:5, 245:5, 250:5, 255:5, 260:5, 265:5, 270:5,
+  275:5, 280:5, 285:5, 290:5, 295:5, 300:5,
+  305:7, 310:7, 315:7, 320:7, 325:7, 330:7, 335:7, 340:7, 345:7,
+  350:7, 355:7, 360:7, 365:7,
+  370:7, 375:7, 380:7,
+  385:8, 390:8, 395:8, 400:8, 405:8, 410:8,
+  415:8, 420:8, 425:8, 430:8, 435:8, 440:8,
+  445:9, 450:9, 455:9, 460:9, 465:9, 470:9,
+  475:10, 480:10, 485:10, 490:10, 495:10,
+  500:10, 505:10,
+  510:10, 515:10, 520:10,
 };
 const LARGE_TUBE = { w:8, h:8, extra_wt:35, extra_len:6, max:8, prefer:7 };
-const SMALL_TUBE = { w:6, h:6, extra_wt:25, extra_len:6, max:4, prefer:3 };
+const SMALL_TUBE = { w:6, h:6, extra_wt:25, extra_len:4, max:4, prefer:3 };
 const ALL_MODELS = Object.keys(POLE_LENGTH_IN).map(Number).sort((a,b)=>a-b);
 
 // ── Crossbar item codes → packing length & weight ─────────────────────────────
@@ -605,7 +614,7 @@ function classifyItem(itemCode, itemName) {
 // Source: Reference Sheet in Packing List and SO Worksheet Template.xlsx
 const PIECE_TYPES = {
   'large-tube': { label:'Large Super Tube', w:8,  h:8,  extra_wt:35, extra_len:6,  max:8,  fixedLen:null },
-  'small-tube': { label:'Small Super Tube', w:6,  h:6,  extra_wt:25, extra_len:6,  max:4,  fixedLen:null },
+  'small-tube': { label:'Small Super Tube', w:6,  h:6,  extra_wt:25, extra_len:4,  max:4,  fixedLen:null },
   '1-pole':     { label:'1 Pole',           w:3,  h:3,  extra_wt:0,  extra_len:0,  max:1,  fixedLen:null },
   '2-poles':    { label:'2 Poles',          w:5,  h:3,  extra_wt:0,  extra_len:0,  max:2,  fixedLen:null },
   '3-poles':    { label:'3 Poles',          w:5,  h:5,  extra_wt:0,  extra_len:0,  max:3,  fixedLen:null },
@@ -833,36 +842,51 @@ function populateIFData(data) {
   }
 
   // ── Crossbar packing ──────────────────────────────────────────────────────
-  // For each crossbar type: qty ≤5 → treat as poles in tubes (add to poleData)
-  //   qty 6-15 → auto-create X-Bar Tube piece(s); qty ≥16 → auto-create X-Bar Box
-  // We handle this AFTER building poleData so buildPackingView covers all tube items.
-  // Crossbars treated as poles get a special display code so dims calc works.
-  // We add them directly to poleData with model = their fixedLen for tube packing.
+  // Rules (per Reference Sheet):
+  //   ≤3  → pack with poles as accessories
+  //   4–5  → 1 X-Bar Tube piece
+  //   6–14 → multiple X-Bar Tube pieces (max 5 per tube)
+  //   ≥15  → X-Bar Box (HJ or PV depending on type)
   function handleCrossbarType(lines, cbKey) {
     const info = CROSSBAR_INFO[cbKey]; // { label, lenIn, wtLbs, pieceType }
     const total = lines.reduce((s, l) => s + (l.qty || 1), 0);
     if (total === 0) return;
 
-    if (total <= 5) {
-      // Treat like poles — use a pseudo-model that POLE_LENGTH_IN can resolve.
-      // We add them to accData instead with a note — cleaner than faking pole models.
+    if (total <= 3) {
+      // Pack with poles as accessories
       for (const l of lines) {
         accData.push({
-          item_code: l.item_code,
-          item_name: `${info.label} (${info.lenIn}" — packs with poles)`,
-          qty:       l.qty || 1,
-          unitWtLbs: info.wtLbs,
+          item_code:  l.item_code,
+          item_name:  `${info.label} (${info.lenIn}" — packs with poles)`,
+          qty:        l.qty || 1,
+          unitWtLbs:  info.wtLbs,
           isCrossbar: true,
         });
       }
+    } else if (total <= 14) {
+      // 4–14: X-Bar Tube pieces, max 5 per tube
+      let remaining = total;
+      while (remaining > 0) {
+        const tubeQty = Math.min(5, remaining);
+        accData.push({
+          item_code:     lines[0]?.item_code || cbKey,
+          item_name:     `${info.label} (${info.lenIn}")`,
+          qty:           tubeQty,
+          unitWtLbs:     info.wtLbs,
+          isCrossbar:    true,
+          xbarPieceType: 'x-bar-tube',
+          xbarLenIn:     info.lenIn,
+        });
+        remaining -= tubeQty;
+      }
     } else {
-      // 6+ → auto-create the appropriate box piece type after buildPackingView
+      // 15+ → X-Bar Box
       accData.push({
-        item_code: lines[0]?.item_code || cbKey,
-        item_name: `${info.label} (${info.lenIn}")`,
-        qty:       total,
-        unitWtLbs: info.wtLbs,
-        isCrossbar: true,
+        item_code:     lines[0]?.item_code || cbKey,
+        item_name:     `${info.label} (${info.lenIn}")`,
+        qty:           total,
+        unitWtLbs:     info.wtLbs,
+        isCrossbar:    true,
         xbarPieceType: info.pieceType,
         xbarLenIn:     info.lenIn,
       });
@@ -875,7 +899,7 @@ function populateIFData(data) {
   buildPackingView(poleData, 'packing-list-p2');
   setVal('p2-schedB-qty', String(poleData.length));
 
-  // ── Auto-create crossbar box pieces (qty ≥ 6) ────────────────────────────
+  // ── Auto-create crossbar tube/box pieces (4–14 → X-Bar Tubes, ≥15 → X-Bar Box) ──
   const xbarBoxItems = accData.filter(a => a.xbarPieceType);
   if (xbarBoxItems.length) {
     const p2List = document.getElementById('packing-list-p2');
@@ -916,7 +940,7 @@ function packPoles(poleList) {
     const m = parseInt(model);
     for (let i = 0; i < qty; i++) expanded.push(m);
   }
-  expanded.sort((a,b) => b-a);
+  expanded.sort((a,b) => a-b);
 
   const pieces = [];
   let remaining = [...expanded];
@@ -924,7 +948,7 @@ function packPoles(poleList) {
     const tube      = remaining.length >= 5 ? LARGE_TUBE : SMALL_TUBE;
     const batchSize = remaining.length === tube.max ? tube.max : Math.min(tube.prefer, remaining.length);
     const batch     = remaining.splice(0, batchSize);
-    const longestModel = batch[0];
+    const longestModel = batch[batch.length - 1];
     const tubeLen   = (POLE_LENGTH_IN[longestModel] || 200) + tube.extra_len;
     const poleWt    = batch.reduce((s,m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
     const totalWtLbs = Math.round((poleWt + tube.extra_wt) * 10) / 10;
@@ -953,7 +977,7 @@ function packPolesDetailed(poleList) {
       expanded.push({ model: m, flex: item.flex || '', sn: (item.serials || [])[i] || '' });
     }
   }
-  expanded.sort((a,b) => b.model - a.model);
+  expanded.sort((a,b) => a.model - b.model);
 
   const pieces = [];
   let remaining = [...expanded];
@@ -961,7 +985,7 @@ function packPolesDetailed(poleList) {
     const tube      = remaining.length >= 5 ? LARGE_TUBE : SMALL_TUBE;
     const batchSize = remaining.length === tube.max ? tube.max : Math.min(tube.prefer, remaining.length);
     const batch     = remaining.splice(0, batchSize);
-    const longestModel = batch[0].model;
+    const longestModel = batch[batch.length - 1].model;
     const tubeLen   = (POLE_LENGTH_IN[longestModel] || 200) + tube.extra_len;
     const poleWt    = batch.reduce((s,p) => s + (POLE_WEIGHT_LBS[p.model] || 10), 0);
     const totalWtLbs = Math.round((poleWt + tube.extra_wt) * 10) / 10;
@@ -1064,10 +1088,10 @@ function cascadeOverflowFrom(startContainer) {
     const rows    = [...cur.querySelectorAll('.pole-row-p1')];
     if (rows.length <= pt.max) { calcPieceDims(cur); break; }        // refresh dims on receiving piece
 
-    // Sort largest→smallest, trim to max, collect excess as data objects
+    // Sort shortest→longest, trim to max, collect excess as data objects
     rows.sort((a, b) =>
-      (parseInt(b.querySelector('.pr-model')?.value) || 0) -
-      (parseInt(a.querySelector('.pr-model')?.value) || 0)
+      (parseInt(a.querySelector('.pr-model')?.value) || 0) -
+      (parseInt(b.querySelector('.pr-model')?.value) || 0)
     );
     const pd = cur.querySelector('.piece-poles');
     pd.innerHTML = '';
@@ -1167,8 +1191,8 @@ function applyTypeToAll(btn) {
     });
     if (!poles.length) return;
 
-    // Sort largest → smallest, batch using selected tube's prefer/max
-    const sorted = [...poles].sort((a, b) => (parseInt(b.model) || 0) - (parseInt(a.model) || 0));
+    // Sort shortest → longest, batch using selected tube's prefer/max
+    const sorted = [...poles].sort((a, b) => (parseInt(a.model) || 0) - (parseInt(b.model) || 0));
     const pieces = [];
     let rem = [...sorted];
     while (rem.length) {
@@ -1824,8 +1848,8 @@ function buildPackingView(polesArray, listId = 'packing-list') {
   list.innerHTML = '';
   if (!polesArray.length) { updatePackingTotals(listId); return; }
 
-  // Sort descending by model# (largest → smallest) for optimal packing
-  const sorted = [...polesArray].sort((a, b) => (parseInt(b.model) || 0) - (parseInt(a.model) || 0));
+  // Sort ascending by model# (shortest → longest)
+  const sorted = [...polesArray].sort((a, b) => (parseInt(a.model) || 0) - (parseInt(b.model) || 0));
 
   const pieces = [];
   let rem = [...sorted];
