@@ -296,6 +296,17 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       <div id="packing-breakdown"></div>
     </div>
 
+    <!-- Phase 1 Accessories Summary -->
+    <div class="card" id="acc-card-p1" style="display:none">
+      <div class="card-title">Accessories &amp; Additional Items</div>
+      <div style="font-size:11px;color:var(--ts);margin-bottom:8px">Non-pole items on this order. Assign packing details in Phase 2.</div>
+      <div id="acc-summary-p1" style="font-size:12px;color:var(--tp);margin-bottom:10px"></div>
+      <div class="field">
+        <label>Packing Notes (accessories)</label>
+        <textarea id="p1-acc-notes" placeholder="e.g. Pole bags go in Tube 2. Tips in small box." style="min-height:52px" oninput="autoResize(this)"></textarea>
+      </div>
+    </div>
+
     <!-- Freight Forwarders -->
     <div class="card">
       <div class="card-title">Freight Forwarders</div>
@@ -459,10 +470,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
         Items from the order that are not vaulting poles. Assign each item to an existing piece (packs inside a tube) or to a new Small Box, or mark as Not Shipping.
       </div>
       <div id="accessories-list-p2"></div>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-        <button class="btn btn-outline btn-sm" onclick="assignAllAccessories('new-box')">+ All → New Small Box</button>
-        <button class="btn btn-outline btn-sm" onclick="assignAllAccessories('not-shipping')">All → Not Shipping</button>
-      </div>
+      <div id="acc-group-btns-p2" style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"></div>
     </div>
 
     <!-- Actions -->
@@ -638,30 +646,49 @@ async function fetchSO() {
     if (addrEl) autoResize(addrEl);
     if (data.declared_value) setVal('goods-value', `$${data.declared_value.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`);
 
-    // Build packing view from individual poles
+    // Build packing view from individual poles; collect accessories
     const poleData = [];
+    const p1AccData = [];
     for (const line of (data.lines || [])) {
-      const model = parseModel(line.item_code || line.item_name || '');
-      if (model && POLE_LENGTH_IN[model]) {
+      const kind = classifyItem(line.item_code || '', line.item_name || '');
+      if (kind === 'pole') {
+        const model = parseModel(line.item_code || line.item_name || '');
         // Build clean display code: "490/82" style (no SP/UF/CF prefix)
-        // item_name = "490/82 | 16' 1\" - 180lb" → extract "490/82"
-        // item_code = "SP490/82"               → strip leading letters
         const dispName = String(line.item_name || '');
         const dispCode = dispName.includes('|')
           ? dispName.split('|')[0].trim()
           : (line.item_code || '').replace(/^[A-Za-z]+/, '') || String(model);
-
         poleData.push({
           model:  dispCode,
           flex:   line.flex_memo || '',
           note:   line.note     || '',
           serial: line.serial   || '',
         });
+      } else {
+        // Crossbars and accessories both shown in Phase 1 accessories summary
+        const qty = line.qty || 1;
+        p1AccData.push({ item_code: line.item_code || '', item_name: line.item_name || line.item_code || '', qty });
       }
     }
     buildPackingView(poleData);
 
-    setFetchStatus('p1', `✓ Loaded ${data.so_number} — ${data.customer}${poleData.length ? ` (${poleData.length} poles)` : ' — no poles found'}`, 'ok');
+    // Show Phase 1 accessories card
+    const accCardP1 = document.getElementById('acc-card-p1');
+    const accSummaryP1 = document.getElementById('acc-summary-p1');
+    if (p1AccData.length && accCardP1 && accSummaryP1) {
+      accSummaryP1.innerHTML = p1AccData.map(a =>
+        `<div style="padding:2px 0;border-bottom:1px solid var(--border)">
+          <span style="font-weight:600">${a.qty}×</span> ${a.item_name}
+          <span style="color:var(--ts);font-size:10px;margin-left:6px">${a.item_code}</span>
+        </div>`
+      ).join('');
+      accCardP1.style.display = '';
+    } else if (accCardP1) {
+      accCardP1.style.display = 'none';
+    }
+
+    const accPart = p1AccData.length ? `, ${p1AccData.length} accessor${p1AccData.length === 1 ? 'y' : 'ies'}` : '';
+    setFetchStatus('p1', `✓ Loaded ${data.so_number} — ${data.customer}${poleData.length ? ` (${poleData.length} poles${accPart})` : ' — no poles found'}`, 'ok');
   } catch (err) {
     setFetchStatus('p1', `Error: ${err.message}`, 'err');
   } finally {
@@ -1072,11 +1099,12 @@ function buildAccessoriesPanel(items) {
   card.style.display = '';
 
   function render() {
-    // Build piece options from current packing-list-p2 containers
-    const pieces = [...document.querySelectorAll('#packing-list-p2 .piece-container')];
+    // Build piece options from current packing-list-p2 containers (exclude acc small-box)
+    const pieces = [...document.querySelectorAll('#packing-list-p2 .piece-container')]
+      .filter(c => !c.dataset.accBox);
     const pieceOpts = pieces.map((c, i) => {
       const label = c.querySelector('.piece-num-badge')?.textContent || `Piece ${i+1}`;
-      return `<option value="piece-${i}"${'' }>Pack in ${label}</option>`;
+      return `<option value="piece-${i}">Pack in ${label}</option>`;
     }).join('');
 
     list.innerHTML = p2Accessories.map((acc, idx) => `
@@ -1086,8 +1114,8 @@ function buildAccessoriesPanel(items) {
         <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 6px;color:var(--tp)"
           onchange="onAccAssign(this,${idx})">
           ${pieceOpts}
-          <option value="new-box"${acc.assignedTo==='new-box'?' selected':''}>+ New Small Box</option>
-          <option value="not-shipping"${acc.assignedTo==='not-shipping'?' selected':''}>Not Shipping</option>
+          <option value="new-box">+ New Small Box</option>
+          <option value="not-shipping">Not Shipping</option>
         </select>
       </div>`).join('');
 
@@ -1096,6 +1124,19 @@ function buildAccessoriesPanel(items) {
       const sel = list.querySelector(`.acc-row[data-idx="${idx}"] .acc-assign`);
       if (sel && acc.assignedTo) sel.value = acc.assignedTo;
     });
+
+    // Render dynamic group-action buttons
+    const btnDiv = document.getElementById('acc-group-btns-p2');
+    if (btnDiv) {
+      const pieceBtns = pieces.map((c, i) => {
+        const lbl = c.querySelector('.piece-num-badge')?.textContent || `Piece ${i+1}`;
+        return `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('piece-${i}')">All → ${lbl}</button>`;
+      }).join('');
+      btnDiv.innerHTML =
+        pieceBtns +
+        `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('new-box')">All → New Small Box</button>` +
+        `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('not-shipping')" style="opacity:.7">All → Not Shipping</button>`;
+    }
 
     updateAccessorySmallBox();
   }
@@ -1111,7 +1152,10 @@ function onAccAssign(sel, idx) {
 
 function assignAllAccessories(target) {
   p2Accessories.forEach(acc => acc.assignedTo = target);
-  buildAccessoriesPanel(p2Accessories);
+  // Re-render dropdown selections WITHOUT resetting state (don't call buildAccessoriesPanel)
+  const list = document.getElementById('accessories-list-p2');
+  if (list && list._render) list._render();
+  updateAccessorySmallBox();
 }
 
 // Creates / updates a single shared Small Box piece container for accessory items
