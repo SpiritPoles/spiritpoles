@@ -1112,29 +1112,58 @@ function onPieceTypeChange(sel) {
   setTimeout(() => { listEl.style.transition = 'opacity .25s'; listEl.style.opacity = '1'; }, 30);
 }
 
-// Apply this piece's tube type to all other pieces in the same list
+// Apply this piece's tube type to all pieces in BOTH Phase 1 and Phase 2 lists
 function applyTypeToAll(btn) {
   const container = btn.closest('.piece-container');
-  const listEl    = container.parentElement;
   const typeKey   = container.querySelector('.piece-type-sel')?.value;
   if (!typeKey) return;
   const pt = PIECE_TYPES[typeKey] || {};
-  // Don't propagate Small Box to all — too destructive
-  if (pt.configDims) return;
-  listEl.querySelectorAll('.piece-container').forEach(c => {
-    const sel = c.querySelector('.piece-type-sel');
-    if (!sel || sel.value === typeKey) return;
-    sel.value = typeKey;
-    // Show/hide sb-dims and pole rows to match new type
-    const sbDims = c.querySelector('.sb-dims');
-    if (sbDims) sbDims.style.display = 'none';
-    c.querySelectorAll('.piece-col-hdr, .piece-poles, .piece-foot')
-      .forEach(el => el.style.display = '');
-    calcPieceDims(c);
+  if (pt.configDims) return; // don't propagate Small Box to all
+
+  const tube    = typeKey === 'large-tube' ? LARGE_TUBE : SMALL_TUBE;
+  const listIds = ['packing-list', 'packing-list-p2'];
+
+  listIds.forEach(listId => {
+    const listEl = document.getElementById(listId);
+    if (!listEl) return;
+
+    // Collect every pole in this list
+    const poles = [];
+    listEl.querySelectorAll('.piece-container').forEach(c => {
+      c.querySelectorAll('.pole-row-p1').forEach(row => {
+        const m = (row.querySelector('.pr-model')?.value  || '').trim();
+        if (m) poles.push({
+          model:  m,
+          flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
+          note:   (row.querySelector('.pr-note')?.value   || '').trim(),
+          serial: (row.querySelector('.pr-serial')?.value || '').trim(),
+        });
+      });
+    });
+    if (!poles.length) return;
+
+    // Sort largest → smallest, batch using selected tube's prefer/max
+    const sorted = [...poles].sort((a, b) => (parseInt(b.model) || 0) - (parseInt(a.model) || 0));
+    const pieces = [];
+    let rem = [...sorted];
+    while (rem.length) {
+      const bSize = rem.length === tube.max ? tube.max : Math.min(tube.prefer, rem.length);
+      pieces.push(rem.splice(0, bSize));
+    }
+
+    // Rebuild the list
+    listEl.innerHTML = '';
+    pieces.forEach((group, i) => {
+      const c = createPieceContainer(i + 1, typeKey, group);
+      listEl.appendChild(c);
+      calcPieceDims(c);
+    });
+    updatePackingTotals(listId);
+    if (listId === 'packing-list-p2') setVal('p2-schedB-qty', String(poles.length));
+
+    listEl.style.opacity = '0.4';
+    setTimeout(() => { listEl.style.transition = 'opacity .25s'; listEl.style.opacity = '1'; }, 30);
   });
-  updatePackingTotals(listEl.id);
-  listEl.style.opacity = '0.4';
-  setTimeout(() => { listEl.style.transition = 'opacity .25s'; listEl.style.opacity = '1'; }, 30);
 }
 
 function delPoleRow(btn) {
