@@ -596,7 +596,8 @@ const PIECE_TYPES = {
   'small-tube': { label:'Small Super Tube', w:6,  h:6,  extra_wt:25, extra_len:6,  max:4,  fixedLen:null },
   '1-pole':     { label:'1 Pole',           w:3,  h:3,  extra_wt:0,  extra_len:0,  max:1,  fixedLen:null },
   '2-poles':    { label:'2 Poles',          w:5,  h:3,  extra_wt:0,  extra_len:0,  max:2,  fixedLen:null },
-  '3-4-poles':  { label:'3–4 Poles',        w:5,  h:5,  extra_wt:0,  extra_len:0,  max:4,  fixedLen:null },
+  '3-poles':    { label:'3 Poles',          w:5,  h:5,  extra_wt:0,  extra_len:0,  max:3,  fixedLen:null },
+  '4-poles':    { label:'4 Poles',          w:5,  h:5,  extra_wt:0,  extra_len:0,  max:4,  fixedLen:null },
   '5-poles':    { label:'5 Poles',          w:8,  h:5,  extra_wt:0,  extra_len:0,  max:5,  fixedLen:null },
   'x-bar-tube': { label:'X-Bar Tube',       w:4,  h:4,  extra_wt:3,  extra_len:0,  max:4,  fixedLen:null },
   'x-bars-hj':  { label:'X-Bars HJ Box',   w:15, h:4,  extra_wt:5,  extra_len:0,  max:25, fixedLen:158  },
@@ -1120,7 +1121,18 @@ function applyTypeToAll(btn) {
   const pt = PIECE_TYPES[typeKey] || {};
   if (pt.configDims) return; // don't propagate Small Box to all
 
-  const tube    = typeKey === 'large-tube' ? LARGE_TUBE : SMALL_TUBE;
+  // prefer/max per type — drives batch sizes when re-packing
+  const tubeParams = {
+    'large-tube': { prefer:7, max:8 },
+    'small-tube': { prefer:3, max:4 },
+    '1-pole':     { prefer:1, max:1 },
+    '2-poles':    { prefer:2, max:2 },
+    '3-poles':    { prefer:3, max:3 },
+    '4-poles':    { prefer:4, max:4 },
+    '5-poles':    { prefer:5, max:5 },
+  };
+  const tube = tubeParams[typeKey];
+  if (!tube) return;
   const listIds = ['packing-list', 'packing-list-p2'];
 
   listIds.forEach(listId => {
