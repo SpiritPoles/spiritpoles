@@ -20,6 +20,7 @@ body{display:flex;justify-content:center;align-items:flex-start;padding:24px 12p
   padding:36px 20px 28px;
   color:#e8e0d0;
   font-weight:600;
+  position:relative;
 }
 .hdr{text-align:center;margin-bottom:20px}
 #logo{display:block;margin:0 auto;width:260px;height:auto}
@@ -104,8 +105,8 @@ body.light .terms p{color:rgba(0,0,0,0.3)}
 body.light .terms{border-top-color:rgba(0,0,0,0.08)}
 
 /* ── Mode toggle ── */
-#back-link{position:fixed;top:14px;left:14px;z-index:999;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:6px 12px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.55);transition:all .2s;font-family:system-ui,-apple-system,sans-serif;text-decoration:none;display:inline-block}#back-link:hover{color:rgba(255,255,255,0.9);background:rgba(255,255,255,0.15)}
-#mode-toggle{position:fixed;top:14px;right:14px;z-index:999;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:6px 12px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.55);transition:all .2s;font-family:system-ui,-apple-system,sans-serif}
+#back-link{position:absolute;top:14px;left:14px;z-index:999;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:6px 12px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.55);transition:all .2s;font-family:system-ui,-apple-system,sans-serif;text-decoration:none;display:inline-block}#back-link:hover{color:rgba(255,255,255,0.9);background:rgba(255,255,255,0.15)}
+#mode-toggle{position:absolute;top:14px;right:14px;z-index:999;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:6px 12px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.55);transition:all .2s;font-family:system-ui,-apple-system,sans-serif}
 #mode-toggle:hover{color:rgba(255,255,255,0.9);background:rgba(255,255,255,0.15)}
 
 /* ── Light mode overrides ── */
@@ -137,10 +138,9 @@ body.light #mode-toggle:hover{background:rgba(0,0,0,0.1);color:rgba(0,0,0,0.8)}
 </head>
 <body>
 
+<div id="app">
 <a id="back-link" href="../../index.html">← Apps</a>
 <button id="mode-toggle">☀ Light</button>
-
-<div id="app">
   <div class="hdr">
     <img id="logo" alt="UCS Spirit" src="ucs-spirit-logo.png">
     <div class="rule"><span class="dia">◆</span></div>
