@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>VaultDesk</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f0f14; --surface: #1a1a24; --card: #22222e; --border: #2e2e3d;
+      --accent: #4f7cff; --success: #22c55e; --danger: #ef4444; --warning: #f59e0b;
+      --text: #f0f0f0; --muted: #8888aa;
+    }
+    html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; min-height: 100vh; overflow-x: hidden; }
+    input, select, button { font-family: inherit; }
+    input { color: var(--text); }
+    input::placeholder { color: var(--muted); }
+    select option { background: var(--card); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    .live-pulse { animation: pulse 1.4s ease-in-out infinite; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo, useCallback, useEffect } = React;
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+
+const RULEBOOKS = [
+  { key: 'WA',   label: 'World Athletics / USATF' },
+  { key: 'NCAA', label: 'NCAA' },
+  { key: 'NFHS', label: 'NFHS (High School)' },
+];
+
+const C = {
+  bg:'#0f0f14', surface:'#1a1a24', card:'#22222e', border:'#2e2e3d',
+  accent:'#4f7cff', success:'#22c55e', danger:'#ef4444', warning:'#f59e0b',
+  text:'#f0f0f0', muted:'#8888aa',
+  clearedBg:'#0a2b0a', missedBg:'#2b0a0a', passedBg:'#0a1a2b', retiredBg:'#2b1a0a',
+};
+
+// ─── UTILITIES ────────────────────────────────────────────────────────────────
+
+const mToFtIn = m => {
+  const totalIn = m * 39.3701;
+  const ft = Math.floor(totalIn / 12);
+  const raw = totalIn % 12;
+  const q = Math.round(raw * 4) / 4;
+  const whole = Math.floor(q);
+  const frac = q - whole;
+  const fracStr = frac === 0 ? '' : frac === 0.25 ? '¼' : frac === 0.5 ? '½' : '¾';
+  return `${ft}'${whole}${fracStr}"`;
+};
+
+const fmtH = (cm, metric) => {
+  if (!cm && cm !== 0) return '';
+  const m = cm / 100;
+  return metric ? `${m.toFixed(2)}m` : mToFtIn(m);
+};
+
+// Mark helpers
+const hasCleared   = m => Array.isArray(m) && m.includes('O');
+const hasPassed    = m => Array.isArray(m) && (m.includes('P') || m.includes('-'));
+const hasRetired   = m => Array.isArray(m) && m.includes('R');
+const countMisses  = m => Array.isArray(m) ? m.filter(x => x === 'X').length : 0;
+const isEliminated = m => countMisses(m) >= 3;
+
+const isDone = (marks, status) =>
+  status === 'dns' || status === 'nh' || status === 'retired' ||
+  hasCleared(marks) || hasPassed(marks) || isEliminated(marks) || hasRetired(marks);
+
+const showMarks = marks => {
+  if (!marks || !marks.length) return '';
+  return marks.join('');
+};
+
+// Placement helpers
+const highestClearedIdx = (a, n) => {
+  for (let i = n - 1; i >= 0; i--) if (hasCleared(a.attempts[i])) return i;
+  return -1;
+};
+
+const totalMisses = (a, n) => {
+  let t = 0;
+  for (let i = 0; i < n; i++) t += countMisses(a.attempts[i] || []);
+  return t;
+};
+
+const calcPlacements = (athletes, heights) => {
+  const n = heights.length;
+  const dns   = athletes.filter(a => a.status === 'dns');
+  const nh    = athletes.filter(a => a.status !== 'dns' && highestClearedIdx(a, n) < 0);
+  const withH = athletes.filter(a => highestClearedIdx(a, n) >= 0);
+
+  const sorted = [...withH].sort((a, b) => {
+    const ai = highestClearedIdx(a, n), bi = highestClearedIdx(b, n);
+    if (bi !== ai) return bi - ai;
+    const am = countMisses(a.attempts[ai] || []), bm = countMisses(b.attempts[bi] || []);
+    if (am !== bm) return am - bm;
+    return totalMisses(a, n) - totalMisses(b, n);
+  });
+
+  const result = [];
+  let place = 1;
+  for (let i = 0; i < sorted.length; i++) {
+    let p = place;
+    if (i > 0) {
+      const pr = sorted[i-1], cr = sorted[i];
+      const pi = highestClearedIdx(pr, n), ci = highestClearedIdx(cr, n);
+      if (pi === ci &&
+          countMisses(pr.attempts[pi]||[]) === countMisses(cr.attempts[ci]||[]) &&
+          totalMisses(pr, n) === totalMisses(cr, n)) {
+        p = result[i-1].placement;
+      }
+    }
+    result.push({ ...sorted[i], placement: p });
+    if (result[i].placement === place) place = i + 2;
+  }
+  // Mark ties
+  for (let i = 0; i < result.length; i++) {
+    result[i].tied = result.some((r, j) => j !== i && r.placement === result[i].placement);
+  }
+  return [
+    ...result,
+    ...nh.map(a => ({ ...a, placement: null, tied: false })),
+    ...dns.map(a => ({ ...a, placement: null, tied: false })),
+  ];
+};
+
+// Next vaulter
+const nextVaulter = (athletes, hIdx, fromIdx) => {
+  const n = athletes.length;
+  for (let s = 1; s <= n; s++) {
+    const idx = (fromIdx + s) % n;
+    const a = athletes[idx];
+    if (!isDone(a.attempts[hIdx] || [], a.status)) return idx;
+  }
+  return -1;
+};
+
+const firstEligible = (athletes, hIdx) => {
+  for (let i = 0; i < athletes.length; i++) {
+    const a = athletes[i];
+    if (!isDone(a.attempts[hIdx] || [], a.status)) return i;
+  }
+  return -1;
+};
+
+// Height generation
+const genHeights = (startM, incStr) => {
+  const startCm = Math.round(parseFloat(startM) * 100);
+  if (isNaN(startCm)) return [];
+  const rules = [];
+  for (const part of incStr.split(',').map(s => s.trim())) {
+    const m = part.match(/(\d+(?:\.\d+)?)\s*cm(?:\s*[x×]\s*(\d+))?/i);
+    if (m) rules.push({ cm: parseFloat(m[1]), count: m[2] ? parseInt(m[2]) : 999 });
+  }
+  const hs = [startCm];
+  let cur = startCm;
+  for (const { cm, count } of rules) {
+    for (let i = 0; i < count; i++) {
+      cur += cm; hs.push(cur);
+      if (hs.length > 45) return hs;
+    }
+  }
+  return hs;
+};
+
+const parseManual = str =>
+  str.split(/[,\s]+/).map(s => parseFloat(s)).filter(n => !isNaN(n)).map(m => Math.round(m * 100));
+
+// ─── STYLE HELPERS ────────────────────────────────────────────────────────────
+
+const inp = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, padding: '10px 12px', fontSize: 14, width: '100%', outline: 'none' };
+const sec = { marginBottom: 18, padding: 16, background: C.surface, borderRadius: 14, border: `1px solid ${C.border}` };
+const secTitle = { fontWeight: 700, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 12 };
+
+const btn = (bg, pad = '10px 18px', fs = 14) => ({
+  background: bg, color: '#fff', border: 'none', borderRadius: 10,
+  padding: pad, fontSize: fs, fontWeight: 700, cursor: 'pointer',
+  WebkitTapHighlightColor: 'transparent', letterSpacing: 0.2,
+});
+
+// ─── ATHLETE FACTORY ─────────────────────────────────────────────────────────
+
+const mkAthlete = order => ({
+  id: Math.random().toString(36).slice(2, 10),
+  order, firstName: '', lastName: '', country: '', affiliation: '',
+  pb: '', sb: '', logoUrl: '',
+  attempts: Array.from({ length: 50 }, () => []),
+  status: 'competing',
+});
+
+// ─── LOGO / FLAG CELL ─────────────────────────────────────────────────────────
+
+function LogoCell({ athlete, size = 26 }) {
+  if (athlete.logoUrl) {
+    return (
+      <img src={athlete.logoUrl} alt="" onError={e => { e.target.style.display='none'; }}
+        style={{ width: size, height: size, borderRadius: 4, objectFit: 'contain', flexShrink: 0, background: C.border }} />
+    );
+  }
+  const label = athlete.country ? athlete.country.toUpperCase().slice(0,3) : '?';
+  return (
+    <div style={{ width: size, height: size, borderRadius: 4, background: C.border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size < 24 ? 8 : 10, fontWeight: 800, color: C.muted, flexShrink: 0, letterSpacing: -0.5 }}>
+      {label}
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+
+function VaultDeskApp() {
+  const [screen,   setScreen]   = useState('setup');
+  const [editMode, setEditMode] = useState(false);
+  const [live,     setLive]     = useState(true);
+  const [metric,   setMetric]   = useState(true);
+  const [rulebook, setRulebook] = useState('WA');
+
+  const [info, setInfo] = useState({
+    name: '', date: new Date().toISOString().split('T')[0], venue: '', gender: 'M',
+  });
+
+  const [athletes,    setAthletes]    = useState([mkAthlete(1)]);
+  const [heights,     setHeights]     = useState([]);
+  const [curH,        setCurH]        = useState(0);
+  const [curA,        setCurA]        = useState(0);
+  const [editingId,   setEditingId]   = useState(null);
+
+  const [startH,  setStartH]  = useState('');
+  const [incStr,  setIncStr]  = useState('10cm x3, 5cm x3, 2cm');
+  const [manualH, setManualH] = useState('');
+
+  // Athlete ops
+  const addAthlete = () => setAthletes(p => [...p, mkAthlete(p.length + 1)]);
+
+  const updAthlete = (id, ch) => setAthletes(p => p.map(a => a.id === id ? { ...a, ...ch } : a));
+
+  const delAthlete = id => setAthletes(p =>
+    p.filter(a => a.id !== id).map((a, i) => ({ ...a, order: i + 1 }))
+  );
+
+  const moveAthlete = (id, dir) => setAthletes(p => {
+    const i = p.findIndex(a => a.id === id);
+    const j = i + dir;
+    if (j < 0 || j >= p.length) return p;
+    const arr = [...p];
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    return arr.map((a, k) => ({ ...a, order: k + 1 }));
+  });
+
+  // Height gen
+  const doGenHeights = () => {
+    const hs = manualH.trim() ? parseManual(manualH) : genHeights(startH, incStr);
+    setHeights(hs);
+  };
+
+  // Record mark
+  const recordMark = useCallback(mark => {
+    setAthletes(prev => {
+      const next = prev.map((a, i) => {
+        if (i !== curA) return a;
+        const att = a.attempts.map((arr, hi) => hi === curH ? [...arr] : arr);
+        if (mark === 'O') { att[curH].push('O'); return { ...a, attempts: att }; }
+        if (mark === 'X') {
+          if (countMisses(att[curH]) < 3) att[curH].push('X');
+          return { ...a, attempts: att };
+        }
+        if (mark === 'P') { att[curH] = ['P']; return { ...a, attempts: att }; }
+        if (mark === 'R') { att[curH] = ['R']; return { ...a, attempts: att, status: 'retired' }; }
+        if (mark === 'NH')  return { ...a, status: 'nh' };
+        if (mark === 'DNS') return { ...a, status: 'dns' };
+        return a;
+      });
+
+      const updated = next[curA];
+      const updMarks = updated.attempts[curH] || [];
+      if (isDone(updMarks, updated.status)) {
+        const nxt = nextVaulter(next, curH, curA);
+        if (nxt === -1) {
+          const nextH = curH + 1;
+          if (nextH < heights.length) {
+            setTimeout(() => {
+              setCurH(nextH);
+              const fe = firstEligible(next, nextH);
+              setCurA(fe === -1 ? 0 : fe);
+            }, 50);
+          }
+        } else {
+          setTimeout(() => setCurA(nxt), 50);
+        }
+      }
+      return next;
+    });
+  }, [curA, curH, heights]);
+
+  // Undo
+  const undoMark = useCallback(() => {
+    setAthletes(prev => prev.map((a, i) => {
+      if (i !== curA) return a;
+      const att = a.attempts.map((arr, hi) => hi === curH ? [...arr] : arr);
+      if (att[curH].length > 0) att[curH].pop();
+      const wasRetired = a.status === 'retired' && !att[curH].includes('R');
+      const wasNH = a.status === 'nh';
+      return { ...a, attempts: att, status: (wasRetired || wasNH) ? 'competing' : a.status };
+    }));
+  }, [curA, curH]);
+
+  // Ranked athletes for display
+  const ranked = useMemo(() => calcPlacements(athletes, heights), [athletes, heights]);
+
+  const startComp = () => {
+    const hs = heights.length ? heights : (manualH.trim() ? parseManual(manualH) : genHeights(startH, incStr));
+    if (!hs.length) { alert('Set up heights first.'); return; }
+    if (!hs.length) return;
+    setHeights(hs);
+    const fe = firstEligible(athletes, 0);
+    setCurA(fe === -1 ? 0 : fe);
+    setCurH(0);
+    setEditMode(false);
+    setScreen('scoring');
+  };
+
+  const currentAthlete = athletes[curA];
+  const currentHeight  = heights[curH];
+
+  // Tab config
+  const tabs = [
+    { id: 'setup',   icon: '⚙️', label: 'Setup' },
+    { id: 'scoring', icon: '🎯', label: 'Live Score' },
+    { id: 'scanner', icon: '📷', label: 'Scan Card' },
+  ];
+
+  return (
+    <div style={{ background: C.bg, minHeight: '100vh', color: C.text, maxWidth: '100vw', overflowX: 'hidden' }}>
+
+      {/* ── TOP BAR ── */}
+      <header style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '9px 14px', position: 'sticky', top: 0, zIndex: 200, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ fontWeight: 900, fontSize: 17, color: C.accent, letterSpacing: -0.5, flexShrink: 0 }}>VaultDesk</div>
+        <div style={{ flex: 1, fontSize: 12, color: C.muted, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+          {info.name || 'Pole Vault'}
+          {screen === 'scoring' && currentHeight ? ` · ${fmtH(currentHeight, metric)}` : ''}
+        </div>
+
+        <button onClick={() => setMetric(m => !m)} style={{ ...btn(C.card, '6px 11px', 11), border: `1px solid ${C.border}` }}>
+          {metric ? 'm→ft' : 'ft→m'}
+        </button>
+
+        {screen === 'scoring' && <>
+          <button onClick={() => setLive(l => !l)} style={{ ...btn(live ? '#7f1d1d' : C.card, '6px 10px', 11), border: live ? 'none' : `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span className={live ? 'live-pulse' : ''} style={{ width: 7, height: 7, borderRadius: '50%', background: live ? '#ff4444' : C.muted, flexShrink: 0 }} />
+            {live ? 'LIVE' : 'OFF'}
+          </button>
+          <button onClick={() => setEditMode(e => !e)} style={{ ...btn(editMode ? C.warning : C.accent, '6px 11px', 11) }}>
+            {editMode ? '✏️ Edit' : '🎯 Score'}
+          </button>
+        </>}
+      </header>
+
+      {/* ── TABS ── */}
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex' }}>
+        {tabs.map(t => (
+          <button key={t.id}
+            onClick={() => { if (t.id === 'scoring' && !heights.length && screen !== 'scoring') return; setScreen(t.id); }}
+            style={{ flex: 1, padding: '9px 0', background: 'none', border: 'none', color: screen === t.id ? C.accent : C.muted, fontWeight: screen === t.id ? 700 : 400, fontSize: 12, cursor: 'pointer', borderBottom: `2px solid ${screen === t.id ? C.accent : 'transparent'}`, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, WebkitTapHighlightColor: 'transparent' }}>
+            <span>{t.icon}</span><span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ── CONTENT ── */}
+      <main style={{ paddingBottom: 40 }}>
+        {screen === 'setup' && (
+          <SetupScreen
+            info={info} setInfo={setInfo}
+            rulebook={rulebook} setRulebook={setRulebook}
+            athletes={athletes} addAthlete={addAthlete} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete}
+            editingId={editingId} setEditingId={setEditingId}
+            startH={startH} setStartH={setStartH}
+            incStr={incStr} setIncStr={setIncStr}
+            manualH={manualH} setManualH={setManualH}
+            doGenHeights={doGenHeights} heights={heights} metric={metric}
+            startComp={startComp}
+          />
+        )}
+        {screen === 'scoring' && (
+          <ScoringScreen
+            athletes={athletes} ranked={ranked} heights={heights}
+            curH={curH} setCurH={setCurH}
+            curA={curA} setCurA={setCurA}
+            editMode={editMode} metric={metric}
+            recordMark={recordMark} undoMark={undoMark}
+            updAthlete={updAthlete} live={live}
+          />
+        )}
+        {screen === 'scanner' && <ScannerScreen />}
+      </main>
+    </div>
+  );
+}
+
+// ─── SETUP SCREEN ─────────────────────────────────────────────────────────────
+
+function SetupScreen({ info, setInfo, rulebook, setRulebook, athletes, addAthlete, updAthlete, delAthlete, moveAthlete, editingId, setEditingId, startH, setStartH, incStr, setIncStr, manualH, setManualH, doGenHeights, heights, metric, startComp }) {
+  const ci = (k, v) => setInfo(p => ({ ...p, [k]: v }));
+
+  return (
+    <div style={{ padding: 14, maxWidth: 640, margin: '0 auto' }}>
+
+      {/* Competition Info */}
+      <div style={sec}>
+        <div style={secTitle}>Competition Info</div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          <input style={inp} placeholder="Meet / Event Name" value={info.name} onChange={e => ci('name', e.target.value)} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <input style={inp} type="date" value={info.date} onChange={e => ci('date', e.target.value)} />
+            <input style={inp} placeholder="Venue / Location" value={info.venue} onChange={e => ci('venue', e.target.value)} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <select style={inp} value={info.gender} onChange={e => ci('gender', e.target.value)}>
+              <option value="M">Men's / Boys'</option>
+              <option value="W">Women's / Girls'</option>
+              <option value="MX">Mixed</option>
+            </select>
+            <select style={inp} value={rulebook} onChange={e => setRulebook(e.target.value)}>
+              {RULEBOOKS.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Height Progression */}
+      <div style={sec}>
+        <div style={secTitle}>Height Progression</div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 5 }}>Starting Height (meters)</div>
+              <input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e => setStartH(e.target.value)} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 5 }}>Increment Pattern</div>
+              <input style={inp} placeholder="10cm x3, 5cm x3, 2cm" value={incStr} onChange={e => setIncStr(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 5 }}>Or enter heights manually (meters, comma-separated)</div>
+            <input style={inp} placeholder="e.g. 5.00, 5.10, 5.20, 5.25, 5.30..." value={manualH} onChange={e => setManualH(e.target.value)} />
+          </div>
+          <button onClick={doGenHeights} style={btn(C.accent)}>Generate Heights</button>
+          {heights.length > 0 && (
+            <div style={{ fontSize: 12, color: C.muted, background: C.card, borderRadius: 8, padding: '8px 12px', border: `1px solid ${C.border}`, lineHeight: 1.6 }}>
+              <span style={{ color: C.text, fontWeight: 700 }}>{heights.length} heights</span>{' '}
+              {heights.slice(0, 8).map(h => fmtH(h, metric)).join(' · ')}
+              {heights.length > 8 ? ` · ... · ${fmtH(heights[heights.length - 1], metric)}` : ''}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Athlete Roster */}
+      <div style={sec}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+          <div style={secTitle}>Athletes ({athletes.length})</div>
+          <div style={{ flex: 1 }} />
+          <button onClick={addAthlete} style={{ ...btn(C.success, '7px 14px', 13) }}>+ Add Athlete</button>
+        </div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {athletes.map((a, i) => (
+            <AthleteRow key={a.id} athlete={a}
+              isFirst={i === 0} isLast={i === athletes.length - 1}
+              isEditing={editingId === a.id}
+              onEdit={() => setEditingId(editingId === a.id ? null : a.id)}
+              onUpdate={ch => updAthlete(a.id, ch)}
+              onDelete={() => delAthlete(a.id)}
+              onUp={() => moveAthlete(a.id, -1)}
+              onDown={() => moveAthlete(a.id, 1)}
+            />
+          ))}
+          {athletes.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 20, color: C.muted, fontSize: 13 }}>
+              No athletes yet — click + Add Athlete
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Import stub */}
+      <div style={sec}>
+        <div style={secTitle}>Import Athletes</div>
+        <div style={{ textAlign: 'center', padding: '22px 16px', border: `2px dashed ${C.border}`, borderRadius: 12 }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>Upload Start List Photo or Excel</div>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 14, lineHeight: 1.5 }}>
+            Names, country codes, and affiliations<br />extracted automatically
+          </div>
+          <input type="file" id="importFile" accept="image/*,.xlsx,.xls,.csv" style={{ display: 'none' }} />
+          <label htmlFor="importFile" style={{ ...btn(C.card, '8px 18px', 13), cursor: 'pointer', display: 'inline-block', border: `1px solid ${C.border}` }}>
+            Choose File
+          </label>
+          <div style={{ fontSize: 11, color: '#555', marginTop: 10 }}>AI extraction powered by Claude · v1.1</div>
+        </div>
+      </div>
+
+      {/* Start button */}
+      <button onClick={startComp} style={{ ...btn(athletes.length > 0 && heights.length > 0 ? C.success : '#2a2a2a'), width: '100%', padding: '15px', fontSize: 16, borderRadius: 14, opacity: athletes.length > 0 && heights.length > 0 ? 1 : 0.5 }}>
+        🚀 Start Competition
+      </button>
+      {(!athletes.length || !heights.length) && (
+        <div style={{ textAlign: 'center', fontSize: 12, color: C.muted, marginTop: 8 }}>
+          {!athletes.length ? 'Add at least one athlete' : 'Generate heights above'} to start
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ATHLETE SETUP ROW ────────────────────────────────────────────────────────
+
+function AthleteRow({ athlete, isFirst, isLast, isEditing, onEdit, onUpdate, onDelete, onUp, onDown }) {
+  if (!isEditing) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: C.card, borderRadius: 10, border: `1px solid ${C.border}` }}>
+        <div style={{ width: 22, textAlign: 'center', color: C.muted, fontSize: 12, flexShrink: 0 }}>{athlete.order}</div>
+        <LogoCell athlete={athlete} size={28} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {(athlete.firstName || athlete.lastName) ? `${athlete.firstName} ${athlete.lastName}`.trim() : <span style={{ color: C.muted }}>Unnamed Athlete</span>}
+          </div>
+          <div style={{ fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {[athlete.affiliation, athlete.country].filter(Boolean).join(' · ') || 'No affiliation'}
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: C.muted, textAlign: 'right', flexShrink: 0 }}>
+          {athlete.pb && <div>PB {athlete.pb}</div>}
+          {athlete.sb && <div>SB {athlete.sb}</div>}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+          <button onClick={onUp}   disabled={isFirst} style={{ ...btn(C.border, '2px 7px', 11), opacity: isFirst ? 0.25 : 1 }}>↑</button>
+          <button onClick={onDown} disabled={isLast}  style={{ ...btn(C.border, '2px 7px', 11), opacity: isLast  ? 0.25 : 1 }}>↓</button>
+        </div>
+        <button onClick={onEdit}   style={{ ...btn(C.accent,  '7px 12px', 12) }}>Edit</button>
+        <button onClick={onDelete} style={{ ...btn('#7f1d1d', '7px 12px', 12) }}>✕</button>
+      </div>
+    );
+  }
+
+  const fields = [
+    ['First Name',      'firstName'],
+    ['Last Name',       'lastName'],
+    ['Country Code',    'country'],
+    ['Affiliation',     'affiliation'],
+    ['PB (e.g. 5.85)', 'pb'],
+    ['SB (e.g. 5.60)', 'sb'],
+  ];
+
+  return (
+    <div style={{ padding: 14, background: C.card, borderRadius: 10, border: `2px solid ${C.accent}` }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+        {fields.map(([ph, k]) => (
+          <input key={k} style={inp} placeholder={ph} value={athlete[k]} onChange={e => onUpdate({ [k]: e.target.value })} />
+        ))}
+      </div>
+      <input style={{ ...inp, marginBottom: 10 }} placeholder="Logo / Flag image URL (optional)" value={athlete.logoUrl} onChange={e => onUpdate({ logoUrl: e.target.value })} />
+      {athlete.logoUrl && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 11, color: C.muted }}>Preview:</span>
+          <LogoCell athlete={athlete} size={32} />
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={onEdit}   style={{ ...btn(C.success, '8px 16px', 13) }}>✓ Done</button>
+        <button onClick={onDelete} style={{ ...btn('#7f1d1d', '8px 16px', 13) }}>Delete</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── SCORING SCREEN ───────────────────────────────────────────────────────────
+
+function ScoringScreen({ athletes, ranked, heights, curH, setCurH, curA, setCurA, editMode, metric, recordMark, undoMark, updAthlete, live }) {
+  const n = heights.length;
+  const currentAthlete = athletes[curA];
+  const currentHeight  = heights[curH];
+  const missCount = currentAthlete ? countMisses(currentAthlete.attempts[curH] || []) : 0;
+
+  const MARKS = [
+    { mark: 'O',   bg: C.success, emoji: '✓', label: 'Make'   },
+    { mark: 'X',   bg: C.danger,  emoji: '✗', label: 'Miss'   },
+    { mark: 'P',   bg: '#2563eb', emoji: '—', label: 'Pass'   },
+    { mark: 'R',   bg: C.warning, emoji: 'R', label: 'Retire' },
+    { mark: 'NH',  bg: '#6b7280', emoji: 'NH',label: 'NH'     },
+    { mark: 'DNS', bg: '#374151', emoji: '—', label: 'DNS'    },
+  ];
+
+  const getCellStyle = (marks, hIdx) => {
+    const isCurrentH = hIdx === curH;
+    const baseBg = isCurrentH ? C.accent + '0d' : 'transparent';
+    if (hasCleared(marks))   return { background: C.clearedBg, color: '#4ade80' };
+    if (isEliminated(marks)) return { background: C.missedBg,  color: '#f87171' };
+    if (hasPassed(marks))    return { background: C.passedBg,  color: '#60a5fa' };
+    if (hasRetired(marks))   return { color: C.warning };
+    return { background: baseBg };
+  };
+
+  return (
+    <div>
+      {/* Current Vaulter Banner */}
+      {!editMode && currentAthlete && (
+        <div style={{ background: `linear-gradient(135deg, ${C.accent}1a 0%, ${C.surface} 100%)`, borderBottom: `1px solid ${C.border}`, padding: '11px 14px' }}>
+          <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {live && <span className="live-pulse" style={{ width: 7, height: 7, borderRadius: '50%', background: '#ff4444', display: 'inline-block' }} />}
+            Now Vaulting · {fmtH(currentHeight, metric)}{!metric ? '' : ` · ${fmtH(currentHeight, false)}`}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <LogoCell athlete={currentAthlete} size={46} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.2 }}>
+                {currentAthlete.firstName}&nbsp;
+                <span style={{ color: C.accent }}>{currentAthlete.lastName}</span>
+              </div>
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+                {[currentAthlete.affiliation, currentAthlete.country].filter(Boolean).join(' · ')}
+                {currentAthlete.pb ? ` · PB ${currentAthlete.pb}` : ''}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: missCount === 0 ? C.text : missCount === 1 ? C.warning : C.danger }}>
+                Attempt {missCount + 1} of 3
+              </div>
+              <div style={{ fontSize: 14, letterSpacing: 3, marginTop: 2 }}>
+                {'●'.repeat(missCount)}<span style={{ color: C.border }}>{'●'.repeat(3 - missCount)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mark Buttons */}
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '10px 12px', display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 7 }}>
+        {MARKS.map(({ mark, bg, emoji, label }) => (
+          <button key={mark} onClick={() => recordMark(mark)} style={{
+            background: bg, color: '#fff', border: 'none', borderRadius: 10,
+            padding: '10px 2px', fontSize: 10, fontWeight: 700, cursor: 'pointer',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+            minHeight: 54, fontFamily: 'inherit', WebkitTapHighlightColor: 'transparent',
+            touchAction: 'manipulation',
+          }}>
+            <span style={{ fontSize: 16 }}>{emoji}</span>
+            <span style={{ opacity: 0.85 }}>{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Edit Mode Notice */}
+      {editMode && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: `${C.warning}18`, borderBottom: `1px solid ${C.warning}33` }}>
+          <div style={{ fontSize: 12, color: C.warning, fontWeight: 600 }}>✏️ Edit — tap a cell to select athlete & height</div>
+          <div style={{ flex: 1 }} />
+          <button onClick={undoMark} style={{ ...btn('#7c3aed', '6px 14px', 12) }}>↩ Undo</button>
+        </div>
+      )}
+
+      {/* Height Tabs */}
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '8px 10px', display: 'flex', gap: 6, overflowX: 'auto', alignItems: 'center', WebkitOverflowScrolling: 'touch' }}>
+        <span style={{ fontSize: 10, color: C.muted, flexShrink: 0, textTransform: 'uppercase', letterSpacing: 0.8 }}>Heights:</span>
+        {heights.map((h, i) => (
+          <button key={i} onClick={() => editMode && setCurH(i)} style={{
+            flexShrink: 0, background: i === curH ? C.accent : C.card,
+            color: i === curH ? '#fff' : C.muted,
+            border: `1px solid ${i === curH ? C.accent : C.border}`,
+            borderRadius: 20, padding: '4px 11px', fontSize: 11,
+            fontWeight: i === curH ? 700 : 400, cursor: editMode ? 'pointer' : 'default',
+            fontFamily: 'inherit', WebkitTapHighlightColor: 'transparent',
+          }}>
+            {fmtH(h, metric)}
+          </button>
+        ))}
+      </div>
+
+      {/* Results Table */}
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%', minWidth: Math.max(480, 180 + n * 60) + 'px' }}>
+          <thead>
+            <tr style={{ background: C.surface, borderBottom: `2px solid ${C.border}` }}>
+              <th style={{ position: 'sticky', left: 0, background: C.surface, padding: '9px 5px', textAlign: 'center', color: C.muted, width: 32, fontSize: 10, zIndex: 10 }}>#</th>
+              <th style={{ position: 'sticky', left: 32, background: C.surface, padding: '9px 8px', textAlign: 'left', color: C.muted, minWidth: 145, fontSize: 10, zIndex: 10 }}>Athlete</th>
+              <th style={{ padding: '9px 5px', textAlign: 'center', color: C.muted, width: 48, fontSize: 10 }}>PB</th>
+              <th style={{ padding: '9px 5px', textAlign: 'center', color: C.muted, width: 48, fontSize: 10 }}>SB</th>
+              {heights.map((h, i) => (
+                <th key={i} style={{
+                  padding: '9px 3px', textAlign: 'center', minWidth: 56,
+                  color: i === curH ? C.accent : C.muted,
+                  fontWeight: i === curH ? 800 : 400, fontSize: 10,
+                  background: i === curH ? C.accent + '18' : C.surface,
+                }}>
+                  {fmtH(h, metric)}
+                </th>
+              ))}
+              <th style={{ padding: '9px 6px', textAlign: 'center', color: C.muted, width: 50, fontSize: 10 }}>Place</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ranked.map((ath, rowIdx) => {
+              const origIdx = athletes.findIndex(a => a.id === ath.id);
+              const isCurrent = origIdx === curA;
+              const rowBg = isCurrent && !editMode ? C.accent + '15' : rowIdx % 2 === 0 ? 'transparent' : C.surface + '55';
+
+              return (
+                <tr key={ath.id}
+                  onClick={() => editMode && setCurA(origIdx)}
+                  style={{ background: rowBg, borderBottom: `1px solid ${C.border}`, cursor: editMode ? 'pointer' : 'default', outline: isCurrent && !editMode ? `2px solid ${C.accent}44` : 'none', outlineOffset: '-2px' }}>
+
+                  {/* Order */}
+                  <td style={{ position: 'sticky', left: 0, background: rowBg, padding: '9px 5px', textAlign: 'center', color: C.muted, fontSize: 11 }}>
+                    {ath.order}
+                  </td>
+
+                  {/* Athlete Name */}
+                  <td style={{ position: 'sticky', left: 32, background: rowBg, padding: '9px 8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <LogoCell athlete={ath} size={22} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: isCurrent ? 700 : 500, fontSize: 13, color: isCurrent && !editMode ? C.accent : C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+                          {ath.firstName} {ath.lastName}
+                        </div>
+                        <div style={{ fontSize: 10, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+                          {ath.affiliation || ath.country || ''}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* PB / SB */}
+                  <td style={{ padding: '9px 5px', textAlign: 'center', color: C.muted, fontSize: 11 }}>{ath.pb || '—'}</td>
+                  <td style={{ padding: '9px 5px', textAlign: 'center', color: C.muted, fontSize: 11 }}>{ath.sb || '—'}</td>
+
+                  {/* Height Cells */}
+                  {heights.map((h, hIdx) => {
+                    const marks = ath.attempts[hIdx] || [];
+                    const cs = getCellStyle(marks, hIdx);
+                    const isCurrentCell = hIdx === curH && origIdx === curA;
+
+                    let display = '';
+                    if (ath.status === 'dns') {
+                      display = hIdx === 0 ? 'DNS' : '';
+                    } else if (ath.status === 'nh') {
+                      display = hIdx === 0 ? 'NH' : '';
+                    } else {
+                      display = showMarks(marks);
+                    }
+
+                    return (
+                      <td key={hIdx}
+                        onClick={() => editMode && (setCurH(hIdx), setCurA(origIdx))}
+                        style={{
+                          padding: '9px 3px', textAlign: 'center', fontWeight: 700,
+                          fontSize: 12, letterSpacing: 0.5, minHeight: 44,
+                          outline: isCurrentCell && editMode ? `2px inset ${C.accent}` : 'none',
+                          ...cs,
+                        }}>
+                        {display}
+                      </td>
+                    );
+                  })}
+
+                  {/* Placement */}
+                  <td style={{ padding: '9px 6px', textAlign: 'center', fontWeight: 800, fontSize: 15 }}>
+                    {ath.placement === 1 ? '🥇' :
+                     ath.placement === 2 ? '🥈' :
+                     ath.placement === 3 ? '🥉' :
+                     ath.placement ? <span style={{ color: C.muted, fontSize: 13 }}>{ath.placement}{ath.tied ? '=' : ''}</span> :
+                     <span style={{ fontSize: 10, color: C.muted }}>{ath.status === 'dns' ? 'DNS' : ath.status === 'nh' ? 'NH' : '—'}</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── SCANNER STUB ─────────────────────────────────────────────────────────────
+
+function ScannerScreen() {
+  return (
+    <div style={{ padding: 14, maxWidth: 640, margin: '0 auto' }}>
+      <div style={sec}>
+        <div style={secTitle}>Scan Completed Scorecard</div>
+        <div style={{ textAlign: 'center', padding: '28px 16px', border: `2px dashed ${C.border}`, borderRadius: 12, marginBottom: 18 }}>
+          <div style={{ fontSize: 44, marginBottom: 12 }}>📋</div>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Upload Completed Scorecard</div>
+          <div style={{ fontSize: 13, color: C.muted, marginBottom: 16, lineHeight: 1.6 }}>
+            Upload a photo or PDF of a handwritten scorecard.<br />
+            All X's, O's, passes, and dashes will be extracted,<br />
+            scored, and re-sorted into placement order.
+          </div>
+          <input type="file" id="scanFile" accept="image/*,.pdf" style={{ display: 'none' }} />
+          <label htmlFor="scanFile" style={{ ...btn(C.accent, '10px 22px', 14), cursor: 'pointer', display: 'inline-block', borderRadius: 10 }}>
+            📷 Choose Photo / PDF
+          </label>
+          <div style={{ marginTop: 12 }}>
+            <button disabled style={{ ...btn('#2a2a2a', '9px 20px', 13), opacity: 0.4, cursor: 'not-allowed', borderRadius: 10 }}>
+              Digitize &amp; Score
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: '#555', marginTop: 12 }}>
+            AI scorecard extraction powered by Claude · Coming in v1.1
+          </div>
+        </div>
+
+        {/* Preview mockup */}
+        <div style={{ opacity: 0.35 }}>
+          <div style={{ fontSize: 10, color: C.muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Sample output</div>
+          <div style={{ background: C.card, borderRadius: 10, overflow: 'hidden', border: `1px solid ${C.border}`, fontSize: 12 }}>
+            {[
+              ['1', 'Smith, J.',    'O','XO','O','—', '🥇'],
+              ['2', 'Johnson, A.',  'O','XXO','O','XXX', '🥈'],
+              ['3', 'Williams, M.', 'O','O','P','NH', '🥉'],
+              ['—', 'Davis, K.',    '—','—','—','—', 'NH'],
+            ].map(([ord, name, ...rest], i) => {
+              const place = rest[rest.length - 1];
+              const cells = rest.slice(0, -1);
+              return (
+                <div key={i} style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, alignItems: 'center' }}>
+                  <div style={{ padding: '8px 10px', color: C.muted, width: 28 }}>{ord}</div>
+                  <div style={{ padding: '8px 10px', flex: 1, fontWeight: 500 }}>{name}</div>
+                  {cells.map((c, j) => (
+                    <div key={j} style={{ padding: '8px 6px', width: 42, textAlign: 'center', fontWeight: 700, color: c.includes('O') ? '#4ade80' : c === 'P' ? '#60a5fa' : c === 'NH' ? C.muted : c.includes('X') ? '#f87171' : C.muted }}>
+                      {c}
+                    </div>
+                  ))}
+                  <div style={{ padding: '8px 10px', width: 36, textAlign: 'center', fontWeight: 800 }}>{place}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MOUNT ────────────────────────────────────────────────────────────────────
+
+ReactDOM.createRoot(document.getElementById('root')).render(<VaultDeskApp />);
+</script>
+</body>
+</html>
