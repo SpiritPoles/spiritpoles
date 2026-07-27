@@ -456,7 +456,7 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
         <div>
           <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Entry PR / PB</div>
-          <input style={inp} placeholder="e.g. 5.45m or 17'10¾"" value={athlete.pb||''} onChange={e=>onUpdate({pb:e.target.value})}/>
+          <input style={inp} placeholder="e.g. 5.45m or 17'10.75in" value={athlete.pb||''} onChange={e=>onUpdate({pb:e.target.value})}/>
         </div>
         <div>
           <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Season Best</div>
