@@ -21,7 +21,8 @@
     ::-webkit-scrollbar-track{background:var(--surface)}
     ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
     .vd-drag-over{outline:2px solid #4f7cff!important;background:rgba(79,124,255,.09)!important;border-radius:10px}
-    .vd-dragging{opacity:.4}
+    @keyframes wiggle{0%,100%{transform:rotate(-2.5deg) scale(1.04) translateY(-2px)}50%{transform:rotate(2.5deg) scale(1.04) translateY(-2px)}}
+    .vd-dragging{opacity:.93;animation:wiggle .32s ease-in-out infinite;box-shadow:0 14px 36px rgba(0,0,0,.75);border-radius:10px;z-index:50;position:relative;background:rgba(79,124,255,.14)!important;outline:2px solid #4f7cff!important}
     input[type=number]{-moz-appearance:textfield}
     input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
   </style>
@@ -335,23 +336,23 @@ function VaultDeskApp(){
       return{...a,attempts:att,status:newStatus};
     });
 
-    // compute next vaulter synchronously
+    // Always advance to next vaulter after any mark (make/miss/pass all rotate)
     const updated=next[curA];
     const updMarks=updated.attempts[curH]||[];
     let nextA=-1,nextH=curH;
 
-    if(isDone(updMarks,updated.status)){
-      const nxt=nextVaulter(next,curH,curA);
-      if(nxt===-1){
-        const nh=curH+1;
-        if(nh<heights.length){
-          nextH=nh;
-          const fe=firstEligible(next,nh);
-          nextA=fe>=0?fe:0;
-        }
-      }else{
-        nextA=nxt;
+    const nxt=nextVaulter(next,curH,curA);
+    if(nxt===-1){
+      // No more eligible at this height — move to next height
+      const nh=curH+1;
+      if(nh<heights.length){
+        nextH=nh;
+        const fe=firstEligible(next,nh);
+        nextA=fe>=0?fe:0;
       }
+      // else: meet is over — detected in ScoringScreen
+    }else{
+      nextA=nxt;
     }
 
     // Batch all state updates in one render
@@ -391,7 +392,12 @@ function VaultDeskApp(){
     saveAll([snap,...all]);setSavedComps(loadSaved());
   };
 
-  const verifyOfficial=()=>{setCompStatus('official');setShowSave(true);};
+  const verifyOfficial=()=>{
+    setCompStatus('official');
+    const snap={id:compId,name:info.name||'Unnamed',date:info.date,savedAt:new Date().toISOString(),compStatus:'official',state:{info,rulebook,athletes,heights,curH,curA,metric}};
+    const all=loadSaved().filter(c=>c.id!==snap.id);
+    saveAll([snap,...all]);setSavedComps(loadSaved());
+  };
 
   const saveSnapshot=useCallback(()=>{
     const snap={id:compId,name:info.name||'Unnamed',date:info.date,savedAt:new Date().toISOString(),compStatus,state:{info,rulebook,athletes,heights,curH,curA,metric}};
@@ -450,7 +456,7 @@ function VaultDeskApp(){
 
       <main>
         {screen==='setup'&&<SetupScreen info={info} setInfo={setInfo} rulebook={rulebook} setRulebook={setRulebook} athletes={athletes} addAthlete={addAthlete} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} editingId={editingId} setEditingId={setEditingId} startH={startH} setStartH={setStartH} incStr={incStr} setIncStr={setIncStr} manualH={manualH} setManualH={setManualH} doGenHeights={doGenHeights} heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric} startComp={startComp} dirEmail={dirEmail} setDirEmail={setDirEmail} onImport={()=>setShowImport(true)}/>}
-        {screen==='scoring'&&<ScoringScreen athletes={athletes} ranked={ranked} heights={heights} curH={curH} setCurH={setCurH} curA={curA} setCurA={setCurA} metric={metric} recordMark={recordMark} undoMark={undoMark} live={live} onDeck={onDeck} inHole={inHole} compStatus={compStatus} info={info}/>}
+        {screen==='scoring'&&<ScoringScreen athletes={athletes} ranked={ranked} heights={heights} curH={curH} setCurH={setCurH} curA={curA} setCurA={setCurA} metric={metric} recordMark={recordMark} undoMark={undoMark} live={live} onDeck={onDeck} inHole={inHole} compStatus={compStatus} info={info} onEnd={endCompetition}/>}
         {screen==='display'&&<DisplayScreen athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={curA} metric={metric} live={live} info={info} onDeck={onDeck} inHole={inHole} compStatus={compStatus}/>}
         {screen==='history'&&<HistoryScreen savedComps={savedComps} setSavedComps={setSavedComps} loadSnapshot={loadSnapshot} saveSnapshot={saveSnapshot}/>}
       </main>
@@ -458,6 +464,63 @@ function VaultDeskApp(){
       {showEdit&&<EditOverlay onClose={()=>setShowEdit(false)} athletes={athletes} addAthlete={addAthlete} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} editingId={editingId} setEditingId={setEditingId} rulebook={rulebook} heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric} startH={startH} setStartH={setStartH} incStr={incStr} setIncStr={setIncStr} manualH={manualH} setManualH={setManualH} doGenHeights={doGenHeights}/>}
       {showImport&&<ImportDialog onImport={importAthletes} onClose={()=>setShowImport(false)}/>}
       {showSave&&<SaveResultsDialog athletes={athletes} heights={heights} ranked={ranked} info={info} metric={metric} onClose={()=>setShowSave(false)}/>}
+    </div>
+  );
+}
+
+// ─── INCREMENT STEP BUILDER ──────────────────────────────────────────────────
+function IncStepBuilder({incStr,setIncStr}){
+  const CM_OPTS=[2,3,4,5,6,7,8,10,12,15,20];
+  const PRESETS=[
+    {label:'Standard',str:'10cm x3, 5cm x3, 2cm'},
+    {label:'Collegiate',str:'10cm x2, 5cm x3, 2cm'},
+    {label:'HS Indoor',str:'10cm x3, 5cm'},
+    {label:'5cm Flat',str:'5cm'},
+  ];
+  const toSteps=s=>{const r=[];for(const p of(s||'').split(',').map(x=>x.trim())){const m=p.match(/(\d+(?:\.\d+)?)\s*cm(?:\s*[x×]\s*(\d+))?/i);if(m)r.push({cm:parseInt(m[1]),count:m[2]?parseInt(m[2]):null});}return r.length?r:[{cm:10,count:3}]};
+  const toStr=steps=>steps.map(s=>`${s.cm}cm${s.count?' x'+s.count:''}`).join(', ');
+  const[steps,setSteps]=useState(()=>toSteps(incStr));
+  const update=ns=>{setSteps(ns);setIncStr(toStr(ns));};
+  const addStep=()=>update([...steps,{cm:5,count:null}]);
+  const removeStep=i=>update(steps.filter((_,j)=>j!==i));
+  const setCm=(i,v)=>update(steps.map((s,j)=>j===i?{...s,cm:v}:s));
+  const setCount=(i,v)=>update(steps.map((s,j)=>j===i?{...s,count:v}:s));
+  return(
+    <div>
+      <div style={{display:'flex',gap:5,flexWrap:'wrap',marginBottom:10}}>
+        {PRESETS.map(p=>(
+          <button key={p.label} onClick={()=>{setIncStr(p.str);setSteps(toSteps(p.str));}}
+            style={{...btn(C.card,'5px 11px',11),border:`1px solid ${C.border}`}}>{p.label}</button>
+        ))}
+      </div>
+      <div style={{display:'grid',gap:6}}>
+        {steps.map((s,i)=>(
+          <div key={i} style={{display:'flex',alignItems:'center',gap:6,background:C.card,borderRadius:8,border:`1px solid ${C.border}`,padding:'8px 10px',flexWrap:'wrap'}}>
+            <span style={{fontSize:11,color:C.muted,width:18,flexShrink:0}}>#{i+1}</span>
+            <div style={{display:'flex',gap:3,flexWrap:'wrap',flex:1,alignItems:'center'}}>
+              <span style={{fontSize:11,color:C.muted,marginRight:2}}>Inc:</span>
+              {CM_OPTS.map(c=>(
+                <button key={c} onClick={()=>setCm(i,c)}
+                  style={{...btn(s.cm===c?C.accent:C.surface,'3px 8px',11),border:`1px solid ${s.cm===c?C.accent:C.border}`,minWidth:34}}>{c}cm</button>
+              ))}
+            </div>
+            <div style={{display:'flex',gap:3,alignItems:'center',flexShrink:0}}>
+              <span style={{fontSize:11,color:C.muted,marginRight:2}}>×</span>
+              {[1,2,3,4,5,null].map(c=>(
+                <button key={String(c)} onClick={()=>setCount(i,c)}
+                  style={{...btn(s.count===c?C.accent:C.surface,'3px 7px',11),border:`1px solid ${s.count===c?C.accent:C.border}`}}>
+                  {c===null?'∞':c}
+                </button>
+              ))}
+            </div>
+            {steps.length>1&&<button onClick={()=>removeStep(i)} style={{...btn('#7f1d1d','3px 8px',11),flexShrink:0}}>×</button>}
+          </div>
+        ))}
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
+        <button onClick={addStep} style={{...btn(C.card,'5px 12px',12),border:`1px solid ${C.border}`}}>+ Step</button>
+        <span style={{fontSize:10,color:C.muted,flex:1}}>{toStr(steps)||'—'}</span>
+      </div>
     </div>
   );
 }
@@ -492,9 +555,13 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
       <div style={sec}>
         <div style={secTit}>Height Progression <span style={{color:C.muted,fontWeight:400,fontSize:10,letterSpacing:0}}>(max 10)</span></div>
         <div style={{display:'grid',gap:10}}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <div><div style={{fontSize:12,color:C.muted,marginBottom:5}}>Starting Height (m)</div><input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e=>setStartH(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.muted,marginBottom:5}}>Increments</div><input style={inp} placeholder="10cm x3, 5cm" value={incStr} onChange={e=>setIncStr(e.target.value)}/></div>
+          <div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:5}}>Starting Height (m)</div>
+            <input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e=>setStartH(e.target.value)}/>
+          </div>
+          <div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Increments</div>
+            <IncStepBuilder incStr={incStr} setIncStr={setIncStr}/>
           </div>
           <div><div style={{fontSize:12,color:C.muted,marginBottom:5}}>Or manual (m, comma-separated, max 10)</div><input style={inp} placeholder="5.00, 5.10, 5.20..." value={manualH} onChange={e=>setManualH(e.target.value)}/></div>
           <button onClick={doGenHeights} style={btn(C.accent)}>Generate Heights</button>
@@ -682,7 +749,17 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
           <input style={inp} placeholder="e.g. 5.32m" value={athlete.sb||''} onChange={e=>onUpdate({sb:e.target.value})}/>
         </div>
       </div>
-      <input style={{...inp,marginBottom:12}} placeholder="Custom logo / flag URL (optional)" value={athlete.logoUrl||''} onChange={e=>onUpdate({logoUrl:e.target.value})}/>
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Logo / Flag</div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <input style={{...inp,flex:1}} placeholder="Image URL, or upload →" value={athlete.logoUrl||''} onChange={e=>onUpdate({logoUrl:e.target.value})}/>
+          <label style={{cursor:'pointer',flexShrink:0}}>
+            <span style={{...btn(C.card,'9px 12px',12),border:`1px solid ${C.border}`,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>📸 Upload</span>
+            <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>onUpdate({logoUrl:ev.target.result});r.readAsDataURL(f);}}/>
+          </label>
+        </div>
+        {athlete.logoUrl&&athlete.logoUrl.startsWith('data:')&&<div style={{fontSize:10,color:C.success,marginTop:4}}>✓ Image uploaded</div>}
+      </div>
       <div style={{display:'flex',gap:8}}>
         <button onClick={onEdit} style={btn(C.success,'8px 14px',14)}>Done</button>
         <button onClick={onDelete} style={btn('#7f1d1d','8px 14px',14)}>Delete</button>
@@ -784,9 +861,15 @@ function SaveResultsDialog({athletes,heights,ranked,info,metric,onClose}){
 }
 
 // ─── SCORING SCREEN ───────────────────────────────────────────────────────────
-function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric,recordMark,undoMark,live,onDeck,inHole,compStatus,info}){
+function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric,recordMark,undoMark,live,onDeck,inHole,compStatus,info,onEnd}){
   const isActive=compStatus==='active';
   const curAth=athletes[curA];
+  // Meet-over: no eligible vaulter at any remaining height
+  const meetOver=useMemo(()=>{
+    if(!isActive||!heights.length)return false;
+    for(let h=curH;h<heights.length;h++){if(firstEligible(athletes,h)!==-1)return false;}
+    return true;
+  },[athletes,heights,curH,isActive]);
   const curHt=heights[curH];
   const curMarks=curAth?(curAth.attempts[curH]||[]):[];
   const attemptNum=curMarks.length+1;
@@ -882,8 +965,18 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
         </div>
       )}
 
+      {/* ── MEET OVER BANNER ── */}
+      {meetOver&&(
+        <div style={{background:`${C.success}18`,border:`1px solid ${C.success}55`,margin:'12px 14px',borderRadius:14,padding:'16px 18px',textAlign:'center'}}>
+          <div style={{fontSize:18,marginBottom:6}}>🏆</div>
+          <div style={{fontWeight:800,fontSize:16,color:C.success,marginBottom:4}}>Competition Complete</div>
+          <div style={{fontSize:13,color:C.muted,marginBottom:14}}>All athletes have finished. Ready to end and verify results.</div>
+          <button onClick={onEnd} style={{...btn(C.success,'10px 24px',14),width:'100%',maxWidth:240}}>End Competition</button>
+        </div>
+      )}
+
       {/* ── MARK BUTTONS (active only) ── */}
-      {isActive&&(
+      {isActive&&!meetOver&&(
         <div style={{padding:'10px 10px',display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:6,background:C.bg,borderBottom:`1px solid ${C.border}`}}>
           {MARKS.map(({mark,bg,symbol,label})=>(
             <button key={mark} onClick={()=>recordMark(mark)}
@@ -1078,9 +1171,13 @@ function EditOverlay({onClose,athletes,addAthlete,updAthlete,delAthlete,moveAthl
           {tab==='heights'&&<>
             <div style={{fontSize:12,color:C.muted,marginBottom:12}}>Click any height to edit inline. Max 10 heights.</div>
             <div style={{display:'grid',gap:10,marginBottom:14}}>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Start (m)</div><input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e=>setStartH(e.target.value)}/></div>
-                <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Increments</div><input style={inp} placeholder="10cm x3, 5cm" value={incStr} onChange={e=>setIncStr(e.target.value)}/></div>
+              <div>
+                <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Start (m)</div>
+                <input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e=>setStartH(e.target.value)}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Increments</div>
+                <IncStepBuilder incStr={incStr} setIncStr={setIncStr}/>
               </div>
               <input style={inp} placeholder="Or manual: 5.00, 5.10..." value={manualH} onChange={e=>setManualH(e.target.value)}/>
               <button onClick={doGenHeights} style={btn(C.accent)}>Update Heights</button>
@@ -1140,7 +1237,7 @@ function HistoryScreen({savedComps,setSavedComps,loadSnapshot,saveSnapshot}){
         <div style={{display:'flex',alignItems:'center',marginBottom:12}}>
           <div style={{...secTit,marginBottom:0}}>Saved Competitions</div>
           <div style={{flex:1}}/>
-          <button onClick={saveSnapshot} style={btn(C.accent,'7px 14px',13)}>Save Current</button>
+          <button onClick={saveSnapshot} style={btn(C.accent,'7px 14px',13)}>Close</button>
         </div>
         {!savedComps.length&&<div style={{textAlign:'center',padding:'28px 20px',color:C.muted,fontSize:14}}>No saved competitions yet.</div>}
         <div style={{display:'grid',gap:10}}>
@@ -1153,8 +1250,8 @@ function HistoryScreen({savedComps,setSavedComps,loadSnapshot,saveSnapshot}){
                   <div style={{fontSize:11,color:C.muted,marginTop:2}}>{fmtDate(comp.savedAt)}{comp.state?.athletes?` · ${comp.state.athletes.length} athletes`:''}{comp.compStatus==='official'?<span style={{color:C.success}}> · Official</span>:comp.compStatus==='complete-pending'?<span style={{color:C.warn}}> · Pending</span>:''}</div>
                 </div>
                 <div style={{display:'flex',gap:6,flexShrink:0}}>
-                  <button onClick={()=>loadSnapshot(comp)} style={btn(comp.compStatus==='official'?C.warn:C.accent,'6px 11px',11)}>
-                    {comp.compStatus==='official'?'Modify':'Resume'}
+                  <button onClick={()=>loadSnapshot(comp)} style={btn(comp.compStatus==='official'?C.success:C.accent,'6px 11px',11)}>
+                    {comp.compStatus==='official'?'Review':'Resume'}
                   </button>
                   <button onClick={()=>handleDel(comp.id)} style={btn('#7f1d1d','6px 11px',11)}>x</button>
                 </div>
