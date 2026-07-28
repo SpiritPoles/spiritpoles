@@ -20,9 +20,9 @@
     ::-webkit-scrollbar{width:5px;height:5px}
     ::-webkit-scrollbar-track{background:var(--surface)}
     ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
-    .vd-drag-over{outline:2px solid #4f7cff!important;background:rgba(79,124,255,.09)!important;border-radius:10px}
-    @keyframes wiggle{0%,100%{transform:rotate(-2.5deg) scale(1.04) translateY(-2px)}50%{transform:rotate(2.5deg) scale(1.04) translateY(-2px)}}
-    .vd-dragging{opacity:.93;animation:wiggle .32s ease-in-out infinite;box-shadow:0 14px 36px rgba(0,0,0,.75);border-radius:10px;z-index:50;position:relative;background:rgba(79,124,255,.14)!important;outline:2px solid #4f7cff!important}
+    .vd-dragging{opacity:.12;border:2px dashed rgba(79,124,255,.35)!important;border-radius:10px;background:transparent!important;pointer-events:none}
+    .vd-drag-over{position:relative}
+    .vd-drag-over::before{content:'';position:absolute;top:-5px;left:10px;right:10px;height:3px;background:#4f7cff;border-radius:3px;z-index:20}
     input[type=number]{-moz-appearance:textfield}
     input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
   </style>
@@ -708,27 +708,25 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
   const commitOrder=()=>{const n=parseInt(orderInput);if(!isNaN(n))onSetOrder(n);setOrderInput('');};
 
   if(!isEditing)return(
-    <div style={{display:'flex',alignItems:'center',gap:7,padding:'10px 12px',background:C.card,borderRadius:10,border:`1px solid ${C.border}`,userSelect:'none',WebkitUserSelect:'none'}}>
-      {/* Touch+mouse drag handle */}
-      <div
-        onTouchStart={onTouchStartHandle}
-        onMouseDown={e=>e.preventDefault()}
-        style={{cursor:'grab',fontSize:18,color:C.muted,flexShrink:0,userSelect:'none',touchAction:'none',padding:'0 4px 0 0',lineHeight:1}}>
-        &#x283F;
-      </div>
-      <input value={orderInput} onChange={e=>setOrderInput(e.target.value)} onBlur={commitOrder} onKeyDown={e=>e.key==='Enter'&&commitOrder()} placeholder={String(athlete.order)} style={{...inp,padding:'4px 6px',fontSize:13,textAlign:'center',width:36,borderRadius:6}}/>
+    <div style={{display:'flex',alignItems:'center',gap:8,padding:'11px 12px',background:C.card,borderRadius:10,border:`1px solid ${C.border}`,userSelect:'none',WebkitUserSelect:'none'}}>
       <FlagCell athlete={athlete} size={26}/>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontWeight:600,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-          {(athlete.firstName||athlete.lastName)?`${athlete.firstName} ${athlete.lastName}`.trim():<span style={{color:C.muted}}>Unnamed</span>}
+          {(athlete.firstName||athlete.lastName)?`${athlete.firstName} ${athlete.lastName}`.trim():<span style={{color:C.muted}}>#{athlete.order} Unnamed</span>}
         </div>
         <div style={{fontSize:12,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-          {[athlete.affiliation,athlete.country].filter(Boolean).join(' · ')||'No affiliation'}
+          #{athlete.order}{[athlete.affiliation,athlete.country].filter(Boolean).length?` · ${[athlete.affiliation,athlete.country].filter(Boolean).join(' · ')}`:' · No affiliation'}
           {(athlete.pb||athlete.sb)&&` · ${[athlete.pb&&'PB '+athlete.pb,athlete.sb&&'SB '+athlete.sb].filter(Boolean).join(', ')}`}
         </div>
       </div>
       <button onClick={onEdit} style={btn(C.accent,'6px 12px',12)}>Edit</button>
-      <button onClick={onDelete} style={btn('#7f1d1d','6px 12px',12)}>x</button>
+      <button onClick={onDelete} style={{...btn('#374151','6px 10px',13),border:`1px solid ${C.border}`,color:C.muted}}>✕</button>
+      <div
+        onTouchStart={onTouchStartHandle}
+        onMouseDown={e=>e.preventDefault()}
+        style={{cursor:'grab',color:C.muted,flexShrink:0,userSelect:'none',touchAction:'none',padding:'4px 2px 4px 6px',fontSize:18,lineHeight:1,display:'flex',alignItems:'center'}}>
+        ☰
+      </div>
     </div>
   );
 
