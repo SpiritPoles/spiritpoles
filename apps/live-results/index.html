@@ -47,14 +47,14 @@ const getCountrySuggestions=q=>{if(!q||q.length<2)return[];const lower=q.toLower
 
 const parsePaste=text=>{const r={};const pb=text.match(/(?:PB|PR|Personal\s+(?:Best|Record))[:\s]+([0-9]+[''\-.][0-9]*(?:\s*[0-9]+\/[0-9]+)?(?:m|in)?)/i);const sb=text.match(/(?:SB|Season(?:al)?\s+(?:Best|Record))[:\s]+([0-9]+[''\-.][0-9]*(?:\s*[0-9]+\/[0-9]+)?(?:m|in)?)/i);const cc=text.match(/\b([A-Z]{3})\b/g);if(pb)r.pb=pb[1].trim();if(sb)r.sb=sb[1].trim();if(cc){const k=cc.find(c=>IOC_ISO[c]);if(k)r.country=k;}return r};
 
-const mToFtIn=m=>{const ti=m*39.3701,ft=Math.floor(ti/12),raw=ti%12;const q=Math.round(raw*4)/4,whole=Math.floor(q),frac=q-whole;return`${ft}'${whole}${frac===0?'':frac===.25?'Â¼':frac===.5?'Â½':'Â¾'}"`};
+const mToFtIn=m=>{const ti=m*39.3701,ft=Math.floor(ti/12),raw=ti%12;const q=Math.round(raw*4)/4,whole=Math.floor(q),frac=q-whole;return`${ft}'${whole}${frac===0?'':frac===.25?'¼':frac===.5?'½':'¾'}"`};
 const fmtH=(cm,metric)=>{if(!cm&&cm!==0)return'';return metric?`${(cm/100).toFixed(2)}m`:mToFtIn(cm/100)};
 
 const hasCleared=m=>Array.isArray(m)&&m.includes('O');
 const hasRetired=m=>Array.isArray(m)&&m.includes('R');
 const hasPassed=m=>Array.isArray(m)&&m.includes('P');
 const countMisses=m=>Array.isArray(m)?m.filter(x=>x==='X').length:0;
-// TERMINAL statuses â out of rotation entirely
+// TERMINAL statuses — out of rotation entirely
 const TERMINAL=['dns','retired','nh'];
 // done at current height (won't jump again at this height)
 const isDone=(marks,status)=>TERMINAL.includes(status)||hasCleared(marks)||marks.length>=3||hasRetired(marks)||hasPassed(marks);
@@ -91,7 +91,7 @@ const calcPlacements=(athletes,heights)=>{
 const nextVaulter=(athletes,hIdx,fromIdx)=>{const n=athletes.length;for(let s=1;s<=n;s++){const idx=(fromIdx+s)%n;if(!isDone(athletes[idx].attempts[hIdx]||[],athletes[idx].status))return idx;}return-1};
 const firstEligible=(athletes,hIdx)=>{for(let i=0;i<athletes.length;i++)if(!isDone(athletes[i].attempts[hIdx]||[],athletes[i].status))return i;return-1};
 
-const genHeights=(startM,incStr)=>{const startCm=Math.round(parseFloat(startM)*100);if(isNaN(startCm))return[];const rules=[];for(const part of incStr.split(',').map(s=>s.trim())){const m=part.match(/(\d+(?:\.\d+)?)\s*cm(?:\s*[xÃ]\s*(\d+))?/i);if(m)rules.push({cm:parseFloat(m[1]),count:m[2]?parseInt(m[2]):99});}const hs=[startCm];let cur=startCm;for(const{cm,count}of rules){for(let i=0;i<count;i++){cur+=cm;hs.push(cur);if(hs.length>=10)return hs;}}return hs};
+const genHeights=(startM,incStr)=>{const startCm=Math.round(parseFloat(startM)*100);if(isNaN(startCm))return[];const rules=[];for(const part of incStr.split(',').map(s=>s.trim())){const m=part.match(/(\d+(?:\.\d+)?)\s*cm(?:\s*[x×]\s*(\d+))?/i);if(m)rules.push({cm:parseFloat(m[1]),count:m[2]?parseInt(m[2]):99});}const hs=[startCm];let cur=startCm;for(const{cm,count}of rules){for(let i=0;i<count;i++){cur+=cm;hs.push(cur);if(hs.length>=10)return hs;}}return hs};
 const parseManual=str=>str.split(/[,\s]+/).map(s=>parseFloat(s)).filter(n=>!isNaN(n)).map(m=>Math.round(m*100)).slice(0,10);
 
 // parse CSV text into athlete rows
@@ -141,7 +141,7 @@ const buildResultsCSV=(athletes,heights,ranked,info,metric)=>{
   return[headers,...rows].map(r=>r.map(q).join(',')).join('\n');
 };
 
-// âââ STORAGE âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── STORAGE ─────────────────────────────────────────────────────────────────
 const LS_CUR='vaultdesk_current_v14';
 const LS_ALL='vaultdesk_saved_v14';
 const loadCurrent=()=>{try{return JSON.parse(localStorage.getItem(LS_CUR));}catch{return null}};
@@ -153,13 +153,13 @@ const deleteComp=id=>saveAll(loadSaved().filter(c=>c.id!==id));
 let _ctr=0;
 const mkAthlete=order=>({id:`a${++_ctr}_${Date.now().toString(36)}`,order,firstName:'',lastName:'',country:'',affiliation:'',pb:'',sb:'',logoUrl:'',attempts:Array.from({length:10},()=>[]),status:'competing'});
 
-// âââ STYLES ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── STYLES ──────────────────────────────────────────────────────────────────
 const inp={background:C.card,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:'11px 13px',fontSize:16,width:'100%',outline:'none'};
 const sec={marginBottom:18,padding:16,background:C.surface,borderRadius:14,border:`1px solid ${C.border}`};
 const secTit={fontWeight:700,fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:1.2,marginBottom:12};
 const btn=(bg,pad='10px 18px',fs=14)=>({background:bg,color:'#fff',border:'none',borderRadius:10,padding:pad,fontSize:fs,fontWeight:700,cursor:'pointer',WebkitTapHighlightColor:'transparent',letterSpacing:.2,display:'inline-flex',alignItems:'center',justifyContent:'center',gap:4});
 
-// âââ FLAG CELL âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── FLAG CELL ───────────────────────────────────────────────────────────────
 function FlagCell({athlete,size=26}){
   const[err,setErr]=useState(false);
   const src=athlete.logoUrl||(!err&&getFlagUrl(athlete.country))||null;
@@ -168,7 +168,7 @@ function FlagCell({athlete,size=26}){
   return<div style={{width:size,height:Math.round(size*.75),borderRadius:3,background:C.border,display:'flex',alignItems:'center',justifyContent:'center',fontSize:size<24?8:9,fontWeight:800,color:C.muted,flexShrink:0,letterSpacing:-.5}}>{lbl}</div>;
 }
 
-// âââ COUNTRY INPUT âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── COUNTRY INPUT ───────────────────────────────────────────────────────────
 function CountryInput({value,onChange}){
   const[sugg,setSugg]=useState([]);
   const[open,setOpen]=useState(false);
@@ -177,7 +177,7 @@ function CountryInput({value,onChange}){
   const handleBlur=()=>setTimeout(()=>setOpen(false),150);
   return(
     <div style={{position:'relative'}}>
-      <input style={inp} placeholder="Country â IOC code (USA) or name (Sweden)" value={value} onChange={handleChange} onFocus={()=>value.length>=2&&setOpen(true)} onBlur={handleBlur}/>
+      <input style={inp} placeholder="Country — IOC code (USA) or name (Sweden)" value={value} onChange={handleChange} onFocus={()=>value.length>=2&&setOpen(true)} onBlur={handleBlur}/>
       {open&&sugg.length>0&&(
         <div style={{position:'absolute',top:'100%',left:0,right:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,zIndex:200,overflow:'hidden',boxShadow:'0 4px 20px rgba(0,0,0,.4)'}}>
           {sugg.map((s,i)=>(
@@ -193,7 +193,7 @@ function CountryInput({value,onChange}){
   );
 }
 
-// âââ IMPORT DIALOG âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── IMPORT DIALOG ───────────────────────────────────────────────────────────
 function ImportDialog({onImport,onClose}){
   const[dragOver,setDragOver]=useState(false);
   const[preview,setPreview]=useState([]);
@@ -227,7 +227,7 @@ function ImportDialog({onImport,onClose}){
           onDragOver={e=>{e.preventDefault();setDragOver(true);}}
           onDragLeave={()=>setDragOver(false)}
           style={{border:`2px dashed ${dragOver?C.accent:C.border}`,borderRadius:12,padding:'20px 16px',textAlign:'center',marginBottom:14,background:dragOver?`${C.accent}11`:'transparent',cursor:'pointer',transition:'all .2s'}}>
-          <div style={{fontSize:28,marginBottom:6}}>ð</div>
+          <div style={{fontSize:28,marginBottom:6}}>📂</div>
           <div style={{fontSize:13,color:C.muted}}>Drop CSV / TXT file here</div>
           <label style={{display:'inline-block',marginTop:8}}>
             <span style={{...btn(C.accent,'6px 12px',12),cursor:'pointer'}}>Browse</span>
@@ -260,7 +260,7 @@ function ImportDialog({onImport,onClose}){
   );
 }
 
-// âââ MAIN APP ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── MAIN APP ────────────────────────────────────────────────────────────────
 function VaultDeskApp(){
   const saved=useMemo(loadCurrent,[]);
   const[screen,setScreen]=useState(saved?.screen||'setup');
@@ -317,7 +317,7 @@ function VaultDeskApp(){
   const doGenHeights=()=>{const hs=manualH.trim()?parseManual(manualH):genHeights(startH,incStr);setHeights(hs)};
   const updateHeight=(idx,valStr)=>{const v=parseFloat(valStr);if(!isNaN(v))setHeights(p=>p.map((h,i)=>i===idx?Math.round(v*100):h));};
 
-  // ââ RECORD MARK (synchronous advance) âââââââââââââââââââââââââââââââââââ
+  // ── RECORD MARK (synchronous advance) ────────────────────────────────────
   const recordMark=useCallback(mark=>{
     const prev=athletesRef.current;
     const next=prev.map((a,i)=>{
@@ -409,15 +409,15 @@ function VaultDeskApp(){
   const onDeck    =onDeckIdx!==-1&&onDeckIdx!==curA?athletes[onDeckIdx]:null;
   const inHole    =inHoleIdx!==-1&&inHoleIdx!==curA&&inHoleIdx!==onDeckIdx?athletes[inHoleIdx]:null;
 
-  const TABS=[{id:'setup',icon:'âï¸',label:'Setup'},{id:'scoring',icon:'ð¯',label:'Score'},{id:'display',icon:'ðº',label:'Display'},{id:'history',icon:'ðï¸',label:'History'}];
+  const TABS=[{id:'setup',icon:'⚙️',label:'Setup'},{id:'scoring',icon:'🎯',label:'Score'},{id:'display',icon:'📺',label:'Display'},{id:'history',icon:'🗂️',label:'History'}];
 
   return(
     <div style={{background:C.bg,minHeight:'100vh',color:C.text,maxWidth:'100vw',overflowX:'hidden'}}>
       {/* TOP BAR */}
       <header style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'9px 14px',position:'sticky',top:0,zIndex:300,display:'flex',alignItems:'center',gap:8}}>
         <div style={{fontWeight:900,fontSize:16,color:C.accent,letterSpacing:-.5,flexShrink:0}}>VaultDesk</div>
-        <div style={{flex:1,fontSize:11,color:C.muted,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{info.name||'Pole Vault'}{screen==='scoring'&&heights[curH]?` Â· ${fmtH(heights[curH],metric)}`:''}</div>
-        <button onClick={()=>setMetric(m=>!m)} style={{...btn(C.card,'5px 9px',10),border:`1px solid ${C.border}`}}>{metric?'mâft':'ftâm'}</button>
+        <div style={{flex:1,fontSize:11,color:C.muted,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{info.name||'Pole Vault'}{screen==='scoring'&&heights[curH]?` · ${fmtH(heights[curH],metric)}`:''}</div>
+        <button onClick={()=>setMetric(m=>!m)} style={{...btn(C.card,'5px 9px',10),border:`1px solid ${C.border}`}}>{metric?'m→ft':'ft→m'}</button>
         {screen==='scoring'&&<>
           <button onClick={()=>setLive(l=>!l)} style={{...btn(live?'#7f1d1d':C.card,'5px 8px',10),border:live?'none':`1px solid ${C.border}`}}>
             <span className={live?'live-dot':''} style={{width:6,height:6,borderRadius:'50%',background:live?'#ff4444':C.muted,flexShrink:0,display:'inline-block'}}/>
@@ -462,7 +462,7 @@ function VaultDeskApp(){
   );
 }
 
-// âââ SETUP SCREEN ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── SETUP SCREEN ────────────────────────────────────────────────────────────
 function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updAthlete,delAthlete,moveAthlete,reorder,setOrder,editingId,setEditingId,startH,setStartH,incStr,setIncStr,manualH,setManualH,doGenHeights,heights,setHeights,updateHeight,metric,startComp,dirEmail,setDirEmail,onImport}){
   const ci=(k,v)=>setInfo(p=>({...p,[k]:v}));
   return(
@@ -516,7 +516,7 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
         </div>
         <div style={{fontSize:11,color:C.muted,marginBottom:10}}>Hold and drag the handle to reorder. Type # to jump position.</div>
         <AthleteList athletes={athletes} editingId={editingId} setEditingId={setEditingId} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} rulebook={rulebook}/>
-        {!athletes.length&&<div style={{textAlign:'center',padding:20,color:C.muted,fontSize:14}}>No athletes â tap + Add</div>}
+        {!athletes.length&&<div style={{textAlign:'center',padding:20,color:C.muted,fontSize:14}}>No athletes — tap + Add</div>}
       </div>
 
       <button onClick={startComp} style={{...btn(athletes.length>0&&heights.length>0?C.success:'#2a2a2a'),width:'100%',padding:15,fontSize:16,borderRadius:14,opacity:athletes.length>0&&heights.length>0?1:.5}}>
@@ -526,7 +526,7 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
   );
 }
 
-// âââ HEIGHT EDITOR âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── HEIGHT EDITOR ───────────────────────────────────────────────────────────
 function HeightEditor({heights,setHeights,updateHeight,metric}){
   return(
     <div style={{display:'grid',gap:6}}>
@@ -549,7 +549,7 @@ function HeightEditor({heights,setHeights,updateHeight,metric}){
   );
 }
 
-// âââ ATHLETE LIST (with touch drag) âââââââââââââââââââââââââââââââââââââââââ
+// ─── ATHLETE LIST (with touch drag) ─────────────────────────────────────────
 function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,moveAthlete,reorder,setOrder,rulebook}){
   const[dragIdx,setDragIdx]=useState(null);
   const[overIdx,setOverIdx]=useState(null);
@@ -623,7 +623,7 @@ function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,move
   );
 }
 
-// âââ ATHLETE ROW âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── ATHLETE ROW ─────────────────────────────────────────────────────────────
 function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp,onDown,onSetOrder,rulebook,onTouchStartHandle}){
   const[orderInput,setOrderInput]=useState('');
   const[showLookup,setShowLookup]=useState(false);
@@ -644,8 +644,8 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
           {(athlete.firstName||athlete.lastName)?`${athlete.firstName} ${athlete.lastName}`.trim():<span style={{color:C.muted}}>Unnamed</span>}
         </div>
         <div style={{fontSize:12,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-          {[athlete.affiliation,athlete.country].filter(Boolean).join(' Â· ')||'No affiliation'}
-          {(athlete.pb||athlete.sb)&&` Â· ${[athlete.pb&&'PB '+athlete.pb,athlete.sb&&'SB '+athlete.sb].filter(Boolean).join(', ')}`}
+          {[athlete.affiliation,athlete.country].filter(Boolean).join(' · ')||'No affiliation'}
+          {(athlete.pb||athlete.sb)&&` · ${[athlete.pb&&'PB '+athlete.pb,athlete.sb&&'SB '+athlete.sb].filter(Boolean).join(', ')}`}
         </div>
       </div>
       <button onClick={onEdit} style={btn(C.accent,'6px 12px',12)}>Edit</button>
@@ -668,7 +668,7 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,fontSize:13,color:C.muted}}>
           Flag:&nbsp;<FlagCell athlete={athlete} size={26}/>
           <span style={{color:C.text,fontWeight:700}}>{athlete.country.toUpperCase()}</span>
-          {!getFlagUrl(athlete.country)&&<span style={{color:C.warn}}> â unrecognized code</span>}
+          {!getFlagUrl(athlete.country)&&<span style={{color:C.warn}}> — unrecognized code</span>}
         </div>
       )}
       <div style={{marginBottom:8}}><input style={inp} placeholder="Affiliation / School / Club" value={athlete.affiliation||''} onChange={e=>onUpdate({affiliation:e.target.value})}/></div>
@@ -692,7 +692,7 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
   );
 }
 
-// âââ LOOKUP DIALOG âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── LOOKUP DIALOG ───────────────────────────────────────────────────────────
 function LookupDialog({athlete,rulebook,onApply,onClose}){
   const[paste,setPaste]=useState('');
   const[parsed,setParsed]=useState(null);
@@ -730,7 +730,7 @@ function LookupDialog({athlete,rulebook,onApply,onClose}){
   );
 }
 
-// âââ SAVE RESULTS DIALOG âââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── SAVE RESULTS DIALOG ─────────────────────────────────────────────────────
 function SaveResultsDialog({athletes,heights,ranked,info,metric,onClose}){
   const[saving,setSaving]=useState(false);
   const[saved,setSaved]=useState(false);
@@ -760,7 +760,7 @@ function SaveResultsDialog({athletes,heights,ranked,info,metric,onClose}){
   };
 
   return(
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',Yadding:20}} onClick={onClose}>
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
       <div style={{background:C.surface,borderRadius:16,padding:24,width:'100%',maxWidth:400,border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
         <div style={{fontWeight:800,fontSize:17,marginBottom:8}}>Save Official Results</div>
         <div style={{fontSize:13,color:C.muted,marginBottom:20,lineHeight:1.6}}>
@@ -783,7 +783,7 @@ function SaveResultsDialog({athletes,heights,ranked,info,metric,onClose}){
   );
 }
 
-// âââ SCORING SCREEN âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── SCORING SCREEN ───────────────────────────────────────────────────────────
 function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric,recordMark,undoMark,live,onDeck,inHole,compStatus,info}){
   const isActive=compStatus==='active';
   const curAth=athletes[curA];
@@ -802,8 +802,8 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
   };
 
   const MARKS=[
-    {mark:'O',bg:C.success,symbol:'â',label:'Clear'},
-    {mark:'X',bg:C.danger, symbol:'â',label:'Miss'},
+    {mark:'O',bg:C.success,symbol:'✓',label:'Clear'},
+    {mark:'X',bg:C.danger, symbol:'✗',label:'Miss'},
     {mark:'P',bg:'#2563eb',symbol:'P',      label:'Pass'},
     {mark:'R',bg:C.warn,   symbol:'R',      label:'Retire'},
     {mark:'DNS',bg:'#374151',symbol:'-',    label:'DNS'},
@@ -811,9 +811,9 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
 
   return(
     <div style={{paddingBottom:20}}>
-      {/* ââ HERO ââ */}
+      {/* ── HERO ── */}
       <div style={{background:`linear-gradient(180deg,${C.accent}1a 0%,${C.bg} 100%)`,borderBottom:`1px solid ${C.border}`,padding:'16px 16px 14px',textAlign:'center'}}>
-        {info.name&&<div style={{fontSize:10,color:C.muted,letterSpacing:1.5,textTransform:'uppercase',marginBottom:6}}>{info.name}{info.venue?` Â· ${info.venue}`:''}</div>}
+        {info.name&&<div style={{fontSize:10,color:C.muted,letterSpacing:1.5,textTransform:'uppercase',marginBottom:6}}>{info.name}{info.venue?` · ${info.venue}`:''}</div>}
         {live&&isActive&&(
           <div style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:9,color:'#ff4444',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>
             <span className="live-dot" style={{width:6,height:6,borderRadius:'50%',background:'#ff4444',display:'inline-block'}}/>LIVE
@@ -822,41 +822,41 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
         {!isActive&&<div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,color:C.warn,fontWeight:700,letterSpacing:.5,marginBottom:6,background:`${C.warn}18`,borderRadius:8,padding:'3px 10px'}}>
           {compStatus==='official'?'Official Results':'Pending Verification'}
         </div>}
-        {/* Big height â only show when active */}
+        {/* Big height — only show when active */}
         {isActive&&<>
           <div style={{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:2,marginBottom:4}}>Current Bar</div>
-          <div style={{fontSize:54,fontWeight:900,color:C.accent,lineHeight:1,letterSpacing:-2}}>{curHt?fmtH(curHt,metric):'â'}</div>
+          <div style={{fontSize:54,fontWeight:900,color:C.accent,lineHeight:1,letterSpacing:-2}}>{curHt?fmtH(curHt,metric):'—'}</div>
           {curHt&&<div style={{fontSize:14,color:C.muted,marginBottom:14}}>{fmtH(curHt,!metric)}</div>}
           {/* Current vaulter card */}
           {curAth&&!alreadyDone?(
             <div style={{display:'inline-flex',alignItems:'center',gap:14,background:C.surface,borderRadius:16,padding:'12px 18px',border:`2px solid ${C.accent}`,textAlign:'left',maxWidth:'100%'}}>
               <FlagCell athlete={curAth} size={48}/>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:9,color:C.accent,textTransform:'uppercase',letterSpacing:2,marginBottom:4,fontWeight:700}}>Now Vaulting Â· Attempt {attemptNum}/3</div>
+                <div style={{fontSize:9,color:C.accent,textTransform:'uppercase',letterSpacing:2,marginBottom:4,fontWeight:700}}>Now Vaulting · Attempt {attemptNum}/3</div>
                 <div style={{fontSize:24,fontWeight:900,color:C.text,lineHeight:1.1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
                   {curAth.firstName&&<span style={{color:C.muted,fontSize:20}}>{curAth.firstName} </span>}
-                  <span>{curAth.lastName||curAth.firstName||'â'}</span>
+                  <span>{curAth.lastName||curAth.firstName||'—'}</span>
                 </div>
                 {(curAth.affiliation||curAth.country||curAth.pb)&&(
                   <div style={{fontSize:11,color:C.muted,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                    {[curAth.affiliation,curAth.country].filter(Boolean).join(' Â· ')}
-                    {curAth.pb&&` Â· PB ${curAth.pb}`}
+                    {[curAth.affiliation,curAth.country].filter(Boolean).join(' · ')}
+                    {curAth.pb&&` · PB ${curAth.pb}`}
                   </div>
                 )}
                 <AttemptDots/>
               </div>
             </div>
           ):(isActive&&(
-            <div style={{background:`${C.warn}18`,borderRadius:12,padding:'10px 16px',display:'inline-block',border:`1px solid ${C.warn}44`,fontSize:13,color:C.warn+ ontWeight:600}}>
+            <div style={{background:`${C.warn}18`,borderRadius:12,padding:'10px 16px',display:'inline-block',border:`1px solid ${C.warn}44`,fontSize:13,color:C.warn,fontWeight:600}}>
               {alreadyDone&&curAth?.status==='dns'
-                ?`${curAth.firstName||'Athlete'} DNS â tap Undo or select another vaulter`
-                :'All athletes done at this height â advance to next height'}
+                ?`${curAth.firstName||'Athlete'} DNS — tap Undo or select another vaulter`
+                :'All athletes done at this height — advance to next height'}
             </div>
           ))}
         </>}
       </div>
 
-      {/* ââ ON DECK / IN THE HOLE (active only) ââ */}
+      {/* ── ON DECK / IN THE HOLE (active only) ── */}
       {isActive&&(onDeck||inHole)&&(
         <div style={{display:'flex',background:C.surface,borderBottom:`1px solid ${C.border}`}}>
           {onDeck&&(
@@ -882,7 +882,7 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
         </div>
       )}
 
-      {/* ââ MARK BUTTONS (active only) ââ */}
+      {/* ── MARK BUTTONS (active only) ── */}
       {isActive&&(
         <div style={{padding:'10px 10px',display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:6,background:C.bg,borderBottom:`1px solid ${C.border}`}}>
           {MARKS.map(({mark,bg,symbol,label})=>(
@@ -893,12 +893,12 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
           ))}
           <button onClick={undoMark}
             style={{background:'#4c1d95',color:'#fff',border:'none',borderRadius:12,padding:'10px 2px',fontSize:10,fontWeight:700,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,minHeight:54,fontFamily:'inherit',WebkitTapHighlightColor:'transparent'}}>
-            <span style={{fontSize:20}}>{'â©'}</span><span>Undo</span>
+            <span style={{fontSize:20}}>{'↩'}</span><span>Undo</span>
           </button>
         </div>
       )}
 
-      {/* ââ HEIGHT TABS (active only) ââ */}
+      {/* ── HEIGHT TABS (active only) ── */}
       {isActive&&(
         <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'6px 10px',display:'flex',gap:5,overflowX:'auto',alignItems:'center',WebkitOverflowScrolling:'touch'}}>
           <span style={{fontSize:9,color:C.muted,flexShrink:0,textTransform:'uppercase',letterSpacing:.8}}>Bar:</span>
@@ -911,13 +911,13 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
         </div>
       )}
 
-      {/* ââ RESULTS TABLE ââ */}
+      {/* ── RESULTS TABLE ── */}
       <ResultsTable athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={curA} metric={metric} setCurA={setCurA} setCurH={setCurH} isActive={isActive}/>
     </div>
   );
 }
 
-// âââ RESULTS TABLE âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── RESULTS TABLE ───────────────────────────────────────────────────────────
 function ResultsTable({athletes,ranked,heights,curH,curA,metric,setCurA,setCurH,compact=false,isActive=true}){
   const n=heights.length;
   if(!n)return null;
@@ -966,12 +966,12 @@ function ResultsTable({athletes,ranked,heights,curH,curA,metric,setCurA,setCurH,
 
   return(
     <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%', minWidth:Math.max(400,220+n*252)+'px'}}>
+      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(400,220+n*52)+'px'}}>
         <thead>
           <tr style={{background:C.surface,borderBottom:`2px solid ${C.border}`}}>
             <th style={{position:'sticky',left:0,background:C.surface,padding:'7px 5px',textAlign:'center',color:C.muted,width:30,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>#</th>
             <th style={{position:'sticky',left:30,background:C.surface,padding:'7px 6px',textAlign:'center',color:C.muted,width:36,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>PL</th>
-            <th style={{position:"sticky",left:66,background:C.surface,padding:'7px 10px',textAlign:'left',color:C.muted,minWidth:130,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
+            <th style={{position:'sticky',left:66,background:C.surface,padding:'7px 10px',textAlign:'left',color:C.muted,minWidth:130,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
             <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:52,fontSize:9,fontWeight:800,letterSpacing:.5}}>PB</th>
             <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:52,fontSize:9,fontWeight:800,letterSpacing:.5}}>SB</th>
             <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:54,fontSize:9,fontWeight:800,letterSpacing:.5}}>BEST</th>
@@ -988,80 +988,186 @@ function ResultsTable({athletes,ranked,heights,curH,curA,metric,setCurA,setCurH,
             const isCur=isActive&&origIdx===curA;
             const plInfo=placementOf[ath.id]||{pl:null,tied:false};
             const best=bestResult(ath);
-            const iÓÝ]UTRSS[ÛY\Ê]Ý]\ÊNÂÛÛÝÝÐÏZ\ÐÝ\Ø	ÐËXØÙ[LLÝÒY	LOOLÉÝ[Ü\[	Î	ÐËÝ\XÙ_MÂÛÛÝ\Ô\ÜÙYXOO\Ô\ÜÙY
-K][\ÖØÝ\_×JNÂÛÛÝ\ÑÛR\OZ\ÑÛJ]][\ÖØÝ\_×K]Ý]\ÊNÂ]\Ù^O^Ø]YHÝ[O^ÞØXÚÙÜÝ[ÝÐËÜ\ÝÛN\ÛÛY	ÐËÜ\XÜ\Y\ÐÝ\ØÜÛÛY	ÐËXØÙ[XÌÜÛÛY[Ü\[	ËÜXÚ]N]Ý]\ÏOOIÙÉÏËMN\ÓÝ]	Z\ÐÛX\Y
-Ø][\Î]][\ßJOÌN__OËÊ[\Ü\
-ßBÝ[O^ÞÜÜÚ][ÛÜÝXÚÞIËYXÚÙÜÝ[ÝÐËY[ÎÍÜ
-\	Ë^[YÛØÙ[\ËÛÙZYÚÌÛÚ^NLÛÛÜ\ÑÛR\OÐË]]YË^_OØ]Ü\OÝËÊXÙ[Y[
-ßBÝ[O^ÞÜÜÚ][ÛÜÝXÚÞIËYÌXÚÙÜÝ[ÝÐËY[ÎÍÜ
-	Ë^[YÛØÙ[\ËÛÙZYÚÛÚ^NÛÛ\XÝÌLÎM_OÜ[ËOOLOÉü'éaÉÎ[ËOOLÉü'éb	Î[ËOOLÏÉü'ébIÎ[ËÂÜ[Ý[O^ÞØÛÛÜË]]YÛÚ^NL__OÜ[Ë^Ü[ËYYÉÏIÎÉßOÜÜ[Ü[Ý[O^ÞÙÛÚ^NKÛÛÜË]]Y_OØ]Ý]\ÏOOIÙÉÏÉÑÉÎ\ÝÉÉÎÓ	ßOÜÜ[BÝËÊ]]H
-ßBÝ[O^ÞÜÜÚ][ÛÜÝXÚÞIËYXÚÙÜÝ[ÝÐËY[ÎÍÜL	ß_O]Ý[O^ÞÙ\Ü^NÙ^	Ë[YÛ][\ÎØÙ[\ËØ\_OYÐÙ[]]O^Ø]HÚ^O^ÌNKÏ]Ý[O^ÞÛZ[ÚY_O]Ý[O^ÞÙÛÙZYÚ\ÐÝ\ÎÛÚ^NLËÛÛÜ\ÐÝ\ÐËXØÙ[\ÓÝ]ÐË]]YË^Ý\ÝÎÚY[Ë^Ý\ÝÎÙ[\Ú\ÉËÚ]TÜXÙNÛÝÜ\	ËX^ÚYL^XÛÜ][Û]Ý]\ÏOOIÙÉÏÉÛ[K]ÝYÚ	ÎÛÛIß_OÚ\ÐÝ\Ü[Ý[O^ÞÙÛÚ^NKX\Ú[YÚß_OÎMNÏÜÜ[BØ]\Ý[Y_HØ]\Ý[Y_BÙ]Ê]Y[X][Û]Ý]\ÏOOIÛ	ß]Ý]\ÏOOIÜ]\Y	ÊI]Ý[O^ÞÙÛÚ^NKÛÛÜË]]YÝ\ÝÎÚY[Ë^Ý\ÝÎÙ[\Ú\ÉËÚ]TÜXÙNÛÝÜ\	ËX^ÚYL_OØ]Y[X][Û	ÉßBØ]Ý]\ÏOOIÛ	ÉÜ[Ý[O^ÞØÛÛÜË[Ù\_OÜÜ[BØ]Ý]\ÏOOIÜ]\Y	ÉÜ[Ý[O^ÞØÛÛÜËØ\_OUÜÜ[BÙ]
-_BÙ]Ù]ÝËÊ
-ßBÝ[O^ÞÜY[ÎÍÜ
-	Ë^[YÛØÙ[\ËÛÚ^NLÛÛÜË]]Y_OØ]	ø %	ßOÝËÊÐ
-ßBÝ[O^ÞÜY[ÎÍÜ
-	Ë^[YÛØÙ[\ËÛÚ^NLÛÛÜË]]Y_OØ]Ø	ø %	ßOÝËÊ\Ý
-ßBÝ[O^ÞÜY[ÎÍÜ
-	Ë^[YÛØÙ[\ß_OØ\ÝÏ]]Ý[O^ÞÙÛÚ^NLKÛÙZYÚÛÛÜËÝXØÙ\Üß_OÙ]
-\ÝY]XÊ_OÙ]Ù]Ü[Ý[O^ÞÙÛÚ^NKÛÛÜË]]Y_OØ]Ý]\ÏOOIÙÉÏÉÑÉÎÓ	ßOÜÜ[BÝËÊZYÚÙ[È
-ßBÚZYÚËX\
+            const isOut=TERMINAL.includes(ath.status);
+            const rowBg=isCur?`${C.accent}12`:rowIdx%2===0?'transparent':`${C.surface}60`;
+            const isPassed=a=>hasPassed(a.attempts[curH]||[]);
+            const isDoneHere=isDone(ath.attempts[curH]||[],ath.status);
+            return(
+              <tr key={ath.id} style={{background:rowBg,borderBottom:`1px solid ${C.border}`,borderLeft:isCur?`3px solid ${C.accent}`:'3px solid transparent',opacity:ath.status==='dns'?.55:isOut&&!hasCleared({attempts:ath.attempts})?1:1}}>
+                {/* Jump order */}
+                <td style={{position:'sticky',left:0,background:rowBg,padding:'7px 5px',textAlign:'center',fontWeight:700,fontSize:12,color:isDoneHere?C.muted:C.text}}>{ath.order}</td>
+                {/* Placement */}
+                <td style={{position:'sticky',left:30,background:rowBg,padding:'7px 6px',textAlign:'center',fontWeight:800,fontSize:compact?13:14}}>
+                  {plInfo.pl===1?'🥇':plInfo.pl===2?'🥈':plInfo.pl===3?'🥉':plInfo.pl?
+                    <span style={{color:C.muted,fontSize:11}}>{plInfo.pl}{plInfo.tied?'=':''}</span>:
+                    <span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':best?'':'NH'}</span>}
+                </td>
+                {/* Athlete */}
+                <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                    <FlagCell athlete={ath} size={18}/>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontWeight:isCur?800:600,fontSize:13,color:isCur?C.accent:isOut?C.muted:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:100,textDecoration:ath.status==='dns'?'line-through':'none'}}>
+                        {isCur&&<span style={{fontSize:9,marginRight:3}}>&#9658;</span>}
+                        {ath.firstName} {ath.lastName}
+                      </div>
+                      {(ath.affiliation||ath.status==='nh'||ath.status==='retired')&&(
+                        <div style={{fontSize:9,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:100}}>
+                          {ath.affiliation||''}
+                          {ath.status==='nh'&&<span style={{color:C.danger}}> NH</span>}
+                          {ath.status==='retired'&&<span style={{color:C.warn}}> RET</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </td>
+                {/* PB */}
+                <td style={{padding:'7px 4px',textAlign:'center',fontSize:10,color:C.muted}}>{ath.pb||'—'}</td>
+                {/* SB */}
+                <td style={{padding:'7px 4px',textAlign:'center',fontSize:10,color:C.muted}}>{ath.sb||'—'}</td>
+                {/* Best */}
+                <td style={{padding:'7px 4px',textAlign:'center'}}>
+                  {best?<div><div style={{fontSize:11,fontWeight:800,color:C.success}}>{fmtH(best,metric)}</div></div>
+                      :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':'NH'}</span>}
+                </td>
+                {/* Height cells */}
+                {heights.map((h,hIdx)=>{
+                  const{text,color,bg}=getCellContent(ath,hIdx);
+                  const isCurCell=isActive&&hIdx===curH&&origIdx===curA;
+                  const clickable=ath.status!=='dns'&&ath.status!=='nh';
+                  return(
+                    <td key={hIdx}
+                      onClick={()=>{setCurH(hIdx);if(clickable&&isActive)setCurA(origIdx);}}
+                      style={{padding:'7px 4px',textAlign:'center',fontWeight:700,fontSize:11,letterSpacing:.3,color,background:isCurCell?bg||`${C.accent}0d`:bg,cursor:clickable&&isActive?'pointer':'default',outline:isCurCell?`2px inset ${C.accent}55`:'none'}}>
+                      {text}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-Y
-OOÂÛÛÝÝ^ÛÛÜßOYÙ]Ù[ÛÛ[
-]Y
-NÂÛÛÝ\ÐÝ\Ù[Z\ÐXÝ]IYOOXÝ\	ÜYÒYOOXÝ\NÂÛÛÝÛXÚØXOX]Ý]\ÈOOIÙÉÉ]Ý]\ÈOOIÛ	ÎÂ]\Ù^O^ÚYBÛÛXÚÏ^Ê
-OOÜÙ]Ý\
-Y
-NÚYÛXÚØXI\ÐXÝ]J\Ù]Ý\JÜYÒY
-Nß_BÝ[O^ÞÜY[ÎÍÜ
-	Ë^[YÛØÙ[\ËÛÙZYÚÌÛÚ^NLK]\ÜXÚ[ÎËÛÛÜXÚÙÜÝ[\ÐÝ\Ù[Øß	ÐËXØÙ[LËÝ\ÛÜÛXÚØXI\ÐXÝ]OÉÜÚ[\ÎÙY][	ËÝ][N\ÐÝ\Ù[Ø[Ù]	ÐËXØÙ[MMXÛÛIß_OÝ^BÝ
-NÂJ_BÝ
-NÂJ_BÝÙOÝXOÙ]
-NÂBËÈ8¥ 8¥ 8¥ QUÕTVH8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ [Ý[ÛY]Ý\^JÛÛÛÜÙK]]\ËY]]K\]]K[]]K[ÝP]]K[Ü\Ù]Ü\Y][ÒYÙ]Y][ÒY[XÛÚËZYÚËÙ]ZYÚË\]RZYÚY]XËÝ\Ù]Ý\[ÔÝÙ][ÔÝX[X[Ù]X[X[ÑÙ[ZYÚßJ^ÂÛÛÝÝXÙ]XO]\ÙTÝ]J	Ø]]\ÉÊNÂ]\]Ý[O^ÞÜÜÚ][ÛÙ^Y	Ë[Ù]XÚÙÜÝ[ÜØJ
-IË[^L\Ü^NÙ^	Ë^\XÝ[ÛØÛÛ[[Ë\ÝYPÛÛ[Ù^Y[	ß_HÛÛXÚÏ^ÛÛÛÜÙ_O]Ý[O^ÞØXÚÙÜÝ[ËÝ\XÙKÜ\Y]\ÎÌNN	ËX^ZYÚÎ	Ë\Ü^NÙ^	Ë^\XÝ[ÛØÛÛ[[ß_HÛÛXÚÏ^ÙOOKÝÜÜYØ][Û
-_O]Ý[O^ÞÙ\Ü^NÙ^	Ë[YÛ][\ÎØÙ[\ËY[ÎÌMML	ËÜ\ÝÛN\ÛÛY	ÐËÜ\X^Ú[Î_O]Ý[O^ÞÙÛÙZYÚÛÚ^NM^__OY]ÛÛ\]][ÛÙ]]ÛÛÛXÚÏ^ÛÛÛÜÙ_HÝ[O^ØËÝXØÙ\ÜË	ÍÜM	ËLÊ_OÛOØ]ÛÙ]]Ý[O^ÞÙ\Ü^NÙ^	ËÜ\ÝÛN\ÛÛY	ÐËÜ\X^Ú[Î_O]ÛÛÛXÚÏ^Ê
-OOÙ]X	Ø]]\ÉÊ_HÝ[O^ÞÙ^KY[ÎÎ	ËXÚÙÜÝ[ÛÛIËÜ\ÛÛIËÛÛÜXOOIØ]]\ÉÏÐËXØÙ[Ë]]YÛÙZYÚXOOIØ]]\ÉÏÍÌÛÚ^NLÝ\ÛÜÜÚ[\ËÜ\ÝÛNÛÛY	ÝXOOIØ]]\ÉÏÐËXØÙ[Ý[Ü\[	ßXÛ[Z[NÚ[\]	ß_O]]\ÏØ]Û]ÛÛÛXÚÏ^Ê
-OOÙ]X	ÚZYÚÉÊ_HÝ[O^ÞÙ^KY[ÎÎ	ËXÚÙÜÝ[ÛÛIËÜ\ÛÛIËÛÛÜXOOIÚZYÚÉÏÐËXØÙ[Ë]]YÛÙZYÚXOOIÚZYÚÉÏÍÌÛÚ^NLÝ\ÛÜÜÚ[\ËÜ\ÝÛNÛÛY	ÝXOOIÚZYÚÉÏÐËXØÙ[Ý[Ü\[	ßXÛ[Z[NÚ[\]	ß_OZYÚÏØ]ÛÙ]]Ý[O^ÞÛÝ\ÝÖNØ]]ÉËY[ÎM^__OÝXOOIØ]]\ÉÉ]Ý[O^ÞÙ\Ü^NÙ^	Ë[YÛ][\ÎØÙ[\ËX\Ú[ÝÛNL_O]Ý[O^ÞÙÛÚ^NLÛÛÜË]]Y_OYÈÈ[Ü\Ù]]Ý[O^ÞÙ^__KÏ]ÛÛÛXÚÏ^ØY]]_HÝ[O^ØËÝXØÙ\ÜË	ÍL	ËL_OÈYØ]ÛÙ]]]S\Ý]]\Ï^Ø]]\ßHY][ÒY^ÙY][ÒYHÙ]Y][ÒY^ÜÙ]Y][ÒYH\]]O^Ý\]]_H[]]O^Ù[]]_H[ÝP]]O^Û[ÝP]]_H[Ü\^Ü[Ü\HÙ]Ü\^ÜÙ]Ü\H[XÛÚÏ^Ü[XÛÚßKÏÏBÝXOOIÚZYÚÉÉ]Ý[O^ÞÙÛÚ^NLÛÛÜË]]YX\Ú[ÝÛNL_OÛXÚÈ[HZYÚÈY][[KX^LZYÚËÙ]]Ý[O^ÞÙ\Ü^NÙÜY	ËØ\LX\Ú[ÝÛNM_O]Ý[O^ÞÙ\Ü^NÙÜY	ËÜY[\]PÛÛ[[ÎÌYYËØ\L_O]]Ý[O^ÞÙÛÚ^NLKÛÛÜË]]YX\Ú[ÝÛN__OÝ\
-JOÙ][]Ý[O^Ú[HXÙZÛ\HKË
-K[YO^ÜÝ\HÛÚ[ÙO^ÙOOÙ]Ý\
-K\Ù][YJ_KÏÙ]]]Ý[O^ÞÙÛÚ^NLKÛÛÜË]]YX\Ú[ÝÛN__O[Ü[Y[ÏÙ][]Ý[O^Ú[HXÙZÛ\HLÛHË
-XÛH[YO^Ú[ÔÝHÛÚ[ÙO^ÙOOÙ][ÔÝK\Ù][YJ_KÏÙ]Ù][]Ý[O^Ú[HXÙZÛ\HÜX[X[
-K
-KL[YO^ÛX[X[HÛÚ[ÙO^ÙOOÙ]X[X[
-K\Ù][YJ_KÏ]ÛÛÛXÚÏ^ÙÑÙ[ZYÚßHÝ[O^ØËXØÙ[
-_O\]HZYÚÏØ]ÛÙ]ZYÚY]ÜZYÚÏ^ÚZYÚßHÙ]ZYÚÏ^ÜÙ]ZYÚßH\]RZYÚ^Ý\]RZYÚHY]XÏ^ÛY]XßKÏÏBÙ]Ù]Ù]
-NÂBËÈ8¥ 8¥ 8¥ TÔVHÐÔQS8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ [Ý[Û\Ü^TØÜY[Ø]]\Ë[ÙYZYÚËÝ\Ý\KY]XË]K[ËÛXÚË[ÛKÛÛ\Ý]\ßJ^ÂÛÛÝ\ÐXÝ]OXÛÛ\Ý]\ÏOOIØXÝ]IÎÂÛÛÝÝ\]X]]\ÖØÝ\WKÝ\ZZYÚÖØÝ\NÂ]\]Ý[O^ÞØXÚÙÜÝ[ËËZ[ZYÚÎ	ËY[ÐÝÛNÌ_O]Ý[O^ÞØXÚÙÜÝ[ËÝ\XÙKÜ\ÝÛN\ÛÛY	ÐËÜ\XY[ÎÌL	Ë^[YÛØÙ[\ß_O]Ý[O^ÞÙÛÚ^NLÛÙZYÚÛÛÜË]]Y]\ÜXÚ[Î^[ÙÜNÝ\\Ø\ÙIËX\Ú[ÝÛNß_OÚ[Ë[Y_	ÔÛH][	ß^Ú[Ë]OØ0­È	Ú[Ë]_XÉß^Ú[Ë[YOØ0­È	Ú[Ë[Y_XÉßOÙ]Û]I\ÐXÝ]I]Ý[O^ÞÙ\Ü^NÚ[[KY^	Ë[YÛ][\ÎØÙ[\ËØ\ÛÚ^NLKÛÛÜÈÙ
+// ─── EDIT OVERLAY ────────────────────────────────────────────────────────────
+function EditOverlay({onClose,athletes,addAthlete,updAthlete,delAthlete,moveAthlete,reorder,setOrder,editingId,setEditingId,rulebook,heights,setHeights,updateHeight,metric,startH,setStartH,incStr,setIncStr,manualH,setManualH,doGenHeights}){
+  const[tab,setTab]=useState('athletes');
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:500,display:'flex',flexDirection:'column',justifyContent:'flex-end'}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:'18px 18px 0 0',maxHeight:'82vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:'flex',alignItems:'center',padding:'14px 16px 10px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+          <div style={{fontWeight:800,fontSize:16,flex:1}}>Edit Competition</div>
+          <button onClick={onClose} style={btn(C.success,'7px 16px',13)}>Done</button>
+        </div>
+        <div style={{display:'flex',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+          <button onClick={()=>setTab('athletes')} style={{flex:1,padding:'8px 0',background:'none',border:'none',color:tab==='athletes'?C.accent:C.muted,fontWeight:tab==='athletes'?700:400,fontSize:12,cursor:'pointer',borderBottom:`2px solid ${tab==='athletes'?C.accent:'transparent'}`,fontFamily:'inherit'}}>Athletes</button>
+          <button onClick={()=>setTab('heights')} style={{flex:1,padding:'8px 0',background:'none',border:'none',color:tab==='heights'?C.accent:C.muted,fontWeight:tab==='heights'?700:400,fontSize:12,cursor:'pointer',borderBottom:`2px solid ${tab==='heights'?C.accent:'transparent'}`,fontFamily:'inherit'}}>Heights</button>
+        </div>
+        <div style={{overflowY:'auto',padding:14,flex:1}}>
+          {tab==='athletes'&&<>
+            <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
+              <div style={{fontSize:12,color:C.muted}}>Drag to reorder</div>
+              <div style={{flex:1}}/>
+              <button onClick={addAthlete} style={btn(C.success,'6px 12px',12)}>+ Add</button>
+            </div>
+            <AthleteList athletes={athletes} editingId={editingId} setEditingId={setEditingId} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} rulebook={rulebook}/>
+          </>}
+          {tab==='heights'&&<>
+            <div style={{fontSize:12,color:C.muted,marginBottom:12}}>Click any height to edit inline. Max 10 heights.</div>
+            <div style={{display:'grid',gap:10,marginBottom:14}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Start (m)</div><input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e=>setStartH(e.target.value)}/></div>
+                <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Increments</div><input style={inp} placeholder="10cm x3, 5cm" value={incStr} onChange={e=>setIncStr(e.target.value)}/></div>
+              </div>
+              <input style={inp} placeholder="Or manual: 5.00, 5.10..." value={manualH} onChange={e=>setManualH(e.target.value)}/>
+              <button onClick={doGenHeights} style={btn(C.accent)}>Update Heights</button>
+            </div>
+            <HeightEditor heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric}/>
+          </>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
+// ─── DISPLAY SCREEN ──────────────────────────────────────────────────────────
+function DisplayScreen({athletes,ranked,heights,curH,curA,metric,live,info,onDeck,inHole,compStatus}){
+  const isActive=compStatus==='active';
+  const curAth=athletes[curA],curHt=heights[curH];
+  return(
+    <div style={{background:C.bg,minHeight:'80vh',paddingBottom:30}}>
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'12px 20px',textAlign:'center'}}>
+        <div style={{fontSize:12,fontWeight:800,color:C.muted,letterSpacing:2,textTransform:'uppercase',marginBottom:3}}>{info.name||'Pole Vault'}{info.date?` · ${info.date}`:''}{info.venue?` · ${info.venue}`:''}</div>
+        {live&&isActive&&<div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,color:'#ff4444',fontWeight:700,letterSpacing:1}}><span className="live-dot" style={{width:7,height:7,borderRadius:'50%',background:'#ff4444',display:'inline-block'}}/>LIVE</div>}
+      </div>
+      {isActive&&curAth&&curHt&&(
+        <div style={{background:`linear-gradient(180deg,${C.accent}18 0%,${C.bg} 100%)`,padding:'22px 20px 16px',textAlign:'center',borderBottom:`1px solid ${C.border}`}}>
+          <div style={{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:2,marginBottom:6}}>Current Bar</div>
+          <div style={{fontSize:60,fontWeight:900,color:C.accent,lineHeight:1,letterSpacing:-2}}>{fmtH(curHt,metric)}</div>
+          {metric&&<div style={{fontSize:16,color:C.muted,marginBottom:16}}>{fmtH(curHt,false)}</div>}
+          <div style={{display:'inline-flex',alignItems:'center',gap:14,background:C.surface,borderRadius:16,padding:'14px 22px',border:`1px solid ${C.border}`}}>
+            <FlagCell athlete={curAth} size={46}/>
+            <div style={{textAlign:'left'}}>
+              <div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:2,marginBottom:4}}>Now Vaulting</div>
+              <div style={{fontSize:28,fontWeight:900,color:C.text,lineHeight:1.1}}>{curAth.firstName} <span style={{color:C.accent}}>{curAth.lastName}</span></div>
+              {(curAth.affiliation||curAth.country)&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>{[curAth.affiliation,curAth.country].filter(Boolean).join(' · ')}</div>}
+            </div>
+          </div>
+          {(onDeck||inHole)&&(
+            <div style={{display:'flex',justifyContent:'center',gap:24,marginTop:12}}>
+              {onDeck&&<div style={{fontSize:12,color:C.muted}}>On Deck: <strong style={{color:C.text}}>{onDeck.firstName} {onDeck.lastName}</strong></div>}
+              {inHole&&<div style={{fontSize:12,color:C.muted}}>In the Hole: <strong style={{color:C.text}}>{inHole.firstName} {inHole.lastName}</strong></div>}
+            </div>
+          )}
+        </div>
+      )}
+      <ResultsTable athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={curA} metric={metric} setCurA={()=>{}} setCurH={()=>{}} compact isActive={isActive}/>
+    </div>
+  );
+}
 
-	ËÛÙZYÚÌ]\ÜXÚ[Î__OÜ[Û\ÜÓ[YOH]KYÝÝ[O^ÞÝÚYËZYÚËÜ\Y]\ÎÍL	IËXÚÙÜÝ[ÈÙ
+// ─── HISTORY SCREEN ──────────────────────────────────────────────────────────
+function HistoryScreen({savedComps,setSavedComps,loadSnapshot,saveSnapshot}){
+  const refresh=()=>setSavedComps(loadSaved());
+  const handleDel=id=>{if(!confirm('Delete this competition?'))return;deleteComp(id);refresh();};
+  const fmtDate=iso=>{try{return new Date(iso).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});}catch{return iso;}};
+  return(
+    <div style={{padding:14,maxWidth:640,margin:'0 auto',paddingBottom:40}}>
+      <div style={sec}>
+        <div style={{display:'flex',alignItems:'center',marginBottom:12}}>
+          <div style={{...secTit,marginBottom:0}}>Saved Competitions</div>
+          <div style={{flex:1}}/>
+          <button onClick={saveSnapshot} style={btn(C.accent,'7px 14px',13)}>Save Current</button>
+        </div>
+        {!savedComps.length&&<div style={{textAlign:'center',padding:'28px 20px',color:C.muted,fontSize:14}}>No saved competitions yet.</div>}
+        <div style={{display:'grid',gap:10}}>
+          {savedComps.map(comp=>(
+            <div key={comp.id} style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,padding:'12px 14px'}}>
+              <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:2}}>{comp.name}</div>
+                  <div style={{fontSize:12,color:C.muted}}>{comp.date}{comp.state?.info?.venue?` · ${comp.state.info.venue}`:''}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{fmtDate(comp.savedAt)}{comp.state?.athletes?` · ${comp.state.athletes.length} athletes`:''}{comp.compStatus==='official'?<span style={{color:C.success}}> · Official</span>:comp.compStatus==='complete-pending'?<span style={{color:C.warn}}> · Pending</span>:''}</div>
+                </div>
+                <div style={{display:'flex',gap:6,flexShrink:0}}>
+                  <button onClick={()=>loadSnapshot(comp)} style={btn(comp.compStatus==='official'?C.warn:C.accent,'6px 11px',11)}>
+                    {comp.compStatus==='official'?'Modify':'Resume'}
+                  </button>
+                  <button onClick={()=>handleDel(comp.id)} style={btn('#7f1d1d','6px 11px',11)}>x</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-
-	Ë\Ü^NÚ[[KXØÚÉß_KÏUOÙ]BÙ]Ú\ÐXÝ]IÝ\]	Ý\	]Ý[O^ÞØXÚÙÜÝ[[X\YÜYY[
-NYË	ÐËXØÙ[LN	K	ÐËßHL	JXY[ÎÌM	Ë^[YÛØÙ[\ËÜ\ÝÛN\ÛÛY	ÐËÜ\X_O]Ý[O^ÞÙÛÚ^NLKÛÛÜË]]Y^[ÙÜNÝ\\Ø\ÙIË]\ÜXÚ[ÎX\Ú[ÝÛN_OÝ\[\Ù]]Ý[O^ÞÙÛÚ^NÛÙZYÚLÛÛÜËXØÙ[[RZYÚK]\ÜXÚ[ÎL_OÙ]
-Ý\Y]XÊ_OÙ]ÛY]XÉ]Ý[O^ÞÙÛÚ^NMÛÛÜË]]YX\Ú[ÝÛNM_OÙ]
-Ý\[ÙJ_OÙ]B]Ý[O^ÞÙ\Ü^NÚ[[KY^	Ë[YÛ][\ÎØÙ[\ËØ\MXÚÙÜÝ[ËÝ\XÙKÜ\Y]\ÎMY[ÎÌM	ËÜ\\ÛÛY	ÐËÜ\X_OYÐÙ[]]O^ØÝ\]HÚ^O^Í
-KÏ]Ý[O^ÞÝ^[YÛÛY	ß_O]Ý[O^ÞÙÛÚ^NKÛÛÜË]]Y^[ÙÜNÝ\\Ø\ÙIË]\ÜXÚ[ÎX\Ú[ÝÛN_OÝÈ][[ÏÙ]]Ý[O^ÞÙÛÚ^NÛÙZYÚLÛÛÜË^[RZYÚK__OØÝ\]\Ý[Y_HÜ[Ý[O^ÞØÛÛÜËXØÙ[_OØÝ\]\Ý[Y_OÜÜ[Ù]ÊÝ\]Y[X][ÛÝ\]ÛÝ[JI]Ý[O^ÞÙÛÚ^NLÛÛÜË]]YX\Ú[Üß_OÖØÝ\]Y[X][ÛÝ\]ÛÝ[WK[\ÛÛX[KÚ[	È0­È	Ê_OÙ]BÙ]Ù]ÊÛXÚß[ÛJI]Ý[O^ÞÙ\Ü^NÙ^	Ë\ÝYPÛÛ[ØÙ[\ËØ\X\Ú[ÜL_OÛÛXÚÉ]Ý[O^ÞÙÛÚ^NLÛÛÜË]]Y_OÛXÚÎÝÛÈÝ[O^ÞØÛÛÜË^_OÛÛXÚË\Ý[Y_HÛÛXÚË\Ý[Y_OÜÝÛÏÙ]BÚ[ÛI]Ý[O^ÞÙÛÚ^NLÛÛÜË]]Y_O[HÛNÝÛÈÝ[O^ÞØÛÛÜË^_OÚ[ÛK\Ý[Y_HÚ[ÛK\Ý[Y_OÜÝÛÏÙ]BÙ]
-_BÙ]
-_B\Ý[ÕXH]]\Ï^Ø]]\ßH[ÙY^Ü[ÙYHZYÚÏ^ÚZYÚßHÝ\^ØÝ\HÝ\O^ØÝ\_HY]XÏ^ÛY]XßHÙ]Ý\O^Ê
-OOß_HÙ]Ý\^Ê
-OOß_HÛÛ\XÝ\ÐXÝ]O^Ú\ÐXÝ]_KÏÙ]
-NÂBËÈ8¥ 8¥ 8¥ TÕÔHÐÔQS8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ [Ý[Û\ÝÜTØÜY[ÜØ]YÛÛ\ËÙ]Ø]YÛÛ\ËØYÛ\ÚÝØ]TÛ\ÚÝJ^ÂÛÛÝY\ÚJ
-OOÙ]Ø]YÛÛ\ÊØYØ]Y
-
-JNÂÛÛÝ[Q[ZYOÚYXÛÛ\J	Ñ[]H\ÈÛÛ\]][ÛÉÊJ\]\Ù[]PÛÛ\
-Y
-NÜY\Ú
-
-NßNÂÛÛÝ]]OZ\ÛÏOÝ^Ü]\]È]J\ÛÊKÓØØ[Q]TÝ[Ê[Y[YÛ[ÛÜÚÜ	Ë^NÛ[Y\XÉËYX\Û[Y\XÉßJNßXØ]ÚÜ]\\ÛÎß_NÂ]\]Ý[O^ÞÜY[ÎMX^ÚYX\Ú[Ì]]ÉËY[ÐÝÛN_O]Ý[O^ÜÙXßO]Ý[O^ÞÙ\Ü^NÙ^	Ë[YÛ][\ÎØÙ[\ËX\Ú[ÝÛNL_O]Ý[O^ÞËÙXÕ]X\Ú[ÝÛN_OØ]YÛÛ\]][ÛÏÙ]]Ý[O^ÞÙ^__KÏ]ÛÛÛXÚÏ^ÜØ]TÛ\ÚÝHÝ[O^ØËXØÙ[	ÍÜM	ËLÊ_OØ]HÝ\[Ø]ÛÙ]È\Ø]YÛÛ\Ë[Ý	]Ý[O^ÞÝ^[YÛØÙ[\ËY[ÎÌ	ËÛÛÜË]]YÛÚ^NM_OÈØ]YÛÛ\]][ÛÈY]Ù]B]Ý[O^ÞÙ\Ü^NÙÜY	ËØ\L_OÜØ]YÛÛ\ËX\
-ÛÛ\O]Ù^O^ØÛÛ\YHÝ[O^ÞØXÚÙÜÝ[ËØ\Ü\Y]\ÎLÜ\\ÛÛY	ÐËÜ\XY[ÎÌLM	ß_O]Ý[O^ÞÙ\Ü^NÙ^	Ë[YÛ][\ÎÙ^\Ý\	ËØ\L_O]Ý[O^ÞÙ^KZ[ÚY_O]Ý[O^ÞÙÛÙZYÚÌÛÚ^NMÛÛÜË^X\Ú[ÝÛN_OØÛÛ\[Y_OÙ]]Ý[O^ÞÙÛÚ^NLÛÛÜË]]Y_OØÛÛ\]_^ØÛÛ\Ý]OË[ÏË[YOØ0­È	ØÛÛ\Ý]K[Ë[Y_XÉßOÙ]]Ý[O^ÞÙÛÚ^NLKÛÛÜË]]YX\Ú[Ü_OÙ]]JÛÛ\Ø]Y]
-_^ØÛÛ\Ý]OË]]\ÏØ0­È	ØÛÛ\Ý]K]]\Ë[ÝH]]\ØÉß^ØÛÛ\ÛÛ\Ý]\ÏOOIÛÙXÚX[	ÏÏÜ[Ý[O^ÞØÛÛÜËÝXØÙ\Üß_O0­ÈÙXÚX[ÜÜ[ÛÛ\ÛÛ\Ý]\ÏOOIØÛÛ\]K\[[ÉÏÏÜ[Ý[O^ÞØÛÛÜËØ\_O0­È[[ÏÜÜ[ÉßOÙ]Ù]]Ý[O^ÞÙ\Ü^NÙ^	ËØ\^Ú[Î_O]ÛÛÛXÚÏ^Ê
-OOØYÛ\ÚÝ
-ÛÛ\
-_HÝ[O^ØÛÛ\ÛÛ\Ý]\ÏOOIÛÙXÚX[	ÏÐËØ\ËXØÙ[	ÍL\	ËLJ_OØÛÛ\ÛÛ\Ý]\ÏOOIÛÙXÚX[	ÏÉÓ[ÙYIÎÔ\Ý[YIßBØ]Û]ÛÛÛXÚÏ^Ê
-OO[Q[
-ÛÛ\Y
-_HÝ[O^Ø	ÈÍÙYY	Ë	ÍL\	ËLJ_OØ]ÛÙ]Ù]Ù]
-J_BÙ]Ù]Ù]
-NÂBXXÝÓKÜX]TÛÝ
-ØÝ[Y[Ù][[Y[RY
-	ÜÛÝ	ÊJK[\][\ÚÐ\ÏNÂÜØÜ\ØÙOÚ[
+ReactDOM.createRoot(document.getElementById('root')).render(<VaultDeskApp/>);
+</script>
+</body>
+</html>
