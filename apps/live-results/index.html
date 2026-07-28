@@ -143,7 +143,7 @@ const buildResultsCSV=(athletes,heights,ranked,info,metric)=>{
 };
 
 // ─── STORAGE ─────────────────────────────────────────────────────────────────
-const LS_CUR='vaultdesk_current_v14';
+const LS_CUR='vaultdesk_current_v15';
 const LS_ALL='vaultdesk_saved_v14';
 const loadCurrent=()=>{try{return JSON.parse(localStorage.getItem(LS_CUR));}catch{return null}};
 const loadSaved=()=>{try{return JSON.parse(localStorage.getItem(LS_ALL)||'[]');}catch{return[]}};
@@ -153,6 +153,7 @@ const deleteComp=id=>saveAll(loadSaved().filter(c=>c.id!==id));
 
 let _ctr=0;
 const mkAthlete=order=>({id:`a${++_ctr}_${Date.now().toString(36)}`,order,firstName:'',lastName:'',country:'',affiliation:'',pb:'',sb:'',logoUrl:'',attempts:Array.from({length:10},()=>[]),status:'competing'});
+const mkSu=()=>({info:{name:'',date:new Date().toISOString().split('T')[0],venue:'',gender:'M'},athletes:[mkAthlete(1)],heights:[],startH:'',incStr:'10cm x3, 5cm x3, 2cm',manualH:'',rulebook:'WA',dirEmail:'',compId:`c_${Date.now().toString(36)}`,editingId:null});
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const inp={background:C.card,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:'11px 13px',fontSize:16,width:'100%',outline:'none'};
@@ -263,207 +264,216 @@ function ImportDialog({onImport,onClose}){
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 function VaultDeskApp(){
-  const saved=useMemo(loadCurrent,[]);
-  const[screen,setScreen]=useState(saved?.screen||'setup');
-  const[metric,setMetric]=useState(saved?.metric??true);
-  const[rulebook,setRulebook]=useState(saved?.rulebook||'WA');
+  const[screen,setScreen]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.screen||'setup';}catch{return'setup';}});
+  const[metric,setMetric]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.metric??true;}catch{return true;}});
   const[live,setLive]=useState(true);
   const[showEdit,setShowEdit]=useState(false);
   const[showImport,setShowImport]=useState(false);
   const[showSave,setShowSave]=useState(false);
-  const[compId,setCompId]=useState(()=>saved?.compId||`c_${Date.now().toString(36)}`);
-  const[compStatus,setCompStatus]=useState(saved?.compStatus||'active');
-  const[dirEmail,setDirEmail]=useState(saved?.dirEmail||'');
-  const[editingId,setEditingId]=useState(null);
   const[savedComps,setSavedComps]=useState(loadSaved);
-  const[info,setInfo]=useState(saved?.info||{name:'',date:new Date().toISOString().split('T')[0],venue:'',gender:'M'});
-  const[athletes,setAthletes]=useState(()=>saved?.athletes?.length?saved.athletes:[mkAthlete(1)]);
-  const[heights,setHeights]=useState(saved?.heights||[]);
-  const[curH,setCurH]=useState(saved?.curH??0);
-  const[curA,setCurA]=useState(saved?.curA??0);
-  const[startH,setStartH]=useState('');
-  const[incStr,setIncStr]=useState('10cm x3, 5cm x3, 2cm');
-  const[manualH,setManualH]=useState('');
 
-  // Ref for synchronous mark processing
-  const athletesRef=useRef(athletes);
-  useEffect(()=>{athletesRef.current=athletes;},[athletes]);
+  // ── SETUP SLOT (fresh competition being built) ──────────────────────────
+  const[su,setSu]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.su||mkSu();}catch{return mkSu();}});
+  const suRef=useRef(su);
+  useEffect(()=>{suRef.current=su;},[su]);
+  const updSu=useCallback(patch=>setSu(p=>({...p,...patch})),[]);
 
-  useEffect(()=>{if(heights.length>0||athletes.some(a=>a.firstName||a.lastName)){saveCurrent({screen,metric,rulebook,compId,compStatus,dirEmail,info,athletes,heights,curH,curA});}},[screen,metric,rulebook,compId,compStatus,info,athletes,heights,curH,curA]);
+  // ── SCORING SLOT (active competition being scored) ──────────────────────
+  const[sc,setSc]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.sc||null;}catch{return null;}});
+  const scRef=useRef(sc);
+  useEffect(()=>{scRef.current=sc;},[sc]);
+  const updSc=useCallback(patch=>setSc(p=>p?({...p,...patch}):p),[]);
 
+  // ── PERSIST ─────────────────────────────────────────────────────────────
+  useEffect(()=>{saveCurrent({screen,metric,su,sc});},[screen,metric,su,sc]);
+
+  // ── SETUP CALLBACKS ──────────────────────────────────────────────────────
   const addAthlete=useCallback(()=>{
-    const current=athletesRef.current;
+    const current=suRef.current.athletes;
     const last=current[current.length-1];
-    if(last&&!last.firstName&&!last.lastName){setEditingId(last.id);return;}
+    if(last&&!last.firstName&&!last.lastName){updSu({editingId:last.id});return;}
     const newAth=mkAthlete(current.length+1);
-    setAthletes(p=>[...p,newAth]);
-    setEditingId(newAth.id);
+    setSu(p=>({...p,athletes:[...p.athletes,newAth],editingId:newAth.id}));
   },[]);
 
-  const updAthlete=useCallback((id,ch)=>setAthletes(p=>p.map(a=>a.id===id?{...a,...ch}:a)),[]);
-  const delAthlete=useCallback(id=>setAthletes(p=>p.filter(a=>a.id!==id).map((a,i)=>({...a,order:i+1}))),[]);
-  const moveAthlete=useCallback((id,dir)=>setAthletes(p=>{const i=p.findIndex(a=>a.id===id),j=i+dir;if(j<0||j>=p.length)return p;const arr=[...p];[arr[i],arr[j]]=[arr[j],arr[i]];return arr.map((a,k)=>({...a,order:k+1}))}),[]);
-  const reorder=useCallback((from,to)=>setAthletes(p=>{if(from===to)return p;const arr=[...p];const[item]=arr.splice(from,1);arr.splice(to,0,item);return arr.map((a,k)=>({...a,order:k+1}))}),[]);
-  const setOrder=useCallback((id,n)=>setAthletes(p=>{const i=p.findIndex(a=>a.id===id);const t=Math.max(0,Math.min(p.length-1,n-1));if(i<0||i===t)return p;const arr=[...p];const[item]=arr.splice(i,1);arr.splice(t,0,item);return arr.map((a,k)=>({...a,order:k+1}))}),[]);
+  const updAthlete=useCallback((id,ch)=>setSu(p=>({...p,athletes:p.athletes.map(a=>a.id===id?{...a,...ch}:a)})),[]);
+  const delAthlete=useCallback(id=>setSu(p=>({...p,athletes:p.athletes.filter(a=>a.id!==id).map((a,i)=>({...a,order:i+1}))})),[]);
+  const moveAthlete=useCallback((id,dir)=>setSu(p=>{const i=p.athletes.findIndex(a=>a.id===id),j=i+dir;if(j<0||j>=p.athletes.length)return p;const arr=[...p.athletes];[arr[i],arr[j]]=[arr[j],arr[i]];return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const reorder=useCallback((from,to)=>setSu(p=>{if(from===to)return p;const arr=[...p.athletes];const[item]=arr.splice(from,1);arr.splice(to,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const setOrder=useCallback((id,n)=>setSu(p=>{const i=p.athletes.findIndex(a=>a.id===id);const t=Math.max(0,Math.min(p.athletes.length-1,n-1));if(i<0||i===t)return p;const arr=[...p.athletes];const[item]=arr.splice(i,1);arr.splice(t,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
 
   const importAthletes=useCallback(rows=>{
-    setAthletes(p=>{
-      const existing=p.filter(a=>a.firstName||a.lastName);
-      const newOnes=rows.map((r,i)=>({...mkAthlete(existing.length+i+1),...r}));
-      return[...existing,...newOnes].map((a,i)=>({...a,order:i+1}));
-    });
+    setSu(p=>{const existing=p.athletes.filter(a=>a.firstName||a.lastName);const newOnes=rows.map((r,i)=>({...mkAthlete(existing.length+i+1),...r}));return{...p,athletes:[...existing,...newOnes].map((a,i)=>({...a,order:i+1}))};});
     setShowImport(false);
   },[]);
+  const doGenHeights=()=>{const hs=su.manualH.trim()?parseManual(su.manualH):genHeights(su.startH,su.incStr);updSu({heights:hs});};
+  const updateHeight=(idx,v)=>{const n=parseFloat(v);if(!isNaN(n))setSu(p=>({...p,heights:p.heights.map((h,i)=>i===idx?Math.round(n*100):h)}));};
 
-  const doGenHeights=()=>{const hs=manualH.trim()?parseManual(manualH):genHeights(startH,incStr);setHeights(hs)};
-  const updateHeight=(idx,valStr)=>{const v=parseFloat(valStr);if(!isNaN(v))setHeights(p=>p.map((h,i)=>i===idx?Math.round(v*100):h));};
+  // ── SCORING CALLBACKS ─────────────────────────────────────────────────────
+  const addAthleteScoring=useCallback(()=>{
+    const current=scRef.current?.athletes||[];
+    const last=current[current.length-1];
+    if(last&&!last.firstName&&!last.lastName){updSc({editingId:last.id});return;}
+    const a=mkAthlete(current.length+1);
+    setSc(p=>p?{...p,athletes:[...p.athletes,a],editingId:a.id}:p);
+  },[]);
+  const updAthleteScoring=useCallback((id,ch)=>setSc(p=>p?{...p,athletes:p.athletes.map(a=>a.id===id?{...a,...ch}:a)}:p),[]);
+  const delAthleteScoring=useCallback(id=>setSc(p=>p?{...p,athletes:p.athletes.filter(a=>a.id!==id).map((a,i)=>({...a,order:i+1}))}:p),[]);
+  const moveAthleteScoring=useCallback((id,dir)=>setSc(p=>{if(!p)return p;const i=p.athletes.findIndex(a=>a.id===id),j=i+dir;if(j<0||j>=p.athletes.length)return p;const arr=[...p.athletes];[arr[i],arr[j]]=[arr[j],arr[i]];return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const reorderScoring=useCallback((from,to)=>setSc(p=>{if(!p||from===to)return p;const arr=[...p.athletes];const[item]=arr.splice(from,1);arr.splice(to,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const setOrderScoring=useCallback((id,n)=>setSc(p=>{if(!p)return p;const i=p.athletes.findIndex(a=>a.id===id);const t=Math.max(0,Math.min(p.athletes.length-1,n-1));if(i<0||i===t)return p;const arr=[...p.athletes];const[item]=arr.splice(i,1);arr.splice(t,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const updateHeightScoring=(idx,v)=>{const n=parseFloat(v);if(!isNaN(n))setSc(p=>p?{...p,heights:p.heights.map((h,i)=>i===idx?Math.round(n*100):h)}:p);};
+  const doGenHeightsScoring=()=>{if(!sc)return;const hs=sc.manualH?.trim()?parseManual(sc.manualH):genHeights(sc.startH||'',sc.incStr||'');if(hs.length)updSc({heights:hs});};
 
-  // ── RECORD MARK (synchronous advance) ────────────────────────────────────
+  // ── RECORD MARK ──────────────────────────────────────────────────────────
   const recordMark=useCallback(mark=>{
-    const prev=athletesRef.current;
-    const next=prev.map((a,i)=>{
+    const prev=scRef.current;
+    if(!prev)return;
+    const{athletes:aths,curH,curA,heights}=prev;
+    const next=aths.map((a,i)=>{
       if(i!==curA)return a;
       const marks=a.attempts[curH]||[];
       if(isDone(marks,a.status))return a;
       if(mark==='DNS')return{...a,status:'dns'};
-      if(mark==='R'){
-        const att=a.attempts.map((arr,hi)=>hi===curH?[...arr,'R']:arr);
-        return{...a,attempts:att,status:'retired'};
-      }
-      const att=a.attempts.map((arr,hi)=>hi===curH?[...arr,mark]:arr);
-      const newMarks=att[curH];
-      const newStatus=isNH(newMarks)?'nh':a.status;
-      return{...a,attempts:att,status:newStatus};
+      if(mark==='R'){const att=a.attempts.map((ar,hi)=>hi===curH?[...ar,'R']:ar);return{...a,attempts:att,status:'retired'};}
+      const att=a.attempts.map((ar,hi)=>hi===curH?[...ar,mark]:ar);
+      return{...a,attempts:att,status:isNH(att[curH])?'nh':a.status};
     });
-
-    // Always advance to next vaulter after any mark (make/miss/pass all rotate)
-    const updated=next[curA];
-    const updMarks=updated.attempts[curH]||[];
-    let nextA=-1,nextH=curH;
-
+    let nextCurA=-1,nextCurH=curH;
     const nxt=nextVaulter(next,curH,curA);
-    if(nxt===-1){
-      // No more eligible at this height — move to next height
-      const nh=curH+1;
-      if(nh<heights.length){
-        nextH=nh;
-        const fe=firstEligible(next,nh);
-        nextA=fe>=0?fe:0;
-      }
-      // else: meet is over — detected in ScoringScreen
-    }else{
-      nextA=nxt;
-    }
-
-    // Batch all state updates in one render
-    setAthletes(next);
-    if(nextA!==-1)setCurA(nextA);
-    if(nextH!==curH)setCurH(nextH);
-  },[curA,curH,heights]);
+    if(nxt===-1){const nh=curH+1;if(nh<heights.length){nextCurH=nh;const fe=firstEligible(next,nh);nextCurA=fe>=0?fe:0;}}
+    else{nextCurA=nxt;}
+    setSc(p=>p?{...p,athletes:next,...(nextCurA!==-1?{curA:nextCurA}:{}),curH:nextCurH}:p);
+  },[]);
 
   const undoMark=useCallback(()=>{
-    setAthletes(prev=>prev.map((a,i)=>{
-      if(i!==curA)return a;
-      if(a.status==='dns')return{...a,status:'competing'};
-      const att=a.attempts.map((arr,hi)=>hi===curH?[...arr]:arr);
-      if(att[curH].length>0)att[curH].pop();
-      const wasRetired=a.status==='retired'&&!att[curH].includes('R');
-      const wasNH=a.status==='nh'&&!isNH(att[curH]);
-      return{...a,attempts:att,status:(wasRetired||wasNH)?'competing':a.status};
-    }));
-  },[curA,curH]);
+    setSc(p=>{
+      if(!p)return p;
+      const{athletes:aths,curH,curA}=p;
+      const next=aths.map((a,i)=>{
+        if(i!==curA)return a;
+        if(a.status==='dns')return{...a,status:'competing'};
+        const att=a.attempts.map((ar,hi)=>hi===curH?[...ar]:ar);
+        if(att[curH].length>0)att[curH].pop();
+        const wasRetired=a.status==='retired'&&!att[curH].includes('R');
+        const wasNH=a.status==='nh'&&!isNH(att[curH]);
+        return{...a,attempts:att,status:(wasRetired||wasNH)?'competing':a.status};
+      });
+      return{...p,athletes:next};
+    });
+  },[]);
 
-  const ranked=useMemo(()=>calcPlacements(athletes,heights),[athletes,heights]);
-
+  // ── COMPETITION LIFECYCLE ─────────────────────────────────────────────────
   const startComp=()=>{
-    const hs=heights.length?heights:(manualH.trim()?parseManual(manualH):genHeights(startH,incStr));
+    const hs=su.heights.length?su.heights:(su.manualH.trim()?parseManual(su.manualH):genHeights(su.startH,su.incStr));
     if(!hs.length){alert('Set up heights first.');return;}
-    setHeights(hs);
-    const fe=firstEligible(athletes,0);
-    setCurA(fe>=0?fe:0);setCurH(0);setScreen('scoring');
+    const fe=firstEligible(su.athletes,0);
+    const newSc={id:su.compId,info:su.info,rulebook:su.rulebook,athletes:su.athletes,heights:hs,
+      curH:0,curA:fe>=0?fe:0,compStatus:'active',dirEmail:su.dirEmail,metric,
+      startH:su.startH,incStr:su.incStr,manualH:su.manualH,editingId:null};
+    setSc(newSc);
+    const snap={id:su.compId,name:su.info.name||'Unnamed',date:su.info.date,savedAt:new Date().toISOString(),compStatus:'active',state:newSc};
+    const all=loadSaved().filter(c=>c.id!==snap.id);
+    saveAll([snap,...all]);setSavedComps(loadSaved());
+    setSu(mkSu());
+    setScreen('scoring');
   };
 
   const endCompetition=()=>{
     if(!confirm('End this competition? Results will be marked as pending verification.'))return;
-    setCompStatus('complete-pending');
+    if(!sc)return;
     setLive(false);
-    const snap={id:compId,name:info.name||'Unnamed',date:info.date,savedAt:new Date().toISOString(),compStatus:'complete-pending',state:{info,rulebook,athletes,heights,curH,curA,metric}};
+    const upd={...sc,compStatus:'complete-pending'};
+    setSc(upd);
+    const snap={id:sc.id,name:sc.info.name||'Unnamed',date:sc.info.date,savedAt:new Date().toISOString(),compStatus:'complete-pending',state:upd};
     const all=loadSaved().filter(c=>c.id!==snap.id);
     saveAll([snap,...all]);setSavedComps(loadSaved());
   };
 
   const verifyOfficial=()=>{
-    setCompStatus('official');
-    const snap={id:compId,name:info.name||'Unnamed',date:info.date,savedAt:new Date().toISOString(),compStatus:'official',state:{info,rulebook,athletes,heights,curH,curA,metric}};
+    if(!sc)return;
+    const upd={...sc,compStatus:'official'};
+    setSc(upd);
+    const snap={id:sc.id,name:sc.info.name||'Unnamed',date:sc.info.date,savedAt:new Date().toISOString(),compStatus:'official',state:upd};
     const all=loadSaved().filter(c=>c.id!==snap.id);
     saveAll([snap,...all]);setSavedComps(loadSaved());
   };
 
   const saveSnapshot=useCallback(()=>{
-    const snap={id:compId,name:info.name||'Unnamed',date:info.date,savedAt:new Date().toISOString(),compStatus,state:{info,rulebook,athletes,heights,curH,curA,metric}};
+    if(!sc)return;
+    const snap={id:sc.id,name:sc.info.name||'Unnamed',date:sc.info.date,savedAt:new Date().toISOString(),compStatus:sc.compStatus,state:sc};
     const all=loadSaved().filter(c=>c.id!==snap.id);
     saveAll([snap,...all]);setSavedComps(loadSaved());
-  },[compId,info,rulebook,athletes,heights,curH,curA,metric,compStatus]);
+  },[sc]);
 
   const loadSnapshot=snap=>{
-    const{info:i,rulebook:r,athletes:a,heights:h,curH:ch,curA:ca,metric:m}=snap.state;
-    setInfo(i);setRulebook(r);setAthletes(a);setHeights(h);setCurH(ch);setCurA(ca);setMetric(m);setCompId(snap.id);setCompStatus(snap.compStatus||'active');setScreen('scoring');
+    const s=snap.state;
+    setSc({id:snap.id,info:s.info,rulebook:s.rulebook||'WA',athletes:s.athletes,heights:s.heights,
+      curH:s.curH||0,curA:s.curA||0,compStatus:snap.compStatus||'active',
+      dirEmail:s.dirEmail||'',metric:s.metric??true,editingId:null,
+      startH:s.startH||'',incStr:s.incStr||'10cm x3, 5cm x3, 2cm',manualH:s.manualH||''});
+    setMetric(s.metric??true);
+    setScreen('scoring');
   };
 
-  const onDeckIdx =heights.length?nextVaulter(athletes,curH,curA):-1;
-  const inHoleIdx =onDeckIdx!==-1?nextVaulter(athletes,curH,onDeckIdx):-1;
-  const onDeck    =onDeckIdx!==-1&&onDeckIdx!==curA?athletes[onDeckIdx]:null;
-  const inHole    =inHoleIdx!==-1&&inHoleIdx!==curA&&inHoleIdx!==onDeckIdx?athletes[inHoleIdx]:null;
+  // ── DERIVED ───────────────────────────────────────────────────────────────
+  const ranked=useMemo(()=>sc?calcPlacements(sc.athletes,sc.heights):[],[sc]);
+  const onDeckIdx=sc?nextVaulter(sc.athletes,sc.curH,sc.curA):-1;
+  const inHoleIdx=onDeckIdx!==-1?nextVaulter(sc.athletes,sc.curH,onDeckIdx):-1;
+  const onDeck=sc&&onDeckIdx!==-1&&onDeckIdx!==sc.curA?sc.athletes[onDeckIdx]:null;
+  const inHole=sc&&inHoleIdx!==-1&&inHoleIdx!==sc.curA&&inHoleIdx!==onDeckIdx?sc.athletes[inHoleIdx]:null;
 
   const TABS=[{id:'setup',icon:'⚙️',label:'Setup'},{id:'scoring',icon:'🎯',label:'Score'},{id:'display',icon:'📺',label:'Display'},{id:'history',icon:'🗂️',label:'History'}];
 
   return(
     <div style={{background:C.bg,minHeight:'100vh',color:C.text,maxWidth:'100vw',overflowX:'hidden'}}>
-      {/* TOP BAR */}
       <header style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'9px 14px',position:'sticky',top:0,zIndex:300,display:'flex',alignItems:'center',gap:8}}>
         <div style={{fontWeight:900,fontSize:16,color:C.accent,letterSpacing:-.5,flexShrink:0}}>VaultDesk</div>
-        <div style={{flex:1,fontSize:11,color:C.muted,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{info.name||'Pole Vault'}{screen==='scoring'&&heights[curH]?` · ${fmtH(heights[curH],metric)}`:''}</div>
+        <div style={{flex:1,fontSize:11,color:C.muted,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{sc?.info?.name||'Pole Vault'}{screen==='scoring'&&sc?.heights[sc.curH]?` · ${fmtH(sc.heights[sc.curH],metric)}`:''}</div>
         <button onClick={()=>setMetric(m=>!m)} style={{...btn(C.card,'5px 9px',10),border:`1px solid ${C.border}`}}>{metric?'m→ft':'ft→m'}</button>
-        {screen==='scoring'&&<>
+        {screen==='scoring'&&sc&&<>
           <button onClick={()=>setLive(l=>!l)} style={{...btn(live?'#7f1d1d':C.card,'5px 8px',10),border:live?'none':`1px solid ${C.border}`}}>
             <span className={live?'live-dot':''} style={{width:6,height:6,borderRadius:'50%',background:live?'#ff4444':C.muted,flexShrink:0,display:'inline-block'}}/>
             {live?'LIVE':'OFF'}
           </button>
           <button onClick={()=>setShowEdit(true)} style={{...btn(C.card,'5px 9px',10),border:`1px solid ${C.border}`}}>Edit</button>
-          {compStatus==='active'&&<button onClick={endCompetition} style={{...btn('#374151','5px 9px',10),border:`1px solid ${C.border}`}}>End</button>}
+          {sc.compStatus==='active'&&<button onClick={endCompetition} style={{...btn('#374151','5px 9px',10),border:`1px solid ${C.border}`}}>End</button>}
         </>}
       </header>
-
-      {/* STATUS BANNER */}
-      {compStatus!=='active'&&(
-        <div style={{background:compStatus==='official'?`${C.success}22`:`${C.warn}22`,borderBottom:`1px solid ${compStatus==='official'?C.success:C.warn}44`,padding:'8px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-          <div style={{fontSize:12,fontWeight:700,color:compStatus==='official'?C.success:C.warn,flex:1}}>{compStatus==='official'?'Official Results':'Pending Verification'}</div>
-          {compStatus==='complete-pending'&&<button onClick={verifyOfficial} style={btn(C.success,'5px 12px',11)}>Verify Official</button>}
-          {compStatus==='official'&&<button onClick={()=>setShowSave(true)} style={btn(C.accent,'5px 12px',11)}>Save Results</button>}
-          {compStatus==='complete-pending'&&dirEmail&&<a href={`mailto:${dirEmail}?subject=Results: ${info.name}`} style={{...btn('#2d3748','5px 12px',11),textDecoration:'none'}}>Email Director</a>}
+      {sc&&sc.compStatus!=='active'&&(
+        <div style={{background:sc.compStatus==='official'?`${C.success}22`:`${C.warn}22`,borderBottom:`1px solid ${sc.compStatus==='official'?C.success:C.warn}44`,padding:'8px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <div style={{fontSize:12,fontWeight:700,color:sc.compStatus==='official'?C.success:C.warn,flex:1}}>{sc.compStatus==='official'?'Official Results':'Pending Verification'}</div>
+          {sc.compStatus==='complete-pending'&&<button onClick={verifyOfficial} style={btn(C.success,'5px 12px',11)}>Verify Official</button>}
+          {sc.compStatus==='official'&&<button onClick={()=>setShowSave(true)} style={btn(C.accent,'5px 12px',11)}>Save Results</button>}
+          {sc.compStatus==='complete-pending'&&sc.dirEmail&&<a href={`mailto:${sc.dirEmail}?subject=Results: ${sc.info.name}`} style={{...btn('#2d3748','5px 12px',11),textDecoration:'none'}}>Email Director</a>}
         </div>
       )}
-
-      {/* TABS */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:'flex'}}>
         {TABS.map(t=>(
-          <button key={t.id} onClick={()=>{if((t.id==='scoring'||t.id==='display')&&!heights.length)return;setScreen(t.id);}}
-            style={{flex:1,padding:'8px 0',background:'none',border:'none',color:screen===t.id?C.accent:C.muted,fontWeight:screen===t.id?700:400,fontSize:11,cursor:'pointer',borderBottom:`2px solid ${screen===t.id?C.accent:'transparent'}`,fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:3,WebkitTapHighlightColor:'transparent'}}>
+          <button key={t.id} onClick={()=>{if((t.id==='scoring'||t.id==='display')&&!sc?.heights?.length)return;setScreen(t.id);}}
+            style={{flex:1,padding:'8px 0',background:'none',border:'none',color:screen===t.id?C.accent:C.muted,fontWeight:screen===t.id?700:400,fontSize:11,cursor:'pointer',borderBottom:`2px solid ${screen===t.id?C.accent:'transparent'}`,fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:3,WebkitTapHighlightColor:'transparent',position:'relative'}}>
             <span>{t.icon}</span><span>{t.label}</span>
+            {t.id==='scoring'&&sc&&sc.compStatus==='active'&&<span style={{position:'absolute',top:3,right:4,width:6,height:6,borderRadius:'50%',background:'#ff4444'}}/>}
           </button>
         ))}
       </div>
-
       <main>
-        {screen==='setup'&&<SetupScreen info={info} setInfo={setInfo} rulebook={rulebook} setRulebook={setRulebook} athletes={athletes} addAthlete={addAthlete} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} editingId={editingId} setEditingId={setEditingId} startH={startH} setStartH={setStartH} incStr={incStr} setIncStr={setIncStr} manualH={manualH} setManualH={setManualH} doGenHeights={doGenHeights} heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric} startComp={startComp} dirEmail={dirEmail} setDirEmail={setDirEmail} onImport={()=>setShowImport(true)}/>}
-        {screen==='scoring'&&<ScoringScreen athletes={athletes} ranked={ranked} heights={heights} curH={curH} setCurH={setCurH} curA={curA} setCurA={setCurA} metric={metric} recordMark={recordMark} undoMark={undoMark} live={live} onDeck={onDeck} inHole={inHole} compStatus={compStatus} info={info} onEnd={endCompetition}/>}
-        {screen==='display'&&<DisplayScreen athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={curA} metric={metric} live={live} info={info} onDeck={onDeck} inHole={inHole} compStatus={compStatus}/>}
+        {screen==='setup'&&(
+          <>
+            {sc&&<div style={{background:`${C.accent}12`,borderBottom:`1px solid ${C.accent}33`,padding:'8px 16px',display:'flex',alignItems:'center',gap:10}}>
+              <span style={{fontSize:12,color:C.accent,fontWeight:700,flex:1}}>⚡ Scoring: {sc.info.name||'Unnamed'}</span>
+              <button onClick={()=>setScreen('scoring')} style={{...btn(C.accent,'4px 10px',11)}}>Resume →</button>
+            </div>}
+            <SetupScreen info={su.info} setInfo={v=>setSu(p=>({...p,info:typeof v==='function'?v(p.info):v}))} rulebook={su.rulebook} setRulebook={v=>updSu({rulebook:v})} athletes={su.athletes} addAthlete={addAthlete} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} editingId={su.editingId} setEditingId={id=>updSu({editingId:id})} startH={su.startH} setStartH={v=>updSu({startH:v})} incStr={su.incStr} setIncStr={v=>updSu({incStr:v})} manualH={su.manualH} setManualH={v=>updSu({manualH:v})} doGenHeights={doGenHeights} heights={su.heights} setHeights={h=>updSu({heights:h})} updateHeight={updateHeight} metric={metric} startComp={startComp} dirEmail={su.dirEmail} setDirEmail={v=>updSu({dirEmail:v})} onImport={()=>setShowImport(true)}/>
+          </>
+        )}
+        {screen==='scoring'&&sc&&<ScoringScreen athletes={sc.athletes} ranked={ranked} heights={sc.heights} curH={sc.curH} setCurH={h=>updSc({curH:h})} curA={sc.curA} setCurA={a=>updSc({curA:a})} metric={metric} recordMark={recordMark} undoMark={undoMark} live={live} onDeck={onDeck} inHole={inHole} compStatus={sc.compStatus} info={sc.info} onEnd={endCompetition}/>}
+        {screen==='display'&&sc&&<DisplayScreen athletes={sc.athletes} ranked={ranked} heights={sc.heights} curH={sc.curH} curA={sc.curA} metric={metric} live={live} info={sc.info} onDeck={onDeck} inHole={inHole} compStatus={sc.compStatus}/>}
         {screen==='history'&&<HistoryScreen savedComps={savedComps} setSavedComps={setSavedComps} loadSnapshot={loadSnapshot} saveSnapshot={saveSnapshot}/>}
       </main>
-
-      {showEdit&&<EditOverlay onClose={()=>setShowEdit(false)} athletes={athletes} addAthlete={addAthlete} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} editingId={editingId} setEditingId={setEditingId} rulebook={rulebook} heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric} startH={startH} setStartH={setStartH} incStr={incStr} setIncStr={setIncStr} manualH={manualH} setManualH={setManualH} doGenHeights={doGenHeights}/>}
+      {showEdit&&sc&&<EditOverlay onClose={()=>setShowEdit(false)} athletes={sc.athletes} addAthlete={addAthleteScoring} updAthlete={updAthleteScoring} delAthlete={delAthleteScoring} moveAthlete={moveAthleteScoring} reorder={reorderScoring} setOrder={setOrderScoring} editingId={sc.editingId} setEditingId={id=>updSc({editingId:id})} rulebook={sc.rulebook} heights={sc.heights} setHeights={h=>updSc({heights:h})} updateHeight={updateHeightScoring} metric={metric} startH={sc.startH||''} setStartH={v=>updSc({startH:v})} incStr={sc.incStr||''} setIncStr={v=>updSc({incStr:v})} manualH={sc.manualH||''} setManualH={v=>updSc({manualH:v})} doGenHeights={doGenHeightsScoring}/>}
       {showImport&&<ImportDialog onImport={importAthletes} onClose={()=>setShowImport(false)}/>}
-      {showSave&&<SaveResultsDialog athletes={athletes} heights={heights} ranked={ranked} info={info} metric={metric} onClose={()=>setShowSave(false)}/>}
+      {showSave&&sc&&<SaveResultsDialog athletes={sc.athletes} heights={sc.heights} ranked={ranked} info={sc.info} metric={metric} onClose={()=>setShowSave(false)}/>}
     </div>
   );
 }
@@ -668,6 +678,7 @@ function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,move
         <div key={a.id}
           data-row-idx={i}
           draggable
+          onContextMenu={e=>e.preventDefault()}
           onDragStart={e=>{setDragIdx(i);e.dataTransfer.effectAllowed='move';}}
           onDragOver={e=>{e.preventDefault();setOverIdx(i);}}
           onDrop={e=>{e.preventDefault();if(dragIdx!==null&&dragIdx!==i)reorder(dragIdx,i);setDragIdx(null);setOverIdx(null);}}
@@ -697,10 +708,11 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
   const commitOrder=()=>{const n=parseInt(orderInput);if(!isNaN(n))onSetOrder(n);setOrderInput('');};
 
   if(!isEditing)return(
-    <div style={{display:'flex',alignItems:'center',gap:7,padding:'10px 12px',background:C.card,borderRadius:10,border:`1px solid ${C.border}`}}>
+    <div style={{display:'flex',alignItems:'center',gap:7,padding:'10px 12px',background:C.card,borderRadius:10,border:`1px solid ${C.border}`,userSelect:'none',WebkitUserSelect:'none'}}>
       {/* Touch+mouse drag handle */}
       <div
         onTouchStart={onTouchStartHandle}
+        onMouseDown={e=>e.preventDefault()}
         style={{cursor:'grab',fontSize:18,color:C.muted,flexShrink:0,userSelect:'none',touchAction:'none',padding:'0 4px 0 0',lineHeight:1}}>
         &#x283F;
       </div>
