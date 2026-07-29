@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>VaultDesk</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0f0f14;--surface:#1a1a24;--card:#22222e;--border:#2e2e3d;--accent:#4f7cff;--success:#22c55e;--danger:#ef4444;--warn:#f59e0b;--text:#f0f0f0;--muted:#8888aa}
+    html,body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Inter',sans-serif;min-height:100vh;overflow-x:hidden}
+    input,select,button,textarea{font-family:inherit}
+    input,select,textarea{color:var(--text);background:var(--card)}
+    input::placeholder,textarea::placeholder{color:var(--muted)}
+    select option{background:#22222e}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+    .live-dot{animation:blink 1.4s ease-in-out infinite}
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:var(--surface)}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+    .vd-drag-over{outline:2px solid #4f7cff!important;background:rgba(79,124,255,.09)!important;border-radius:10px}
+    .vd-dragging{opacity:.4}
+    input[type=number]{-moz-appearance:textfield}
+    input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useMemo,useCallback,useEffect,useRef}=React;
+
+const RULEBOOKS=[{key:'WA',label:'World Athletics / USATF'},{key:'NCAA',label:'NCAA'},{key:'NFHS',label:'NFHS (High School)'}];
+const RULEBOOK_CFG={
+  WA:{minIncCm:5,jumpOffRequired:true,jumpOffNote:'Jump-off required — WA Rule 26.8.4',tieLabel:'Tie for 1st · Jump-off Required'},
+  NCAA:{minIncCm:null,jumpOffRequired:true,jumpOffNote:'Jump-off required — NCAA Rule 13-5.7c',tieLabel:'Tie for 1st · Jump-off Required'},
+  NFHS:{minIncCm:null,jumpOffRequired:false,jumpOffNote:'Co-Champions by default; jump-off optional — NFHS Rule 6-3-Art.2',tieLabel:'Tie for 1st · Co-Champions (NFHS)'},
+};
+const SEARCH_URL=(name,rb)=>({WA:`https://worldathletics.org/athletes/search?term=${encodeURIComponent(name)}`,NCAA:`https://www.tfrrs.org/search?q=${encodeURIComponent(name)}`,NFHS:`https://www.milesplit.com/search?q=${encodeURIComponent(name)}&type=athlete`}[rb]||`https://worldathletics.org/athletes/search?term=${encodeURIComponent(name)}`);
+const SEARCH_LABEL={WA:'World Athletics',NCAA:'TFRRS',NFHS:'MileSplit'};
+
+const C={bg:'#0f0f14',surface:'#1a1a24',card:'#22222e',border:'#2e2e3d',accent:'#4f7cff',success:'#22c55e',danger:'#ef4444',warn:'#f59e0b',text:'#f0f0f0',muted:'#8888aa',cleared:'#0a2b0a',missed:'#2b0a0a'};
+
+const IOC_ISO={AFG:'af',ALB:'al',ALG:'dz',AND:'ad',ANG:'ao',ANT:'ag',ARG:'ar',ARM:'am',ARU:'aw',ASA:'as',AUS:'au',AUT:'at',AZE:'az',BAH:'bs',BAN:'bd',BAR:'bb',BDI:'bi',BEL:'be',BEN:'bj',BER:'bm',BHU:'bt',BIH:'ba',BIZ:'bz',BLR:'by',BOL:'bo',BOT:'bw',BRA:'br',BRN:'bh',BRU:'bn',BUL:'bg',BUR:'bf',CAF:'cf',CAM:'kh',CAN:'ca',CAY:'ky',CGO:'cg',CHA:'td',CHI:'cl',CHN:'cn',CIV:'ci',CMR:'cm',COD:'cd',COK:'ck',COL:'co',COM:'km',CPV:'cv',CRC:'cr',CRO:'hr',CUB:'cu',CYP:'cy',CZE:'cz',DEN:'dk',DJI:'dj',DMA:'dm',DOM:'do',ECU:'ec',EGY:'eg',ERI:'er',ESA:'sv',ESP:'es',EST:'ee',ETH:'et',FIJ:'fj',FIN:'fi',FRA:'fr',FSM:'fm',GAB:'ga',GAM:'gm',GBR:'gb',GBS:'gw',GEO:'ge',GEQ:'gq',GER:'de',GHA:'gh',GRE:'gr',GRN:'gd',GUA:'gt',GUI:'gn',GUM:'gu',GUY:'gy',HAI:'ht',HKG:'hk',HON:'hn',HUN:'hu',INA:'id',IND:'in',IRI:'ir',IRL:'ie',IRQ:'iq',ISL:'is',ISR:'il',ISV:'vi',ITA:'it',IVB:'vg',JAM:'jm',JOR:'jo',JPN:'jp',KAZ:'kz',KEN:'ke',KGZ:'kg',KIR:'ki',KOR:'kr',KSA:'sa',KUW:'kw',LAO:'la',LAT:'lv',LBA:'ly',LBN:'lb',LBR:'lr',LCA:'lc',LES:'ls',LIE:'li',LTU:'lt',LUX:'lu',MAD:'mg',MAR:'ma',MAS:'my',MAW:'mw',MDA:'md',MEX:'mx',MGL:'mn',MKD:'mk',MLI:'ml',MLT:'mt',MNE:'me',MON:'mc',MOZ:'mz',MRI:'mu',MRT:'mr',MYA:'mm',NAM:'na',NCA:'ni',NED:'nl',NEP:'np',NGR:'ng',NIG:'ne',NOR:'no',NRU:'nr',NZL:'nz',OMA:'om',PAK:'pk',PAN:'pa',PAR:'py',PER:'pe',PHI:'ph',PLE:'ps',PLW:'pw',PNG:'pg',POL:'pl',POR:'pt',PRK:'kp',PUR:'pr',QAT:'qa',ROC:'tw',RSA:'za',ROU:'ro',RUS:'ru',RWA:'rw',SAM:'ws',SEN:'sn',SEY:'sc',SGP:'sg',SKN:'kn',SLE:'sl',SLO:'si',SMR:'sm',SOL:'sb',SOM:'so',SRB:'rs',SRI:'lk',SSD:'ss',STP:'st',SUD:'sd',SUI:'ch',SUR:'sr',SVK:'sk',SWE:'se',SWZ:'sz',SYR:'sy',TAN:'tz',TGA:'to',THA:'th',TJK:'tj',TKM:'tm',TLS:'tl',TOG:'tg',TPE:'tw',TTO:'tt',TUN:'tn',TUR:'tr',TUV:'tv',UAE:'ae',UGA:'ug',UKR:'ua',URU:'uy',USA:'us',UZB:'uz',VAN:'vu',VEN:'ve',VIE:'vn',VIN:'vc',YEM:'ye',ZAM:'zm',ZIM:'zw'};
+
+const COUNTRY_NAMES={'afghanistan':'AFG','albania':'ALB','algeria':'ALG','andorra':'AND','angola':'ANG','antigua':'ANT','antigua and barbuda':'ANT','argentina':'ARG','armenia':'ARM','aruba':'ARU','american samoa':'ASA','australia':'AUS','austria':'AUT','azerbaijan':'AZE','bahamas':'BAH','bangladesh':'BAN','barbados':'BAR','burundi':'BDI','belgium':'BEL','benin':'BEN','bermuda':'BER','bhutan':'BHU','bosnia':'BIH','bosnia and herzegovina':'BIH','belize':'BIZ','belarus':'BLR','bolivia':'BOL','botswana':'BOT','brazil':'BRA','bahrain':'BRN','brunei':'BRU','bulgaria':'BUL','burkina faso':'BUR','central african republic':'CAF','cambodia':'CAM','canada':'CAN','cayman islands':'CAY','congo':'CGO','republic of congo':'CGO','chad':'CHA','chile':'CHI','china':'CHN',"cote d'ivoire":'CIV','ivory coast':'CIV','cameroon':'CMR','dr congo':'COD','democratic republic of congo':'COD','cook islands':'COK','colombia':'COL','comoros':'COM','cape verde':'CPV','costa rica':'CRC','croatia':'CRO','cuba':'CUB','cyprus':'CYP','czech republic':'CZE','czechia':'CZE','denmark':'DEN','djibouti':'DJI','dominica':'DMA','dominican republic':'DOM','ecuador':'ECU','egypt':'EGY','eritrea':'ERI','el salvador':'ESA','spain':'ESP','estonia':'EST','ethiopia':'ETH','fiji':'FIJ','finland':'FIN','france':'FRA','micronesia':'FSM','gabon':'GAB','gambia':'GAM','great britain':'GBR','united kingdom':'GBR','uk':'GBR','guinea-bissau':'GBS','georgia':'GEO','equatorial guinea':'GEQ','germany':'GER','ghana':'GHA','greece':'GRE','grenada':'GRN','guatemala':'GUA','guinea':'GUI','guam':'GUM','guyana':'GUY','haiti':'HAI','hong kong':'HKG','honduras':'HON','hungary':'HUN','indonesia':'INA','india':'IND','iran':'IRI','ireland':'IRL','iraq':'IRQ','iceland':'ISL','israel':'ISR','us virgin islands':'ISV','italy':'ITA','british virgin islands':'IVB','jamaica':'JAM','jordan':'JOR','japan':'JPN','kazakhstan':'KAZ','kenya':'KEN','kyrgyzstan':'KGZ','kiribati':'KIR','south korea':'KOR','korea':'KOR','saudi arabia':'KSA','kuwait':'KUW','laos':'LAO','latvia':'LAT','libya':'LBA','lebanon':'LBN','liberia':'LBR','saint lucia':'LCA','lesotho':'LES','liechtenstein':'LIE','lithuania':'LTU','luxembourg':'LUX','madagascar':'MAD','morocco':'MAR','malaysia':'MAS','malawi':'MAW','moldova':'MDA','mexico':'MEX','mongolia':'MGL','north macedonia':'MKD','macedonia':'MKD','mali':'MLI','malta':'MLT','montenegro':'MNE','monaco':'MON','mozambique':'MOZ','mauritius':'MRI','mauritania':'MRT','myanmar':'MYA','namibia':'NAM','nicaragua':'NCA','netherlands':'NED','holland':'NED','nepal':'NEP','nigeria':'NGR','niger':'NIG','norway':'NOR','nauru':'NRU','new zealand':'NZL','oman':'OMA','pakistan':'PAK','panama':'PAN','paraguay':'PAR','peru':'PER','philippines':'PHI','palestine':'PLE','palau':'PLW','papua new guinea':'PNG','poland':'POL','portugal':'POR','north korea':'PRK','puerto rico':'PUR','qatar':'QAT','chinese taipei':'ROC','taiwan':'ROC','south africa':'RSA','romania':'ROU','russia':'RUS','rwanda':'RWA','samoa':'SAM','senegal':'SEN','seychelles':'SEY','singapore':'SGP','saint kitts':'SKN','saint kitts and nevis':'SKN','sierra leone':'SLE','slovenia':'SLO','san marino':'SMR','solomon islands':'SOL','somalia':'SOM','serbia':'SRB','sri lanka':'SRI','south sudan':'SSD','sao tome and principe':'STP','sudan':'SUD','switzerland':'SUI','suriname':'SUR','slovakia':'SVK','sweden':'SWE','eswatini':'SWZ','swaziland':'SWZ','syria':'SYR','tanzania':'TAN','tonga':'TGA','thailand':'THA','tajikistan':'TJK','turkmenistan':'TKM','east timor':'TLS','timor-leste':'TLS','togo':'TOG','tuvalu':'TUV','trinidad':'TTO','trinidad and tobago':'TTO','tunisia':'TUN','turkey':'TUR','uae':'UAE','united arab emirates':'UAE','uganda':'UGA','ukraine':'UKR','uruguay':'URU','usa':'USA','united states':'USA','us':'USA','united states of america':'USA','uzbekistan':'UZB','vanuatu':'VAN','venezuela':'VEN','vietnam':'VIE','saint vincent':'VIN','saint vincent and the grenadines':'VIN','yemen':'YEM','zambia':'ZAM','zimbabwe':'ZIM'};
+
+const getFlagUrl=code=>{if(!code)return null;const u=code.toUpperCase().trim();const iso=IOC_ISO[u]||(u.length===2?u.toLowerCase():null);return iso?`https://flagcdn.com/24x18/${iso}.png`:null};
+const resolveCountry=input=>{if(!input)return null;const u=input.toUpperCase().trim();if(IOC_ISO[u])return u;const lower=input.toLowerCase().trim();if(COUNTRY_NAMES[lower])return COUNTRY_NAMES[lower];const match=Object.keys(COUNTRY_NAMES).find(k=>k.startsWith(lower));return match?COUNTRY_NAMES[match]:null};
+const getCountrySuggestions=q=>{if(!q||q.length<2)return[];const lower=q.toLowerCase().trim();const upper=q.toUpperCase().trim();const results=[];Object.keys(IOC_ISO).filter(k=>k.startsWith(upper)).slice(0,3).forEach(k=>results.push({code:k,label:k}));Object.keys(COUNTRY_NAMES).filter(k=>k.startsWith(lower)&&!results.find(r=>r.code===COUNTRY_NAMES[k])).slice(0,5).forEach(k=>results.push({code:COUNTRY_NAMES[k],label:k}));return results.slice(0,6)};
+
+const parsePaste=text=>{const r={};const pb=text.match(/(?:PB|PR|Personal\s+(?:Best|Record))[:\s]+([0-9]+[''\-.][0-9]*(?:\s*[0-9]+\/[0-9]+)?(?:m|in)?)/i);const sb=text.match(/(?:SB|Season(?:al)?\s+(?:Best|Record))[:\s]+([0-9]+[''\-.][0-9]*(?:\s*[0-9]+\/[0-9]+)?(?:m|in)?)/i);const cc=text.match(/\b([A-Z]{3})\b/g);if(pb)r.pb=pb[1].trim();if(sb)r.sb=sb[1].trim();if(cc){const k=cc.find(c=>IOC_ISO[c]);if(k)r.country=k;}return r};
+
+const mToFtIn=m=>{const ti=m*39.3701,ft=Math.floor(ti/12),raw=ti%12;const q=Math.round(raw*4)/4,whole=Math.floor(q),frac=q-whole;return`${ft}'${whole}${frac===0?'':frac===.25?'¼':frac===.5?'½':'¾'}"`};
+const fmtH=(cm,metric)=>{if(!cm&&cm!==0)return'';return metric?`${(cm/100).toFixed(2)}m`:mToFtIn(cm/100)};
+
+const hasCleared=m=>Array.isArray(m)&&m.includes('O');
+const hasRetired=m=>Array.isArray(m)&&m.includes('R');
+const hasPassed=m=>Array.isArray(m)&&m.includes('P');
+const countMisses=m=>Array.isArray(m)?m.filter(x=>x==='X').length:0;
+// TERMINAL statuses — out of rotation entirely
+const TERMINAL=['dns','retired','nh'];
+// done at current height (won't jump again at this height)
+const isDone=(marks,status)=>TERMINAL.includes(status)||hasCleared(marks)||marks.length>=3||hasRetired(marks)||hasPassed(marks);
+// 3 misses with no clear = NH
+const isNH=(marks)=>marks.length>=3&&!hasCleared(marks);
+
+const highestClearedIdx=(a,n)=>{for(let i=n-1;i>=0;i--)if(hasCleared(a.attempts[i]))return i;return-1};
+const totalMisses=(a,n)=>{let t=0;for(let i=0;i<n;i++)t+=countMisses(a.attempts[i]||[]);return t};
+
+const calcPlacements=(athletes,heights)=>{
+  const n=heights.length;
+  const dns=athletes.filter(a=>a.status==='dns');
+  const out=athletes.filter(a=>a.status!=='dns'&&highestClearedIdx(a,n)<0);
+  const withH=athletes.filter(a=>highestClearedIdx(a,n)>=0);
+  const sorted=[...withH].sort((a,b)=>{
+    const ai=highestClearedIdx(a,n),bi=highestClearedIdx(b,n);
+    if(bi!==ai)return bi-ai;
+    const am=countMisses(a.attempts[ai]||[]),bm=countMisses(b.attempts[bi]||[]);
+    if(am!==bm)return am-bm;
+    return totalMisses(a,n)-totalMisses(b,n);
+  });
+  const result=[];let place=1;
+  for(let i=0;i<sorted.length;i++){
+    let p=place;
+    if(i>0){const pr=sorted[i-1],cr=sorted[i];const pi=highestClearedIdx(pr,n),ci=highestClearedIdx(cr,n);if(pi===ci&&countMisses(pr.attempts[pi]||[])===countMisses(cr.attempts[ci]||[])&&totalMisses(pr,n)===totalMisses(cr,n))p=result[i-1].placement;}
+    result.push({...sorted[i],placement:p});
+    if(result[i].placement===place)place=i+2;
+  }
+  for(let i=0;i<result.length;i++)result[i].tied=result.some((r,j)=>j!==i&&r.placement===result[i].placement);
+  return[...result,...out.map(a=>({...a,placement:null,tied:false})),...dns.map(a=>({...a,placement:null,tied:false}))];
+};
+
+// athletes still to jump at hIdx (in jump order)
+const nextVaulter=(athletes,hIdx,fromIdx)=>{const n=athletes.length;for(let s=1;s<=n;s++){const idx=(fromIdx+s)%n;if(!isDone(athletes[idx].attempts[hIdx]||[],athletes[idx].status))return idx;}return-1};
+const firstEligible=(athletes,hIdx)=>{for(let i=0;i<athletes.length;i++)if(!isDone(athletes[i].attempts[hIdx]||[],athletes[i].status))return i;return-1};
+
+const genHeights=(startM,incStr)=>{const startCm=Math.round(parseFloat(startM)*100);if(isNaN(startCm))return[];const rules=[];for(const part of incStr.split(',').map(s=>s.trim())){const m=part.match(/(\d+(?:\.\d+)?)\s*cm(?:\s*[x×]\s*(\d+))?/i);if(m)rules.push({cm:parseFloat(m[1]),count:m[2]?parseInt(m[2]):99});}const hs=[startCm];let cur=startCm;for(const{cm,count}of rules){for(let i=0;i<count;i++){cur+=cm;hs.push(cur);if(hs.length>=10)return hs;}}return hs};
+const parseManual=str=>str.split(/[,\s]+/).map(s=>parseFloat(s)).filter(n=>!isNaN(n)).map(m=>Math.round(m*100)).slice(0,10);
+
+// parse CSV text into athlete rows
+const parseAthleteCSV=text=>{
+  const lines=text.trim().split(/\r?\n/).filter(l=>l.trim());
+  if(!lines.length)return[];
+  // detect header
+  const first=lines[0].toLowerCase();
+  const hasHeader=first.includes('name')||first.includes('first')||first.includes('last')||first.includes('country');
+  const dataLines=hasHeader?lines.slice(1):lines;
+  return dataLines.map(line=>{
+    const cols=line.split(/[,\t;]/).map(c=>c.trim().replace(/^["']|["']$/g,''));
+    // try to detect columns
+    if(cols.length>=2){
+      // heuristic: if first col is a number it's order/bib, skip it
+      let idx=0;
+      if(!isNaN(cols[0]))idx=1;
+      const firstName=cols[idx]||'';
+      const lastName=cols[idx+1]||'';
+      // find country (3-letter IOC code)
+      const country=cols.find(c=>IOC_ISO[c.toUpperCase()])?cols.find(c=>IOC_ISO[c.toUpperCase()]).toUpperCase():'';
+      // find affiliation (non-country string after names)
+      const affiliation=cols[idx+2]&&!IOC_ISO[cols[idx+2].toUpperCase()]?cols[idx+2]:'';
+      const pb=cols.find(c=>/^\d+[\.''-]/.test(c)&&c!==firstName&&c!==lastName)||'';
+      return{firstName,lastName,country,affiliation,pb,sb:''};
+    }
+    return null;
+  }).filter(Boolean);
+};
+
+// CSV export for results
+const buildResultsCSV=(athletes,heights,ranked,info,metric)=>{
+  const n=heights.length;
+  const headers=['Order','Place','First','Last','Country','Affiliation','PB','SB','Best',...heights.map((h,i)=>`H${i+1} ${fmtH(h,metric)}`)];
+  const rows=[...ranked].sort((a,b)=>{
+    if(a.placement&&b.placement)return a.placement-b.placement;
+    if(a.placement)return-1;if(b.placement)return 1;
+    return(a.order||0)-(b.order||0);
+  }).map(ath=>{
+    const best=highestClearedIdx(ath,n);
+    const pl=ath.placement?(ath.tied?ath.placement+'=':ath.placement):(ath.status==='dns'?'DNS':'NH');
+    return[ath.order,pl,ath.firstName,ath.lastName,ath.country,ath.affiliation,ath.pb,ath.sb,
+      best>=0?fmtH(heights[best],metric):'',
+      ...heights.map((_,hi)=>(ath.attempts[hi]||[]).join('')||'')];
+  });
+  const q=v=>`"${String(v||'').replace(/"/g,'""')}"`;
+  return[headers,...rows].map(r=>r.map(q).join(',')).join('\n');
+};
+
+// ─── STORAGE ─────────────────────────────────────────────────────────────────
+const LS_CUR='vaultdesk_current_v14';
+const LS_ALL='vaultdesk_saved_v14';
+const loadCurrent=()=>{try{return JSON.parse(localStorage.getItem(LS_CUR));}catch{return null}};
+const loadSaved=()=>{try{return JSON.parse(localStorage.getItem(LS_ALL)||'[]');}catch{return[]}};
+const saveAll=comps=>{try{localStorage.setItem(LS_ALL,JSON.stringify(comps.slice(0,20)));}catch{}};
+const saveCurrent=state=>{try{localStorage.setItem(LS_CUR,JSON.stringify(state));}catch{}};
+const deleteComp=id=>saveAll(loadSaved().filter(c=>c.id!==id));
+
+let _ctr=0;
+const mkAthlete=order=>({id:`a${++_ctr}_${Date.now().toString(36)}`,order,firstName:'',lastName:'',country:'',affiliation:'',pb:'',sb:'',logoUrl:'',attempts:Array.from({length:10},()=>[]),status:'competing'});
+
+// ─── STYLES ──────────────────────────────────────────────────────────────────
+const inp={background:C.card,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:'11px 13px',fontSize:16,width:'100%',outline:'none'};
+const sec={marginBottom:18,padding:16,background:C.surface,borderRadius:14,border:`1px solid ${C.border}`};
+const secTit={fontWeight:700,fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:1.2,marginBottom:12};
+const btn=(bg,pad='10px 18px',fs=14)=>({background:bg,color:'#fff',border:'none',borderRadius:10,padding:pad,fontSize:fs,fontWeight:700,cursor:'pointer',WebkitTapHighlightColor:'transparent',letterSpacing:.2,display:'inline-flex',alignItems:'center',justifyContent:'center',gap:4});
+
+// ─── FLAG CELL ───────────────────────────────────────────────────────────────
+function FlagCell({athlete,size=26}){
+  const[err,setErr]=useState(false);
+  const src=athlete.logoUrl||(!err&&getFlagUrl(athlete.country))||null;
+  if(src)return<img src={src} alt={athlete.country||''} onError={()=>setErr(true)} style={{width:size,height:Math.round(size*.75),borderRadius:3,objectFit:'cover',flexShrink:0,background:C.border,display:'block'}}/>;
+  const lbl=athlete.country?athlete.country.toUpperCase().slice(0,3):'?';
+  return<div style={{width:size,height:Math.round(size*.75),borderRadius:3,background:C.border,display:'flex',alignItems:'center',justifyContent:'center',fontSize:size<24?8:9,fontWeight:800,color:C.muted,flexShrink:0,letterSpacing:-.5}}>{lbl}</div>;
+}
+
+// ─── COUNTRY INPUT ───────────────────────────────────────────────────────────
+function CountryInput({value,onChange}){
+  const[sugg,setSugg]=useState([]);
+  const[open,setOpen]=useState(false);
+  const handleChange=e=>{const v=e.target.value;onChange(v);setSugg(getCountrySuggestions(v));setOpen(true);};
+  const pick=code=>{onChange(code);setSugg([]);setOpen(false);};
+  const handleBlur=()=>setTimeout(()=>setOpen(false),150);
+  return(
+    <div style={{position:'relative'}}>
+      <input style={inp} placeholder="Country — IOC code (USA) or name (Sweden)" value={value} onChange={handleChange} onFocus={()=>value.length>=2&&setOpen(true)} onBlur={handleBlur}/>
+      {open&&sugg.length>0&&(
+        <div style={{position:'absolute',top:'100%',left:0,right:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,zIndex:200,overflow:'hidden',boxShadow:'0 4px 20px rgba(0,0,0,.4)'}}>
+          {sugg.map((s,i)=>(
+            <div key={i} onMouseDown={()=>pick(s.code)} style={{padding:'9px 12px',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:10,borderBottom:i<sugg.length-1?`1px solid ${C.border}`:'none'}}>
+              <span style={{fontWeight:800,color:C.accent,width:36,flexShrink:0}}>{s.code}</span>
+              <span style={{color:C.muted,textTransform:'capitalize',flex:1}}>{s.label}</span>
+              <FlagCell athlete={{country:s.code}} size={18}/>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── IMPORT DIALOG ───────────────────────────────────────────────────────────
+function ImportDialog({onImport,onClose}){
+  const[dragOver,setDragOver]=useState(false);
+  const[preview,setPreview]=useState([]);
+  const[error,setError]=useState('');
+  const[raw,setRaw]=useState('');
+
+  const processText=text=>{
+    setRaw(text);
+    const rows=parseAthleteCSV(text);
+    if(rows.length>0){setPreview(rows);setError('');}
+    else setError('Could not parse athletes. Paste CSV with First, Last, Country columns.');
+  };
+
+  const handleDrop=e=>{e.preventDefault();setDragOver(false);const file=e.dataTransfer.files[0];if(file)file.text().then(processText);};
+  const handleFile=e=>{const file=e.target.files[0];if(file)file.text().then(processText);};
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:700,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:'16px 16px 0 0',padding:20,width:'100%',maxWidth:560,maxHeight:'85vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:'flex',alignItems:'center',marginBottom:14}}>
+          <div style={{fontWeight:800,fontSize:16,flex:1}}>Import Athletes</div>
+          <button onClick={onClose} style={btn('#333','7px 14px',13)}>x</button>
+        </div>
+        <div style={{fontSize:13,color:C.muted,marginBottom:14,lineHeight:1.6}}>
+          Drop or select a CSV/TXT file, or paste data below.<br/>
+          Columns: <strong style={{color:C.text}}>First, Last, Country (IOC), Affiliation, PB</strong>
+        </div>
+        {/* Drop zone */}
+        <div
+          onDrop={handleDrop}
+          onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+          onDragLeave={()=>setDragOver(false)}
+          style={{border:`2px dashed ${dragOver?C.accent:C.border}`,borderRadius:12,padding:'20px 16px',textAlign:'center',marginBottom:14,background:dragOver?`${C.accent}11`:'transparent',cursor:'pointer',transition:'all .2s'}}>
+          <div style={{fontSize:28,marginBottom:6}}>📂</div>
+          <div style={{fontSize:13,color:C.muted}}>Drop CSV / TXT file here</div>
+          <label style={{display:'inline-block',marginTop:8}}>
+            <span style={{...btn(C.accent,'6px 12px',12),cursor:'pointer'}}>Browse</span>
+            <input type="file" accept=".csv,.txt,.tsv" onChange={handleFile} style={{display:'none'}}/>
+          </label>
+        </div>
+        {/* Paste area */}
+        <div style={{fontSize:12,color:C.muted,marginBottom:6}}>Or paste data directly:</div>
+        <textarea value={raw} onChange={e=>processText(e.target.value)} placeholder="John,Smith,USA,University of Oregon,5.45m" style={{...inp,height:80,resize:'vertical',marginBottom:10,fontSize:13,display:'block'}}/>
+        {error&&<div style={{fontSize:12,color:C.danger,marginBottom:10}}>{error}</div>}
+        {preview.length>0&&(
+          <div>
+            <div style={{fontSize:12,fontWeight:700,color:C.success,marginBottom:8}}>Found {preview.length} athlete{preview.length!==1?'s':''}:</div>
+            <div style={{background:C.card,borderRadius:8,padding:'8px 0',marginBottom:14,maxHeight:180,overflowY:'auto'}}>
+              {preview.map((a,i)=>(
+                <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 12px',fontSize:13,borderBottom:i<preview.length-1?`1px solid ${C.border}`:'none'}}>
+                  <FlagCell athlete={a} size={18}/>
+                  <span style={{fontWeight:600}}>{a.firstName} {a.lastName}</span>
+                  {a.country&&<span style={{color:C.muted,fontSize:11}}>{a.country}</span>}
+                  {a.affiliation&&<span style={{color:C.muted,fontSize:11}}>{a.affiliation}</span>}
+                  {a.pb&&<span style={{color:C.accent,fontSize:11}}>PB {a.pb}</span>}
+                </div>
+              ))}
+            </div>
+            <button onClick={()=>onImport(preview)} style={{...btn(C.success,'10px 20px',14),width:'100%'}}>Import {preview.length} Athletes</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ────────────────────────────────────────────────────────────────
+function VaultDeskApp(){
+  const saved=useMemo(loadCurrent,[]);
+  const[screen,setScreen]=useState(saved?.screen||'setup');
+  const[metric,setMetric]=useState(saved?.metric??true);
+  const[rulebook,setRulebook]=useState(saved?.rulebook||'WA');
+  const[live,setLive]=useState(true);
+  const[showEdit,setShowEdit]=useState(false);
+  const[showImport,setShowImport]=useState(false);
+  const[showSave,setShowSave]=useState(false);
+  const[compId,setCompId]=useState(()=>saved?.compId||`c_${Date.now().toString(36)}`);
+  const[compStatus,setCompStatus]=useState(saved?.compStatus||'active');
+  const[dirEmail,setDirEmail]=useState(saved?.dirEmail||'');
+  const[editingId,setEditingId]=useState(null);
+  const[savedComps,setSavedComps]=useState(loadSaved);
+  const[info,setInfo]=useState(saved?.info||{name:'',date:new Date().toISOString().split('T')[0],venue:'',gender:'M'});
+  const[athletes,setAthletes]=useState(()=>saved?.athletes?.length?saved.athletes:[mkAthlete(1)]);
+  const[heights,setHeights]=useState(saved?.heights||[]);
+  const[curH,setCurH]=useState(saved?.curH??0);
+  const[curA,setCurA]=useState(saved?.curA??0);
+  const[startH,setStartH]=useState('');
+  const[incStr,setIncStr]=useState('10cm x3, 5cm x3, 2cm');
+  const[manualH,setManualH]=useState('');
+
+  // Ref for synchronous mark processing
+  const athletesRef=useRef(athletes);
+  useEffect(()=>{athletesRef.current=athletes;},[athletes]);
+
+  useEffect(()=>{if(heights.length>0||athletes.some(a=>a.firstName||a.lastName)){saveCurrent({screen,metric,rulebook,compId,compStatus,dirEmail,info,athletes,heights,curH,curA});}},[screen,metric,rulebook,compId,compStatus,info,athletes,heights,curH,curA]);
+
+  const addAthlete=useCallback(()=>{
+    const current=athletesRef.current;
+    const last=current[current.length-1];
+    if(last&&!last.firstName&&!last.lastName){setEditingId(last.id);return;}
+    const newAth=mkAthlete(current.length+1);
+    setAthletes(p=>[...p,newAth]);
+    setEditingId(newAth.id);
+  },[]);
+
+  const updAthlete=useCallback((id,ch)=>setAthletes(p=>p.map(a=>a.id===id?{...a,...ch}:a)),[]);
+  const delAthlete=useCallback(id=>setAthletes(p=>p.filter(a=>a.id!==id).map((a,i)=>({...a,order:i+1}))),[]);
+  const moveAthlete=useCallback((id,dir)=>setAthletes(p=>{const i=p.findIndex(a=>a.id===id),j=i+dir;if(j<0||j>=p.length)return p;const arr=[...p];[arr[i],arr[j]]=[arr[j],arr[i]];return arr.map((a,k)=>({...a,order:k+1}))}),[]);
+  const reorder=useCallback((from,to)=>setAthletes(p=>{if(from===to)return p;const arr=[...p];const[item]=arr.splice(from,1);arr.splice(to,0,item);return arr.map((a,k)=>({...a,order:k+1}))}),[]);
+  const setOrder=useCallback((id,n)=>setAthletes(p=>{const i=p.findIndex(a=>a.id===id);const t=Math.max(0,Math.min(p.length-1,n-1));if(i<0||i===t)return p;const arr=[...p];const[item]=arr.splice(i,1);arr.splice(t,0,item);return arr.map((a,k)=>({...a,order:k+1}))}),[]);
+
+  const importAthletes=useCallback(rows=>{
+    setAthletes(p=>{
+      const existing=p.filter(a=>a.firstName||a.lastName);
+      const newOnes=rows.map((r,i)=>({...mkAthlete(existing.length+i+1),...r}));
+      return[...existing,...newOnes].map((a,i)=>({...a,order:i+1}));
+    });
+    setShowImport(false);
+  },[]);
+
+  const doGenHeights=()=>{const hs=manualH.trim()?parseManual(manualH):genHeights(startH,incStr);setHeights(hs)};
+  const updateHeight=(idx,valStr)=>{const v=parseFloat(valStr);if(!isNaN(v))setHeights(p=>p.map((h,i)=>i===idx?Math.round(v*100):h));};
+
+  // ── RECORD MARK (synchronous advance) ────────────────────────────────────
+  const recordMark=useCallback(mark=>{
+    const prev=athletesRef.current;
+    const next=prev.map((a,i)=>{
+      if(i!==curA)return a;
+      const marks=a.attempts[curH]||[];
+      if(isDone(marks,a.status))return a;
+      if(mark==='DNS')return{...a,status:'dns'};
+      if(mark==='R'){
+        const att=a.attempts.map((arr,hi)=>hi===curH?[...arr,'R']:arr);
+        return{...a,attempts:att,status:'retired'};
+      }
+      const att=a.attempts.map((arr,hi)=>hi===curH?[...arr,mark]:arr);
+      const newMarks=att[curH];
+      const newStatus=isNH(newMarks)?'nh':a.status;
+      return{...a,attempts:att,status:newStatus};
+    });
+
+    // compute next vaulter synchronously
+    const updated=next[curA];
+    const updMarks=updated.attempts[curH]||[];
+    let nextA=-1,nextH=curH;
+
+    if(isDone(updMarks,updated.status)){
+      const nxt=nextVaulter(next,curH,curA);
+      if(nxt===-1){
+        const nh=curH+1;
+        if(nh<heights.length){
+          nextH=nh;
+          const fe=firstEligible(next,nh);
+          nextA=fe>=0?fe:0;
+        }
+      }else{
+        nextA=nxt;
+      }
+    }
+
+    // Batch all state updates in one render
+    setAthletes(next);
+    if(nextA!==-1)setCurA(nextA);
+    if(nextH!==curH)setCurH(nextH);
+  },[curA,curH,heights]);
+
+  const undoMark=useCallback(()=>{
+    setAthletes(prev=>prev.map((a,i)=>{
+      if(i!==curA)return a;
+      if(a.status==='dns')return{...a,status:'competing'};
+      const att=a.attempts.map((arr,hi)=>hi===curH?[...arr]:arr);
+      if(att[curH].length>0)att[curH].pop();
+      const wasRetired=a.status==='retired'&&!att[curH].includes('R');
+      const wasNH=a.status==='nh'&&!isNH(att[curH]);
+      return{...a,attempts:att,status:(wasRetired||wasNH)?'competing':a.status};
+    }));
+  },[curA,curH]);
+
+  const ranked=useMemo(()=>calcPlacements(athletes,heights),[athletes,heights]);
+
+  const startComp=()=>{
+    const hs=heights.length?heights:(manualH.trim()?parseManual(manualH):genHeights(startH,incStr));
+    if(!hs.length){alert('Set up heights first.');return;}
+    setHeights(hs);
+    const fe=firstEligible(athletes,0);
+    setCurA(fe>=0?fe:0);setCurH(0);setScreen('scoring');
+  };
+
+  const endCompetition=()=>{
+    if(!confirm('End this competition? Results will be marked as pending verification.'))return;
+    setCompStatus('complete-pending');
+    setLive(false);
+    const snap={id:compId,name:info.name||'Unnamed',date:info.date,savedAt:new Date().toISOString(),compStatus:'complete-pending',state:{info,rulebook,athletes,heights,curH,curA,metric}};
+    const all=loadSaved().filter(c=>c.id!==snap.id);
+    saveAll([snap,...all]);setSavedComps(loadSaved());
+  };
+
+  const verifyOfficial=()=>{setCompStatus('official');setShowSave(true);};
+
+  const startJumpOff=useCallback(()=>{
+    const n=heights.length;
+    const ranked_now=calcPlacements(athletes,heights);
+    const tiedFirst=ranked_now.filter(r=>r.placement===1&&r.tied);
+    if(!tiedFirst.length)return;
+    const lastH=heights[n-1]||50000;
+    const jumpOffH=lastH+5;
+    const newHIdx=n;
+    setHeights(p=>[...p,jumpOffH]);
+    setAthletes(prev=>prev.map(a=>{
+      const isTied=tiedFirst.some(t=>t.id===a.id);
+      if(!isTied)return a;
+      return{...a,status:'competing'};
+    }));
+    const fe=tiedFirst.length>0?athletes.indexOf(athletes.find(a=>a.id===tiedFirst[0].id)):0;
+    setCurH(newHIdx);
+    setCurA(fe>=0?fe:0);
+    setCompStatus('active');
+    setLive(true);
+  },[athletes,heights]);
+
+  const saveSnapshot=useCallback(()=>{
+    const snap={id:compId,name:info.name||'Unnamed',date:info.date,savedAt:new Date().toISOString(),compStatus,state:{info,rulebook,athletes,heights,curH,curA,metric}};
+    const all=loadSaved().filter(c=>c.id!==snap.id);
+    saveAll([snap,...all]);setSavedComps(loadSaved());
+  },[compId,info,rulebook,athletes,heights,curH,curA,metric,compStatus]);
+
+  const loadSnapshot=snap=>{
+    const{info:i,rulebook:r,athletes:a,heights:h,curH:ch,curA:ca,metric:m}=snap.state;
+    setInfo(i);setRulebook(r);setAthletes(a);setHeights(h);setCurH(ch);setCurA(ca);setMetric(m);setCompId(snap.id);setCompStatus(snap.compStatus||'active');setScreen('scoring');
+  };
+
+  const onDeckIdx =heights.length?nextVaulter(athletes,curH,curA):-1;
+  const inHoleIdx =onDeckIdx!==-1?nextVaulter(athletes,curH,onDeckIdx):-1;
+  const onDeck    =onDeckIdx!==-1&&onDeckIdx!==curA?athletes[onDeckIdx]:null;
+  const inHole    =inHoleIdx!==-1&&inHoleIdx!==curA&&inHoleIdx!==onDeckIdx?athletes[inHoleIdx]:null;
+
+  const TABS=[{id:'setup',icon:'⚙️',label:'Setup'},{id:'scoring',icon:'🎯',label:'Score'},{id:'display',icon:'📺',label:'Display'},{id:'history',icon:'🗂️',label:'History'}];
+
+  return(
+    <div style={{background:C.bg,minHeight:'100vh',color:C.text,maxWidth:'100vw',overflowX:'hidden'}}>
+      {/* TOP BAR */}
+      <header style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'9px 14px',position:'sticky',top:0,zIndex:300,display:'flex',alignItems:'center',gap:8}}>
+        <div style={{fontWeight:900,fontSize:16,color:C.accent,letterSpacing:-.5,flexShrink:0}}>VaultDesk</div>
+        <div style={{flex:1,fontSize:11,color:C.muted,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{info.name||'Pole Vault'}{screen==='scoring'&&heights[curH]?` · ${fmtH(heights[curH],metric)}`:''}</div>
+        <button onClick={()=>setMetric(m=>!m)} style={{...btn(C.card,'5px 9px',10),border:`1px solid ${C.border}`}}>{metric?'m→ft':'ft→m'}</button>
+        {screen==='scoring'&&<>
+          <button onClick={()=>setLive(l=>!l)} style={{...btn(live?'#7f1d1d':C.card,'5px 8px',10),border:live?'none':`1px solid ${C.border}`}}>
+            <span className={live?'live-dot':''} style={{width:6,height:6,borderRadius:'50%',background:live?'#ff4444':C.muted,flexShrink:0,display:'inline-block'}}/>
+            {live?'LIVE':'OFF'}
+          </button>
+          <button onClick={()=>setShowEdit(true)} style={{...btn(C.card,'5px 9px',10),border:`1px solid ${C.border}`}}>Edit</button>
+          {compStatus==='active'&&<button onClick={endCompetition} style={{...btn('#374151','5px 9px',10),border:`1px solid ${C.border}`}}>End</button>}
+        </>}
+      </header>
+
+      {/* STATUS BANNER */}
+      {compStatus!=='active'&&(
+        <div style={{background:compStatus==='official'?`${C.success}22`:`${C.warn}22`,borderBottom:`1px solid ${compStatus==='official'?C.success:C.warn}44`,padding:'8px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <div style={{fontSize:12,fontWeight:700,color:compStatus==='official'?C.success:C.warn,flex:1}}>{compStatus==='official'?'Official Results':'Pending Verification'}</div>
+          {compStatus==='complete-pending'&&<button onClick={verifyOfficial} style={btn(C.success,'5px 12px',11)}>Verify Official</button>}
+          {compStatus==='official'&&<button onClick={()=>setShowSave(true)} style={btn(C.accent,'5px 12px',11)}>Save Results</button>}
+          {compStatus==='complete-pending'&&dirEmail&&<a href={`mailto:${dirEmail}?subject=Results: ${info.name}`} style={{...btn('#2d3748','5px 12px',11),textDecoration:'none'}}>Email Director</a>}
+        </div>
+      )}
+
+      {/* TABS */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:'flex'}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>{if((t.id==='scoring'||t.id==='display')&&!heights.length)return;setScreen(t.id);}}
+            style={{flex:1,padding:'8px 0',background:'none',border:'none',color:screen===t.id?C.accent:C.muted,fontWeight:screen===t.id?700:400,fontSize:11,cursor:'pointer',borderBottom:`2px solid ${screen===t.id?C.accent:'transparent'}`,fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:3,WebkitTapHighlightColor:'transparent'}}>
+            <span>{t.icon}</span><span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      <main>
+        {screen==='setup'&&<SetupScreen info={info} setInfo={setInfo} rulebook={rulebook} setRulebook={setRulebook} athletes={athletes} addAthlete={addAthlete} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} editingId={editingId} setEditingId={setEditingId} startH={startH} setStartH={setStartH} incStr={incStr} setIncStr={setIncStr} manualH={manualH} setManualH={setManualH} doGenHeights={doGenHeights} heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric} startComp={startComp} dirEmail={dirEmail} setDirEmail={setDirEmail} onImport={()=>setShowImport(true)}/>}
+        {screen==='scoring'&&<ScoringScreen athletes={athletes} ranked={ranked} heights={heights} curH={curH} setCurH={setCurH} curA={curA} setCurA={setCurA} metric={metric} recordMark={recordMark} undoMark={undoMark} live={live} onDeck={onDeck} inHole={inHole} compStatus={compStatus} info={info} rulebook={rulebook} startJumpOff={startJumpOff}/>}
+        {screen==='display'&&<DisplayScreen athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={curA} metric={metric} live={live} info={info} onDeck={onDeck} inHole={inHole} compStatus={compStatus}/>}
+        {screen==='history'&&<HistoryScreen savedComps={savedComps} setSavedComps={setSavedComps} loadSnapshot={loadSnapshot} saveSnapshot={saveSnapshot}/>}
+      </main>
+
+      {showEdit&&<EditOverlay onClose={()=>setShowEdit(false)} athletes={athletes} addAthlete={addAthlete} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} editingId={editingId} setEditingId={setEditingId} rulebook={rulebook} heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric} startH={startH} setStartH={setStartH} incStr={incStr} setIncStr={setIncStr} manualH={manualH} setManualH={setManualH} doGenHeights={doGenHeights}/>}
+      {showImport&&<ImportDialog onImport={importAthletes} onClose={()=>setShowImport(false)}/>}
+      {showSave&&<SaveResultsDialog athletes={athletes} heights={heights} ranked={ranked} info={info} metric={metric} onClose={()=>setShowSave(false)}/>}
+    </div>
+  );
+}
+
+// ─── SETUP SCREEN ────────────────────────────────────────────────────────────
+function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updAthlete,delAthlete,moveAthlete,reorder,setOrder,editingId,setEditingId,startH,setStartH,incStr,setIncStr,manualH,setManualH,doGenHeights,heights,setHeights,updateHeight,metric,startComp,dirEmail,setDirEmail,onImport}){
+  const ci=(k,v)=>setInfo(p=>({...p,[k]:v}));
+  return(
+    <div style={{padding:14,maxWidth:640,margin:'0 auto',paddingBottom:40}}>
+      <div style={sec}>
+        <div style={secTit}>Competition Info</div>
+        <div style={{display:'grid',gap:10}}>
+          <input style={inp} placeholder="Meet / Event Name" value={info.name} onChange={e=>ci('name',e.target.value)}/>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <input style={inp} type="date" value={info.date} onChange={e=>ci('date',e.target.value)}/>
+            <input style={inp} placeholder="Venue" value={info.venue} onChange={e=>ci('venue',e.target.value)}/>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <select style={inp} value={info.gender} onChange={e=>ci('gender',e.target.value)}>
+              <option value="M">Men's / Boys'</option>
+              <option value="W">Women's / Girls'</option>
+              <option value="MX">Mixed</option>
+            </select>
+            <select style={inp} value={rulebook} onChange={e=>setRulebook(e.target.value)}>
+              {RULEBOOKS.map(r=><option key={r.key} value={r.key}>{r.label}</option>)}
+            </select>
+          </div>
+          <input style={inp} placeholder="Meet Director email (optional)" value={dirEmail} onChange={e=>setDirEmail(e.target.value)}/>
+        </div>
+      </div>
+
+      <div style={sec}>
+        <div style={secTit}>Height Progression <span style={{color:C.muted,fontWeight:400,fontSize:10,letterSpacing:0}}>(max 10)</span></div>
+        <div style={{display:'grid',gap:10}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <div><div style={{fontSize:12,color:C.muted,marginBottom:5}}>Starting Height (m)</div><input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e=>setStartH(e.target.value)}/></div>
+            <div><div style={{fontSize:12,color:C.muted,marginBottom:5}}>Increments</div><input style={inp} placeholder="10cm x3, 5cm" value={incStr} onChange={e=>setIncStr(e.target.value)}/></div>
+          </div>
+          <div><div style={{fontSize:12,color:C.muted,marginBottom:5}}>Or manual (m, comma-separated, max 10)</div><input style={inp} placeholder="5.00, 5.10, 5.20..." value={manualH} onChange={e=>setManualH(e.target.value)}/></div>
+          <button onClick={doGenHeights} style={btn(C.accent)}>Generate Heights</button>
+        </div>
+        {heights.length>0&&(
+          <div style={{marginTop:14}}>
+            <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Click any height to edit:</div>
+            <HeightEditor heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric}/>
+            {rulebook==='WA'&&heights.some((_,i)=>i>0&&heights[i]-heights[i-1]<5)&&(
+              <div style={{marginTop:8,fontSize:11,color:C.warn,background:`${C.warn}15`,borderRadius:8,padding:'7px 11px',border:`1px solid ${C.warn}44`}}>
+                ⚠ WA Rule 26.4.1 requires minimum 5cm increments. One or more gaps below 5cm detected.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={sec}>
+        <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
+          <div style={{...secTit,marginBottom:0}}>Athletes ({athletes.length})</div>
+          <div style={{flex:1}}/>
+          <button onClick={onImport} style={{...btn(C.card,'7px 12px',12),border:`1px solid ${C.border}`,marginRight:6}}>Import CSV</button>
+          <button onClick={addAthlete} style={btn(C.success,'7px 14px',13)}>+ Add</button>
+        </div>
+        <div style={{fontSize:11,color:C.muted,marginBottom:10}}>Hold and drag the handle to reorder. Type # to jump position.</div>
+        <AthleteList athletes={athletes} editingId={editingId} setEditingId={setEditingId} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} rulebook={rulebook}/>
+        {!athletes.length&&<div style={{textAlign:'center',padding:20,color:C.muted,fontSize:14}}>No athletes — tap + Add</div>}
+      </div>
+
+      <button onClick={startComp} style={{...btn(athletes.length>0&&heights.length>0?C.success:'#2a2a2a'),width:'100%',padding:15,fontSize:16,borderRadius:14,opacity:athletes.length>0&&heights.length>0?1:.5}}>
+        Start Competition
+      </button>
+    </div>
+  );
+}
+
+// ─── HEIGHT EDITOR ───────────────────────────────────────────────────────────
+function HeightEditor({heights,setHeights,updateHeight,metric}){
+  return(
+    <div style={{display:'grid',gap:6}}>
+      {heights.map((h,i)=>(
+        <div key={i} style={{display:'flex',alignItems:'center',gap:8,background:C.card,borderRadius:8,border:`1px solid ${C.border}`,padding:'6px 10px'}}>
+          <span style={{width:22,fontSize:11,color:C.muted,fontWeight:700,flexShrink:0}}>{i+1}</span>
+          <input
+            type="number"
+            step="0.01"
+            value={(h/100).toFixed(2)}
+            onChange={e=>updateHeight(i,e.target.value)}
+            style={{...inp,padding:'5px 8px',fontSize:15,width:90,fontWeight:700}}
+          />
+          <span style={{fontSize:12,color:C.muted,flex:1}}>{metric?fmtH(h,false):fmtH(h,true)}</span>
+          <button onClick={()=>setHeights(p=>p.filter((_,j)=>j!==i))} style={{...btn('#7f1d1d','4px 10px',11),flexShrink:0}}>x</button>
+        </div>
+      ))}
+      <button onClick={()=>setHeights(p=>{if(p.length>=10)return p;const last=p[p.length-1]||50000;return[...p,last+500];})} style={{...btn(C.card,'7px 12px',12),border:`1px solid ${C.border}`,marginTop:2}}>+ Add Height</button>
+    </div>
+  );
+}
+
+// ─── ATHLETE LIST (with touch drag) ─────────────────────────────────────────
+function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,moveAthlete,reorder,setOrder,rulebook}){
+  const[dragIdx,setDragIdx]=useState(null);
+  const[overIdx,setOverIdx]=useState(null);
+  const containerRef=useRef(null);
+  const touchDragRef=useRef({from:-1,to:-1,active:false});
+
+  // Non-passive touchmove listener to prevent scroll during drag
+  useEffect(()=>{
+    const el=containerRef.current;
+    if(!el)return;
+    const prevent=e=>{if(touchDragRef.current.active)e.preventDefault();};
+    el.addEventListener('touchmove',prevent,{passive:false});
+    return()=>el.removeEventListener('touchmove',prevent);
+  },[]);
+
+  const onTouchStartHandle=(e,idx)=>{
+    touchDragRef.current={from:idx,to:idx,active:true};
+    setDragIdx(idx);
+  };
+
+  const onTouchMove=e=>{
+    if(!touchDragRef.current.active)return;
+    const touch=e.touches[0];
+    const rows=containerRef.current?.querySelectorAll('[data-row-idx]');
+    if(!rows)return;
+    let found=-1;
+    rows.forEach(row=>{
+      const rect=row.getBoundingClientRect();
+      if(touch.clientY>=rect.top&&touch.clientY<rect.bottom){
+        found=parseInt(row.dataset.rowIdx);
+      }
+    });
+    if(found!==-1){
+      touchDragRef.current.to=found;
+      setOverIdx(found);
+    }
+  };
+
+  const onTouchEnd=()=>{
+    const{from,to}=touchDragRef.current;
+    if(from!==-1&&to!==-1&&from!==to)reorder(from,to);
+    touchDragRef.current={from:-1,to:-1,active:false};
+    setDragIdx(null);setOverIdx(null);
+  };
+
+  return(
+    <div ref={containerRef} style={{display:'grid',gap:8}} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+      {athletes.map((a,i)=>(
+        <div key={a.id}
+          data-row-idx={i}
+          draggable
+          onDragStart={e=>{setDragIdx(i);e.dataTransfer.effectAllowed='move';}}
+          onDragOver={e=>{e.preventDefault();setOverIdx(i);}}
+          onDrop={e=>{e.preventDefault();if(dragIdx!==null&&dragIdx!==i)reorder(dragIdx,i);setDragIdx(null);setOverIdx(null);}}
+          onDragEnd={()=>{setDragIdx(null);setOverIdx(null);}}
+          className={overIdx===i&&dragIdx!==i?'vd-drag-over':dragIdx===i?'vd-dragging':''}>
+          <AthleteRow
+            athlete={a} index={i} total={athletes.length} rulebook={rulebook}
+            isEditing={editingId===a.id}
+            onEdit={()=>setEditingId(editingId===a.id?null:a.id)}
+            onUpdate={ch=>updAthlete(a.id,ch)}
+            onDelete={()=>delAthlete(a.id)}
+            onUp={()=>moveAthlete(a.id,-1)}
+            onDown={()=>moveAthlete(a.id,1)}
+            onSetOrder={n=>setOrder(a.id,n)}
+            onTouchStartHandle={e=>onTouchStartHandle(e,i)}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── ATHLETE ROW ─────────────────────────────────────────────────────────────
+function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp,onDown,onSetOrder,rulebook,onTouchStartHandle}){
+  const[orderInput,setOrderInput]=useState('');
+  const[showLookup,setShowLookup]=useState(false);
+  const commitOrder=()=>{const n=parseInt(orderInput);if(!isNaN(n))onSetOrder(n);setOrderInput('');};
+
+  if(!isEditing)return(
+    <div style={{display:'flex',alignItems:'center',gap:7,padding:'10px 12px',background:C.card,borderRadius:10,border:`1px solid ${C.border}`}}>
+      {/* Touch+mouse drag handle */}
+      <div
+        onTouchStart={onTouchStartHandle}
+        style={{cursor:'grab',fontSize:18,color:C.muted,flexShrink:0,userSelect:'none',touchAction:'none',padding:'0 4px 0 0',lineHeight:1}}>
+        &#x283F;
+      </div>
+      <input value={orderInput} onChange={e=>setOrderInput(e.target.value)} onBlur={commitOrder} onKeyDown={e=>e.key==='Enter'&&commitOrder()} placeholder={String(athlete.order)} style={{...inp,padding:'4px 6px',fontSize:13,textAlign:'center',width:36,borderRadius:6}}/>
+      <FlagCell athlete={athlete} size={26}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:600,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+          {(athlete.firstName||athlete.lastName)?`${athlete.firstName} ${athlete.lastName}`.trim():<span style={{color:C.muted}}>Unnamed</span>}
+        </div>
+        <div style={{fontSize:12,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+          {[athlete.affiliation,athlete.country].filter(Boolean).join(' · ')||'No affiliation'}
+          {(athlete.pb||athlete.sb)&&` · ${[athlete.pb&&'PB '+athlete.pb,athlete.sb&&'SB '+athlete.sb].filter(Boolean).join(', ')}`}
+        </div>
+      </div>
+      <button onClick={onEdit} style={btn(C.accent,'6px 12px',12)}>Edit</button>
+      <button onClick={onDelete} style={btn('#7f1d1d','6px 12px',12)}>x</button>
+    </div>
+  );
+
+  return(
+    <div style={{padding:14,background:C.card,borderRadius:10,border:`2px solid ${C.accent}`}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.accent}}>Athlete #{athlete.order}</div>
+        <button onClick={()=>setShowLookup(true)} style={{...btn('#1d3a6b','6px 12px',12),border:`1px solid ${C.accent}55`}}>Search {SEARCH_LABEL[rulebook]||'WA'}</button>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+        <input style={inp} placeholder="First Name" value={athlete.firstName||''} onChange={e=>onUpdate({firstName:e.target.value})}/>
+        <input style={inp} placeholder="Last Name" value={athlete.lastName||''} onChange={e=>onUpdate({lastName:e.target.value})}/>
+      </div>
+      <div style={{marginBottom:8}}><CountryInput value={athlete.country||''} onChange={v=>onUpdate({country:v})}/></div>
+      {athlete.country&&(
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,fontSize:13,color:C.muted}}>
+          Flag:&nbsp;<FlagCell athlete={athlete} size={26}/>
+          <span style={{color:C.text,fontWeight:700}}>{athlete.country.toUpperCase()}</span>
+          {!getFlagUrl(athlete.country)&&<span style={{color:C.warn}}> — unrecognized code</span>}
+        </div>
+      )}
+      <div style={{marginBottom:8}}><input style={inp} placeholder="Affiliation / School / Club" value={athlete.affiliation||''} onChange={e=>onUpdate({affiliation:e.target.value})}/></div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+        <div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Entry PR / PB</div>
+          <input style={inp} placeholder="e.g. 5.45m or 17-10.75in" value={athlete.pb||''} onChange={e=>onUpdate({pb:e.target.value})}/>
+        </div>
+        <div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Season Best</div>
+          <input style={inp} placeholder="e.g. 5.32m" value={athlete.sb||''} onChange={e=>onUpdate({sb:e.target.value})}/>
+        </div>
+      </div>
+      <input style={{...inp,marginBottom:12}} placeholder="Custom logo / flag URL (optional)" value={athlete.logoUrl||''} onChange={e=>onUpdate({logoUrl:e.target.value})}/>
+      <div style={{display:'flex',gap:8}}>
+        <button onClick={onEdit} style={btn(C.success,'8px 14px',14)}>Done</button>
+        <button onClick={onDelete} style={btn('#7f1d1d','8px 14px',14)}>Delete</button>
+      </div>
+      {showLookup&&<LookupDialog athlete={athlete} rulebook={rulebook} onApply={ch=>{onUpdate(ch);setShowLookup(false);}} onClose={()=>setShowLookup(false)}/>}
+    </div>
+  );
+}
+
+// ─── LOOKUP DIALOG ───────────────────────────────────────────────────────────
+function LookupDialog({athlete,rulebook,onApply,onClose}){
+  const[paste,setPaste]=useState('');
+  const[parsed,setParsed]=useState(null);
+  const[manualPB,setManualPB]=useState(athlete.pb||'');
+  const[manualSB,setManualSB]=useState(athlete.sb||'');
+  const name=`${athlete.firstName||''} ${athlete.lastName||''}`.trim()||'athlete';
+  const url=SEARCH_URL(name,rulebook);
+  useEffect(()=>{if(paste.length>20)setParsed(parsePaste(paste));else setParsed(null);},[paste]);
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.75)',zIndex:600,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:'16px 16px 0 0',padding:20,width:'100%',maxWidth:560,maxHeight:'75vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:'flex',alignItems:'center',marginBottom:14}}>
+          <div style={{fontWeight:800,fontSize:15,flex:1}}>Lookup: {name}</div>
+          <button onClick={onClose} style={btn('#333','7px 14px',13)}>x</button>
+        </div>
+        <a href={url} target="_blank" rel="noreferrer" style={{...btn(C.accent,'9px 18px',13),textDecoration:'none',display:'inline-block',marginBottom:14}}>Open {SEARCH_LABEL[rulebook]}</a>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+          <div><div style={{fontSize:12,color:C.muted,marginBottom:4}}>Entry PR / PB</div><input style={inp} value={manualPB} onChange={e=>setManualPB(e.target.value)} placeholder="5.45m"/></div>
+          <div><div style={{fontSize:12,color:C.muted,marginBottom:4}}>Season Best</div><input style={inp} value={manualSB} onChange={e=>setManualSB(e.target.value)} placeholder="5.32m"/></div>
+        </div>
+        {(manualPB||manualSB)&&<button onClick={()=>onApply({pb:manualPB,sb:manualSB})} style={{...btn(C.success,'8px 18px',13),marginBottom:14}}>Apply</button>}
+        <div style={{fontSize:12,color:C.muted,marginBottom:6}}>Or paste profile text:</div>
+        <textarea value={paste} onChange={e=>setPaste(e.target.value)} placeholder={`Paste from ${SEARCH_LABEL[rulebook]}...`} style={{...inp,height:70,resize:'vertical',marginBottom:10,display:'block',fontSize:13}}/>
+        {parsed&&Object.keys(parsed).length>0&&(
+          <div style={{background:C.card,borderRadius:8,padding:'10px 14px',marginBottom:12,border:`1px solid ${C.success}44`}}>
+            <div style={{fontSize:11,color:C.success,fontWeight:700,marginBottom:6}}>Extracted</div>
+            {parsed.pb&&<div style={{fontSize:13,marginBottom:3}}>PB: <strong>{parsed.pb}</strong></div>}
+            {parsed.sb&&<div style={{fontSize:13,marginBottom:3}}>SB: <strong>{parsed.sb}</strong></div>}
+            {parsed.country&&<div style={{fontSize:13}}>Country: <strong>{parsed.country}</strong></div>}
+            <button onClick={()=>onApply(parsed)} style={{...btn(C.success,'7px 16px',13),marginTop:10}}>Apply</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── SAVE RESULTS DIALOG ─────────────────────────────────────────────────────
+function SaveResultsDialog({athletes,heights,ranked,info,metric,onClose}){
+  const[saving,setSaving]=useState(false);
+  const[saved,setSaved]=useState(false);
+
+  const doSave=async()=>{
+    setSaving(true);
+    const csv=buildResultsCSV(athletes,heights,ranked,info,metric);
+    const name=(info.name||'results').replace(/[^a-z0-9]/gi,'_');
+    const filename=`${name}_${info.date||'results'}.csv`;
+    const blob=new Blob([csv],{type:'text/csv'});
+    try{
+      if(window.showSaveFilePicker){
+        const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'CSV File',accept:{'text/csv':['.csv']}}]});
+        const w=await handle.createWritable();
+        await w.write(blob);await w.close();
+        setSaved(true);
+      }else throw new Error('fallback');
+    }catch(err){
+      if(err.name!=='AbortError'){
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');a.href=url;a.download=filename;a.click();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);
+        setSaved(true);
+      }
+    }
+    setSaving(false);
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:16,padding:24,width:'100%',maxWidth:400,border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontWeight:800,fontSize:17,marginBottom:8}}>Save Official Results</div>
+        <div style={{fontSize:13,color:C.muted,marginBottom:20,lineHeight:1.6}}>
+          Saves a CSV file with final results, placements, and all attempts.
+        </div>
+        {saved?(
+          <div style={{background:`${C.success}22`,borderRadius:10,padding:'12px 16px',marginBottom:16,border:`1px solid ${C.success}44`,fontSize:14,color:C.success,fontWeight:700}}>
+            Results saved successfully
+          </div>
+        ):(
+          <button onClick={doSave} disabled={saving} style={{...btn(C.success,'12px 20px',15),width:'100%',marginBottom:12,opacity:saving?.6:1}}>
+            {saving?'Saving...':'Download Results CSV'}
+          </button>
+        )}
+        <button onClick={onClose} style={{...btn(C.card,'10px 20px',14),width:'100%',border:`1px solid ${C.border}`}}>
+          {saved?'Close':'Cancel'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── SCORING SCREEN ───────────────────────────────────────────────────────────
+function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,startJumpOff}){
+  const isActive=compStatus==='active';
+  const curAth=athletes[curA];
+  const curHt=heights[curH];
+  const curMarks=curAth?(curAth.attempts[curH]||[]):[];
+  const attemptNum=curMarks.length+1;
+  const alreadyDone=curAth?isDone(curMarks,curAth.status):true;
+  const rbCfg=RULEBOOK_CFG[rulebook]||RULEBOOK_CFG.WA;
+  const tiedFirst=ranked.filter(r=>r.placement===1&&r.tied);
+  const hasFirstTie=tiedFirst.length>=2;
+  const showJumpOffBanner=!isActive&&hasFirstTie;
+
+  const AttemptDots=()=>{
+    const dots=Array.from({length:3},(_,i)=>{
+      const m=curMarks[i];
+      const bg=!m?'transparent':m==='O'?C.success:m==='X'?C.danger:'#2563eb';
+      return<span key={i} style={{width:13,height:13,borderRadius:'50%',border:`2px solid ${!m?C.border:bg}`,background:bg,display:'inline-block'}}/>;
+    });
+    return<div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,marginTop:6}}>{dots}</div>;
+  };
+
+  const MARKS=[
+    {mark:'O',bg:C.success,symbol:'✓',label:'Clear'},
+    {mark:'X',bg:C.danger, symbol:'✗',label:'Miss'},
+    {mark:'P',bg:'#2563eb',symbol:'P',      label:'Pass'},
+    {mark:'R',bg:C.warn,   symbol:'R',      label:'Retire'},
+    {mark:'DNS',bg:'#374151',symbol:'-',    label:'DNS'},
+  ];
+
+  return(
+    <div style={{paddingBottom:20}}>
+      {/* ── HERO ── */}
+      <div style={{background:`linear-gradient(180deg,${C.accent}1a 0%,${C.bg} 100%)`,borderBottom:`1px solid ${C.border}`,padding:'16px 16px 14px',textAlign:'center'}}>
+        {info.name&&<div style={{fontSize:10,color:C.muted,letterSpacing:1.5,textTransform:'uppercase',marginBottom:6}}>{info.name}{info.venue?` · ${info.venue}`:''}</div>}
+        <div style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,color:C.muted,background:C.card,borderRadius:6,padding:'2px 8px',marginBottom:4,border:`1px solid ${C.border}`,letterSpacing:.5}}>{RULEBOOKS.find(r=>r.key===rulebook)?.label||rulebook}</div>
+        {live&&isActive&&(
+          <div style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:9,color:'#ff4444',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>
+            <span className="live-dot" style={{width:6,height:6,borderRadius:'50%',background:'#ff4444',display:'inline-block'}}/>LIVE
+          </div>
+        )}
+        {!isActive&&<div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,color:C.warn,fontWeight:700,letterSpacing:.5,marginBottom:6,background:`${C.warn}18`,borderRadius:8,padding:'3px 10px'}}>
+          {compStatus==='official'?'Official Results':'Pending Verification'}
+        </div>}
+        {/* Big height — only show when active */}
+        {isActive&&<>
+          <div style={{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:2,marginBottom:4}}>Current Bar</div>
+          <div style={{fontSize:54,fontWeight:900,color:C.accent,lineHeight:1,letterSpacing:-2}}>{curHt?fmtH(curHt,metric):'—'}</div>
+          {curHt&&<div style={{fontSize:14,color:C.muted,marginBottom:14}}>{fmtH(curHt,!metric)}</div>}
+          {/* Current vaulter card */}
+          {curAth&&!alreadyDone?(
+            <div style={{display:'inline-flex',alignItems:'center',gap:14,background:C.surface,borderRadius:16,padding:'12px 18px',border:`2px solid ${C.accent}`,textAlign:'left',maxWidth:'100%'}}>
+              <FlagCell athlete={curAth} size={48}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:9,color:C.accent,textTransform:'uppercase',letterSpacing:2,marginBottom:4,fontWeight:700}}>Now Vaulting · Attempt {attemptNum}/3</div>
+                <div style={{fontSize:24,fontWeight:900,color:C.text,lineHeight:1.1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                  {curAth.firstName&&<span style={{color:C.muted,fontSize:20}}>{curAth.firstName} </span>}
+                  <span>{curAth.lastName||curAth.firstName||'—'}</span>
+                </div>
+                {(curAth.affiliation||curAth.country||curAth.pb)&&(
+                  <div style={{fontSize:11,color:C.muted,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                    {[curAth.affiliation,curAth.country].filter(Boolean).join(' · ')}
+                    {curAth.pb&&` · PB ${curAth.pb}`}
+                  </div>
+                )}
+                <AttemptDots/>
+              </div>
+            </div>
+          ):(isActive&&(
+            <div style={{background:`${C.warn}18`,borderRadius:12,padding:'10px 16px',display:'inline-block',border:`1px solid ${C.warn}44`,fontSize:13,color:C.warn,fontWeight:600}}>
+              {alreadyDone&&curAth?.status==='dns'
+                ?`${curAth.firstName||'Athlete'} DNS — tap Undo or select another vaulter`
+                :'All athletes done at this height — advance to next height'}
+            </div>
+          ))}
+        </>}
+      </div>
+
+      {/* ── ON DECK / IN THE HOLE (active only) ── */}
+      {isActive&&(onDeck||inHole)&&(
+        <div style={{display:'flex',background:C.surface,borderBottom:`1px solid ${C.border}`}}>
+          {onDeck&&(
+            <div style={{flex:1,padding:'8px 14px',borderRight:inHole?`1px solid ${C.border}`:undefined}}>
+              <div style={{fontSize:9,fontWeight:800,letterSpacing:2,color:C.muted,textTransform:'uppercase',marginBottom:3}}>On Deck</div>
+              <div style={{display:'flex',alignItems:'center',gap:7}}>
+                <FlagCell athlete={onDeck} size={18}/>
+                <span style={{fontWeight:700,fontSize:12,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{onDeck.firstName} {onDeck.lastName}</span>
+                <span style={{fontSize:10,color:C.muted}}>#{onDeck.order}</span>
+              </div>
+            </div>
+          )}
+          {inHole&&(
+            <div style={{flex:1,padding:'8px 14px'}}>
+              <div style={{fontSize:9,fontWeight:800,letterSpacing:2,color:C.muted,textTransform:'uppercase',marginBottom:3}}>In the Hole</div>
+              <div style={{display:'flex',alignItems:'center',gap:7}}>
+                <FlagCell athlete={inHole} size={18}/>
+                <span style={{fontWeight:700,fontSize:12,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{inHole.firstName} {inHole.lastName}</span>
+                <span style={{fontSize:10,color:C.muted}}>#{inHole.order}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── JUMP-OFF BANNER ── */}
+      {showJumpOffBanner&&(
+        <div style={{margin:'12px 14px',background:'#1a1a00',border:`1px solid ${C.warn}`,borderRadius:14,padding:'14px 16px'}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.warn,marginBottom:4}}>{rbCfg.tieLabel}</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.6}}>{rbCfg.jumpOffNote}<br/>Tied: {tiedFirst.map(a=>a.lastName||a.firstName||`#${a.order}`).join(' · ')}</div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <button onClick={startJumpOff} style={btn(C.warn,'8px 16px',12)}>Start Jump-Off (+5cm)</button>
+            {!rbCfg.jumpOffRequired&&<div style={{fontSize:11,color:C.muted,alignSelf:'center'}}>or declare co-champions above</div>}
+          </div>
+        </div>
+      )}
+      {/* ── MARK BUTTONS (active only) ── */}
+      {isActive&&(
+        <div style={{padding:'10px 10px',display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:6,background:C.bg,borderBottom:`1px solid ${C.border}`}}>
+          {MARKS.map(({mark,bg,symbol,label})=>(
+            <button key={mark} onClick={()=>recordMark(mark)}
+              style={{background:bg,color:'#fff',border:'none',borderRadius:12,padding:'10px 2px',fontSize:10,fontWeight:700,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,minHeight:54,fontFamily:'inherit',WebkitTapHighlightColor:'transparent',touchAction:'manipulation'}}>
+              <span style={{fontSize:20}}>{symbol}</span><span>{label}</span>
+            </button>
+          ))}
+          <button onClick={undoMark}
+            style={{background:'#4c1d95',color:'#fff',border:'none',borderRadius:12,padding:'10px 2px',fontSize:10,fontWeight:700,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,minHeight:54,fontFamily:'inherit',WebkitTapHighlightColor:'transparent'}}>
+            <span style={{fontSize:20}}>{'↩'}</span><span>Undo</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── HEIGHT TABS (active only) ── */}
+      {isActive&&(
+        <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'6px 10px',display:'flex',gap:5,overflowX:'auto',alignItems:'center',WebkitOverflowScrolling:'touch'}}>
+          <span style={{fontSize:9,color:C.muted,flexShrink:0,textTransform:'uppercase',letterSpacing:.8}}>Bar:</span>
+          {heights.map((h,i)=>(
+            <button key={i} onClick={()=>setCurH(i)}
+              style={{flexShrink:0,background:i===curH?C.accent:C.card,color:i===curH?'#fff':C.muted,border:`1px solid ${i===curH?C.accent:C.border}`,borderRadius:18,padding:'3px 10px',fontSize:10,fontWeight:i===curH?700:400,cursor:'pointer',fontFamily:'inherit',WebkitTapHighlightColor:'transparent'}}>
+              {fmtH(h,metric)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── RESULTS TABLE ── */}
+      <ResultsTable athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={curA} metric={metric} setCurA={setCurA} setCurH={setCurH} isActive={isActive}/>
+    </div>
+  );
+}
+
+// ─── RESULTS TABLE ───────────────────────────────────────────────────────────
+function ResultsTable({athletes,ranked,heights,curH,curA,metric,setCurA,setCurH,compact=false,isActive=true}){
+  const n=heights.length;
+  if(!n)return null;
+
+  // Build placement lookup from ranked array
+  const placementOf=useMemo(()=>{
+    const map={};
+    ranked.forEach(r=>{map[r.id]={pl:r.placement,tied:r.tied};});
+    return map;
+  },[ranked]);
+
+  // During active competition: sort by jump order, with active athletes first
+  // After competition: sort by placement
+  const displayAthletes=useMemo(()=>{
+    if(!isActive){
+      // sort by placement (same as ranked order)
+      return [...ranked];
+    }
+    // Sort: active at current height first (by order), then passed/cleared, then NH, then DNS
+    const getSort=a=>{
+      const marks=a.attempts[curH]||[];
+      const done=isDone(marks,a.status);
+      const isNHStatus=a.status==='nh';
+      const isDNS=a.status==='dns';
+      return[isDNS?3:isNHStatus?2:done?1:0, a.order];
+    };
+    return [...athletes].sort((a,b)=>{
+      const [ag,ao]=getSort(a);
+      const [bg,bo]=getSort(b);
+      if(ag!==bg)return ag-bg;
+      return ao-bo;
+    });
+  },[athletes,ranked,curH,isActive]);
+
+  const getCellContent=(ath,hIdx)=>{
+    const m=ath.attempts[hIdx]||[];
+    if(ath.status==='dns')return{text:'- -',color:C.muted,bg:'transparent'};
+    if(!m.length)return{text:'',color:C.muted,bg:'transparent'};
+    const text=m.join('');
+    if(hasCleared(m))return{text,color:'#4ade80',bg:C.cleared};
+    if(m.length>=3&&!hasCleared(m))return{text,color:'#f87171',bg:C.missed};
+    return{text,color:hasPassed(m)?'#60a5fa':C.muted,bg:'transparent'};
+  };
+
+  const bestResult=ath=>{const idx=highestClearedIdx(ath,n);return idx>=0?heights[idx]:null};
+
+  return(
+    <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(400,220+n*52)+'px'}}>
+        <thead>
+          <tr style={{background:C.surface,borderBottom:`2px solid ${C.border}`}}>
+            <th style={{position:'sticky',left:0,background:C.surface,padding:'7px 5px',textAlign:'center',color:C.muted,width:30,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>#</th>
+            <th style={{position:'sticky',left:30,background:C.surface,padding:'7px 6px',textAlign:'center',color:C.muted,width:36,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>PL</th>
+            <th style={{position:'sticky',left:66,background:C.surface,padding:'7px 10px',textAlign:'left',color:C.muted,minWidth:130,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
+            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:52,fontSize:9,fontWeight:800,letterSpacing:.5}}>PB</th>
+            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:52,fontSize:9,fontWeight:800,letterSpacing:.5}}>SB</th>
+            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:54,fontSize:9,fontWeight:800,letterSpacing:.5}}>BEST</th>
+            {heights.map((h,i)=>(
+              <th key={i} style={{padding:'7px 4px',textAlign:'center',minWidth:46,color:i===curH&&isActive?C.accent:C.muted,fontWeight:i===curH&&isActive?800:600,fontSize:9,letterSpacing:.3,background:i===curH&&isActive?`${C.accent}18`:C.surface}}>
+                {fmtH(h,metric)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {displayAthletes.map((ath,rowIdx)=>{
+            const origIdx=athletes.findIndex(a=>a.id===ath.id);
+            const isCur=isActive&&origIdx===curA;
+            const plInfo=placementOf[ath.id]||{pl:null,tied:false};
+            const best=bestResult(ath);
+            const isOut=TERMINAL.includes(ath.status);
+            const rowBg=isCur?`${C.accent}12`:rowIdx%2===0?'transparent':`${C.surface}60`;
+            const isPassed=a=>hasPassed(a.attempts[curH]||[]);
+            const isDoneHere=isDone(ath.attempts[curH]||[],ath.status);
+            return(
+              <tr key={ath.id} style={{background:rowBg,borderBottom:`1px solid ${C.border}`,borderLeft:isCur?`3px solid ${C.accent}`:'3px solid transparent',opacity:ath.status==='dns'?.55:isOut&&!hasCleared({attempts:ath.attempts})?1:1}}>
+                {/* Jump order */}
+                <td style={{position:'sticky',left:0,background:rowBg,padding:'7px 5px',textAlign:'center',fontWeight:700,fontSize:12,color:isDoneHere?C.muted:C.text}}>{ath.order}</td>
+                {/* Placement */}
+                <td style={{position:'sticky',left:30,background:rowBg,padding:'7px 6px',textAlign:'center',fontWeight:800,fontSize:compact?13:14}}>
+                  {plInfo.pl===1?'🥇':plInfo.pl===2?'🥈':plInfo.pl===3?'🥉':plInfo.pl?
+                    <span style={{color:C.muted,fontSize:11}}>{plInfo.pl}{plInfo.tied?'=':''}</span>:
+                    <span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':best?'':'NH'}</span>}
+                </td>
+                {/* Athlete */}
+                <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                    <FlagCell athlete={ath} size={18}/>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontWeight:isCur?800:600,fontSize:13,color:isCur?C.accent:isOut?C.muted:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:100,textDecoration:ath.status==='dns'?'line-through':'none'}}>
+                        {isCur&&<span style={{fontSize:9,marginRight:3}}>&#9658;</span>}
+                        {ath.firstName} {ath.lastName}
+                      </div>
+                      {(ath.affiliation||ath.status==='nh'||ath.status==='retired')&&(
+                        <div style={{fontSize:9,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:100}}>
+                          {ath.affiliation||''}
+                          {ath.status==='nh'&&<span style={{color:C.danger}}> NH</span>}
+                          {ath.status==='retired'&&<span style={{color:C.warn}}> RET</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </td>
+                {/* PB */}
+                <td style={{padding:'7px 4px',textAlign:'center',fontSize:10,color:C.muted}}>{ath.pb||'—'}</td>
+                {/* SB */}
+                <td style={{padding:'7px 4px',textAlign:'center',fontSize:10,color:C.muted}}>{ath.sb||'—'}</td>
+                {/* Best */}
+                <td style={{padding:'7px 4px',textAlign:'center'}}>
+                  {best?<div><div style={{fontSize:11,fontWeight:800,color:C.success}}>{fmtH(best,metric)}</div></div>
+                      :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':'NH'}</span>}
+                </td>
+                {/* Height cells */}
+                {heights.map((h,hIdx)=>{
+                  const{text,color,bg}=getCellContent(ath,hIdx);
+                  const isCurCell=isActive&&hIdx===curH&&origIdx===curA;
+                  const clickable=ath.status!=='dns'&&ath.status!=='nh';
+                  return(
+                    <td key={hIdx}
+                      onClick={()=>{setCurH(hIdx);if(clickable&&isActive)setCurA(origIdx);}}
+                      style={{padding:'7px 4px',textAlign:'center',fontWeight:700,fontSize:11,letterSpacing:.3,color,background:isCurCell?bg||`${C.accent}0d`:bg,cursor:clickable&&isActive?'pointer':'default',outline:isCurCell?`2px inset ${C.accent}55`:'none'}}>
+                      {text}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── EDIT OVERLAY ────────────────────────────────────────────────────────────
+function EditOverlay({onClose,athletes,addAthlete,updAthlete,delAthlete,moveAthlete,reorder,setOrder,editingId,setEditingId,rulebook,heights,setHeights,updateHeight,metric,startH,setStartH,incStr,setIncStr,manualH,setManualH,doGenHeights}){
+  const[tab,setTab]=useState('athletes');
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:500,display:'flex',flexDirection:'column',justifyContent:'flex-end'}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:'18px 18px 0 0',maxHeight:'82vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:'flex',alignItems:'center',padding:'14px 16px 10px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+          <div style={{fontWeight:800,fontSize:16,flex:1}}>Edit Competition</div>
+          <button onClick={onClose} style={btn(C.success,'7px 16px',13)}>Done</button>
+        </div>
+        <div style={{display:'flex',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+          <button onClick={()=>setTab('athletes')} style={{flex:1,padding:'8px 0',background:'none',border:'none',color:tab==='athletes'?C.accent:C.muted,fontWeight:tab==='athletes'?700:400,fontSize:12,cursor:'pointer',borderBottom:`2px solid ${tab==='athletes'?C.accent:'transparent'}`,fontFamily:'inherit'}}>Athletes</button>
+          <button onClick={()=>setTab('heights')} style={{flex:1,padding:'8px 0',background:'none',border:'none',color:tab==='heights'?C.accent:C.muted,fontWeight:tab==='heights'?700:400,fontSize:12,cursor:'pointer',borderBottom:`2px solid ${tab==='heights'?C.accent:'transparent'}`,fontFamily:'inherit'}}>Heights</button>
+        </div>
+        <div style={{overflowY:'auto',padding:14,flex:1}}>
+          {tab==='athletes'&&<>
+            <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
+              <div style={{fontSize:12,color:C.muted}}>Drag to reorder</div>
+              <div style={{flex:1}}/>
+              <button onClick={addAthlete} style={btn(C.success,'6px 12px',12)}>+ Add</button>
+            </div>
+            <AthleteList athletes={athletes} editingId={editingId} setEditingId={setEditingId} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} rulebook={rulebook}/>
+          </>}
+          {tab==='heights'&&<>
+            <div style={{fontSize:12,color:C.muted,marginBottom:12}}>Click any height to edit inline. Max 10 heights.</div>
+            <div style={{display:'grid',gap:10,marginBottom:14}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Start (m)</div><input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e=>setStartH(e.target.value)}/></div>
+                <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Increments</div><input style={inp} placeholder="10cm x3, 5cm" value={incStr} onChange={e=>setIncStr(e.target.value)}/></div>
+              </div>
+              <input style={inp} placeholder="Or manual: 5.00, 5.10..." value={manualH} onChange={e=>setManualH(e.target.value)}/>
+              <button onClick={doGenHeights} style={btn(C.accent)}>Update Heights</button>
+            </div>
+            <HeightEditor heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric}/>
+          </>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── DISPLAY SCREEN ──────────────────────────────────────────────────────────
+function DisplayScreen({athletes,ranked,heights,curH,curA,metric,live,info,onDeck,inHole,compStatus}){
+  const isActive=compStatus==='active';
+  const curAth=athletes[curA],curHt=heights[curH];
+  return(
+    <div style={{background:C.bg,minHeight:'80vh',paddingBottom:30}}>
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'12px 20px',textAlign:'center'}}>
+        <div style={{fontSize:12,fontWeight:800,color:C.muted,letterSpacing:2,textTransform:'uppercase',marginBottom:3}}>{info.name||'Pole Vault'}{info.date?` · ${info.date}`:''}{info.venue?` · ${info.venue}`:''}</div>
+        {live&&isActive&&<div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,color:'#ff4444',fontWeight:700,letterSpacing:1}}><span className="live-dot" style={{width:7,height:7,borderRadius:'50%',background:'#ff4444',display:'inline-block'}}/>LIVE</div>}
+      </div>
+      {isActive&&curAth&&curHt&&(
+        <div style={{background:`linear-gradient(180deg,${C.accent}18 0%,${C.bg} 100%)`,padding:'22px 20px 16px',textAlign:'center',borderBottom:`1px solid ${C.border}`}}>
+          <div style={{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:2,marginBottom:6}}>Current Bar</div>
+          <div style={{fontSize:60,fontWeight:900,color:C.accent,lineHeight:1,letterSpacing:-2}}>{fmtH(curHt,metric)}</div>
+          {metric&&<div style={{fontSize:16,color:C.muted,marginBottom:16}}>{fmtH(curHt,false)}</div>}
+          <div style={{display:'inline-flex',alignItems:'center',gap:14,background:C.surface,borderRadius:16,padding:'14px 22px',border:`1px solid ${C.border}`}}>
+            <FlagCell athlete={curAth} size={46}/>
+            <div style={{textAlign:'left'}}>
+              <div style={{fontSize:9,color:C.muted,textTransform:'uppercase',letterSpacing:2,marginBottom:4}}>Now Vaulting</div>
+              <div style={{fontSize:28,fontWeight:900,color:C.text,lineHeight:1.1}}>{curAth.firstName} <span style={{color:C.accent}}>{curAth.lastName}</span></div>
+              {(curAth.affiliation||curAth.country)&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>{[curAth.affiliation,curAth.country].filter(Boolean).join(' · ')}</div>}
+            </div>
+          </div>
+          {(onDeck||inHole)&&(
+            <div style={{display:'flex',justifyContent:'center',gap:24,marginTop:12}}>
+              {onDeck&&<div style={{fontSize:12,color:C.muted}}>On Deck: <strong style={{color:C.text}}>{onDeck.firstName} {onDeck.lastName}</strong></div>}
+              {inHole&&<div style={{fontSize:12,color:C.muted}}>In the Hole: <strong style={{color:C.text}}>{inHole.firstName} {inHole.lastName}</strong></div>}
+            </div>
+          )}
+        </div>
+      )}
+      <ResultsTable athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={curA} metric={metric} setCurA={()=>{}} setCurH={()=>{}} compact isActive={isActive}/>
+    </div>
+  );
+}
+
+// ─── HISTORY SCREEN ──────────────────────────────────────────────────────────
+function HistoryScreen({savedComps,setSavedComps,loadSnapshot,saveSnapshot}){
+  const refresh=()=>setSavedComps(loadSaved());
+  const handleDel=id=>{if(!confirm('Delete this competition?'))return;deleteComp(id);refresh();};
+  const fmtDate=iso=>{try{return new Date(iso).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});}catch{return iso;}};
+  return(
+    <div style={{padding:14,maxWidth:640,margin:'0 auto',paddingBottom:40}}>
+      <div style={sec}>
+        <div style={{display:'flex',alignItems:'center',marginBottom:12}}>
+          <div style={{...secTit,marginBottom:0}}>Saved Competitions</div>
+          <div style={{flex:1}}/>
+          <button onClick={saveSnapshot} style={btn(C.accent,'7px 14px',13)}>Save Current</button>
+        </div>
+        {!savedComps.length&&<div style={{textAlign:'center',padding:'28px 20px',color:C.muted,fontSize:14}}>No saved competitions yet.</div>}
+        <div style={{display:'grid',gap:10}}>
+          {savedComps.map(comp=>(
+            <div key={comp.id} style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,padding:'12px 14px'}}>
+              <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:2}}>{comp.name}</div>
+                  <div style={{fontSize:12,color:C.muted}}>{comp.date}{comp.state?.info?.venue?` · ${comp.state.info.venue}`:''}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{fmtDate(comp.savedAt)}{comp.state?.athletes?` · ${comp.state.athletes.length} athletes`:''}{comp.compStatus==='official'?<span style={{color:C.success}}> · Official</span>:comp.compStatus==='complete-pending'?<span style={{color:C.warn}}> · Pending</span>:''}</div>
+                </div>
+                <div style={{display:'flex',gap:6,flexShrink:0}}>
+                  <button onClick={()=>loadSnapshot(comp)} style={btn(comp.compStatus==='official'?C.warn:C.accent,'6px 11px',11)}>
+                    {comp.compStatus==='official'?'Modify':'Resume'}
+                  </button>
+                  <button onClick={()=>handleDel(comp.id)} style={btn('#7f1d1d','6px 11px',11)}>x</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<VaultDeskApp/>);
+</script>
+</body>
+</html>
