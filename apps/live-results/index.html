@@ -1158,54 +1158,49 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
         </div>
       </div>
 
-      {/* ROTATION — On Deck / In Hole (above height selector) */}
-      {isActive&&live!==null&&(
-        <div style={{padding:'8px 14px 0'}}>
-          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
-            {live!==null&&athletes[live]&&<div style={{fontSize:12,color:C.accent,background:`${C.accent}15`,borderRadius:8,padding:'4px 10px',border:`1px solid ${C.accent}44`,fontWeight:700}}>▶ {athletes[live].firstName} {athletes[live].lastName}</div>}
-            {onDeck!==null&&athletes[onDeck]&&<div style={{fontSize:12,color:C.warn,background:`${C.warn}10`,borderRadius:8,padding:'4px 10px',border:`1px solid ${C.warn}33`}}>On deck: {athletes[onDeck].firstName} {athletes[onDeck].lastName}</div>}
-            {inHole!==null&&athletes[inHole]&&<div style={{fontSize:12,color:C.muted,background:C.card,borderRadius:8,padding:'4px 10px',border:`1px solid ${C.border}`}}>In hole: {athletes[inHole].firstName} {athletes[inHole].lastName}</div>}
+      {/* HERO — hybrid A+C: large height left · divider · athlete info right */}
+      <div style={{background:'linear-gradient(135deg,#0b1829 0%,#0e1e38 50%,#0d1520 100%)',borderBottom:`1px solid rgba(79,124,255,.2)`,padding:'14px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:0}}>
+          {/* Left: large height */}
+          <div style={{textAlign:'center',flexShrink:0,paddingRight:14,minWidth:95}}>
+            {curHt?(
+              <>
+                <div style={{fontSize:46,fontWeight:900,color:C.text,letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
+                <div style={{fontSize:16,color:'rgba(136,136,170,.7)',fontWeight:600,marginTop:3}}>{fmtH(curHt,!primaryMetric)}</div>
+              </>
+            ):<div style={{fontSize:14,color:C.muted,lineHeight:'62px'}}>—</div>}
           </div>
-        </div>
-      )}
-
-      {/* HEIGHT SELECTOR */}
-      {isActive&&(
-        <div style={{padding:'8px 14px 0',overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-          <div style={{display:'flex',gap:5,flexWrap:'nowrap',paddingBottom:4}}>
-            {heights.map((h,i)=>{
-              const elig=firstEligible(athletes,i)!==-1;
-              return(
-                <button key={i} onClick={()=>setCurH(i)}
-                  style={{...btn(i===curH?C.accent:elig?C.card:C.surface,'6px 12px',12),border:`1px solid ${i===curH?C.accent:C.border}`,flexShrink:0,minWidth:52,display:'flex',flexDirection:'column',alignItems:'center',gap:1,opacity:!elig?.45:1}}>
-                  <span style={{fontWeight:700,fontSize:12}}>{fmtH(h,primaryMetric)}</span>
-                  <span style={{fontSize:9,opacity:.7}}>{fmtH(h,!primaryMetric)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* HERO — current height + vaulter */}
-      <div style={{background:`linear-gradient(180deg,${C.accent}18 0%,${C.bg} 100%)`,padding:'12px 16px 10px',textAlign:'center'}}>
-        {curHt&&(
-          <div style={{marginBottom:4}}>
-            <div style={{fontSize:46,fontWeight:900,color:C.text,letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
-            <div style={{fontSize:18,color:C.muted,marginTop:2,fontWeight:600}}>{fmtH(curHt,!primaryMetric)}</div>
-          </div>
-        )}
-        {isActive&&curAth&&(
-          <div style={{marginTop:6}}>
-            <div style={{display:'flex',alignItems:'center',gap:6,justifyContent:'center',marginBottom:3}}>
-              <FlagCell athlete={curAth} size={22}/>
-              <span style={{fontWeight:800,fontSize:18,color:C.accent}}>{curAth.firstName} {curAth.lastName}</span>
+          {/* Divider */}
+          <div style={{width:1,alignSelf:'stretch',background:'rgba(79,124,255,.35)',flexShrink:0,marginRight:14}}/>
+          {/* Right: athlete */}
+          {isActive&&curAth?(
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:10,color:'rgba(79,124,255,.65)',fontWeight:700,letterSpacing:.8,textTransform:'uppercase',marginBottom:6}}>Now vaulting · Attempt {attemptNum}{curMarks.length>0?` · ${curMarks.join('')}`:''}</div>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:5}}>
+                <FlagCell athlete={curAth} size={26}/>
+                <span style={{fontWeight:900,fontSize:21,color:C.accent,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',letterSpacing:-.3}}>{curAth.firstName} {curAth.lastName}</span>
+              </div>
+              {curAth.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.7)',marginBottom:5}}>{curAth.affiliation}</div>}
+              {(curAth.pb||curAth.sb)&&(
+                <div style={{display:'flex',gap:12,fontSize:13}}>
+                  {curAth.pb&&<span style={{color:'rgba(136,136,170,.8)'}}>PB <span style={{color:C.accent,fontWeight:800}}>{curAth.pb}</span></span>}
+                  {curAth.sb&&<span style={{color:'rgba(136,136,170,.8)'}}>SB <span style={{color:C.success,fontWeight:800}}>{curAth.sb}</span></span>}
+                </div>
+              )}
             </div>
-            {curAth.affiliation&&<div style={{fontSize:11,color:C.muted}}>{curAth.affiliation}</div>}
-            <div style={{fontSize:11,color:C.muted,marginTop:2}}>Attempt {attemptNum} · {curMarks.length>0?curMarks.join(''):'—'}</div>
-          </div>
-        )}
+          ):<div style={{flex:1,color:C.muted,fontSize:13,paddingTop:8}}>No active vaulter</div>}
+        </div>
       </div>
+
+      {/* ROTATION — On Deck / In Hole (below hero) */}
+      {isActive&&live!==null&&(
+        <div style={{padding:'7px 14px',background:C.surface,borderBottom:`1px solid ${C.border}`}}>
+          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+            {onDeck!==null&&athletes[onDeck]&&<div style={{fontSize:11,color:C.warn,background:`${C.warn}10`,borderRadius:7,padding:'3px 9px',border:`1px solid ${C.warn}30`}}>On deck: {athletes[onDeck].firstName} {athletes[onDeck].lastName}</div>}
+            {inHole!==null&&athletes[inHole]&&<div style={{fontSize:11,color:C.muted,background:C.card,borderRadius:7,padding:'3px 9px',border:`1px solid ${C.border}`}}>In hole: {athletes[inHole].firstName} {athletes[inHole].lastName}</div>}
+          </div>
+        </div>
+      )}
 
       {/* JUMP-OFF BANNER */}
       {showJumpOffBanner&&(
