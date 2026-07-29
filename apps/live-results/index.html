@@ -589,8 +589,9 @@ function SimpleIncPicker({incStr,setIncStr,primaryMetric}){
       </div>
       <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Heights stored in cm · 3"=7.62 · 6"=15.24 · 9"=22.86 · 12"=30.48</div>
       <div>
-        <button onClick={()=>setShowAdv(a=>!a)} style={{fontSize:11,color:C.muted,background:'none',border:'none',cursor:'pointer',textDecoration:'underline',padding:0}}>
-          {showAdv?'↑ Hide advanced':'↓ Advanced stepped increments'}
+        <button onClick={()=>setShowAdv(a=>!a)}
+          style={{...btn(showAdv?C.card:'#1e2a1e','6px 13px',12),border:`1px solid ${showAdv?C.border:'#22c55e55'}`,color:showAdv?C.muted:C.success}}>
+          {showAdv?'↑ Hide Advanced Steps':'⚙ Advanced Stepped Increments'}
         </button>
         {!showAdv&&curCm!==null&&<span style={{fontSize:11,color:C.muted,marginLeft:8}}>({curCm}cm uniform)</span>}
       </div>
@@ -715,6 +716,7 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
   if(!isEditing)return(
     <div style={{padding:'9px 12px',background:C.card,borderRadius:10,border:`1px solid ${C.border}`,userSelect:'none',WebkitUserSelect:'none'}}>
       <div style={{display:'flex',alignItems:'center',gap:6}}>
+        <span style={{width:18,fontSize:11,color:C.muted,fontWeight:700,flexShrink:0,textAlign:'right'}}>{athlete.order}</span>
         <FlagCell athlete={athlete} size={24}/>
         <input
           placeholder="First" value={athlete.firstName||''}
@@ -1082,7 +1084,21 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
           <button onClick={onImport} style={{...btn(C.card,'7px 12px',12),border:`1px solid ${C.border}`,marginRight:6}}>Import</button>
           <button onClick={addAthlete} style={btn(C.success,'7px 14px',13)}>+ Add</button>
         </div>
-        <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Type directly in each row. ▼ for advanced options (affiliation, SB, photo). Drag ☰ to reorder.</div>
+        <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Type directly in each row. <strong style={{color:C.text}}>Edit</strong> for advanced options (affiliation, photo). <strong style={{color:C.text}}>↑↓</strong> jumping order. <strong style={{color:C.text}}>☰</strong> drag to reorder. <strong style={{color:C.text}}>✕</strong> delete.</div>
+        {/* Column headers */}
+        <div style={{display:'flex',alignItems:'center',gap:6,padding:'0 12px',marginBottom:4}}>
+          <span style={{width:18,fontSize:10,color:C.muted,fontWeight:700,flexShrink:0}}>#</span>
+          <span style={{width:24,flexShrink:0}}/>
+          <span style={{flex:'1.5',minWidth:50,fontSize:10,color:C.muted,fontWeight:700}}>First</span>
+          <span style={{flex:2,minWidth:60,fontSize:10,color:C.muted,fontWeight:700}}>Last</span>
+          <span style={{width:40,fontSize:10,color:C.muted,fontWeight:700,textAlign:'center',flexShrink:0}}>Nat.</span>
+          <span style={{width:52,fontSize:10,color:C.accent,fontWeight:700,textAlign:'center',flexShrink:0}}>PB</span>
+          <span style={{width:52,fontSize:10,color:C.success,fontWeight:700,textAlign:'center',flexShrink:0}}>SB</span>
+          <span style={{fontSize:10,color:C.muted,fontWeight:700,padding:'0 8px',flexShrink:0}}>Edit</span>
+          <span style={{fontSize:10,color:C.muted,width:36,textAlign:'center',flexShrink:0}}>↑↓</span>
+          <span style={{fontSize:10,color:C.muted,width:20,textAlign:'center',flexShrink:0}}>☰</span>
+          <span style={{fontSize:10,color:C.muted,width:20,textAlign:'center',flexShrink:0}}>✕</span>
+        </div>
         <AthleteList athletes={athletes} editingId={editingId} setEditingId={setEditingId} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} rulebook={rulebook}/>
         {!athletes.length&&<div style={{textAlign:'center',padding:20,color:C.muted,fontSize:14}}>No athletes — tap + Add</div>}
       </div>
