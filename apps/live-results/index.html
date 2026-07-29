@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.12a</title>
+  <title>VaultDesk v1.12b</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -228,7 +228,7 @@ const calcPlacements=(athletes,heights)=>{
       if(pi===ci&&countMisses(pr.attempts[pi]||[])===countMisses(cr.attempts[ci]||[])&&totalMisses(pr,n)===totalMisses(cr,n))p=result[i-1].placement;
     }
     result.push({...sorted[i],placement:p});
-    if(result[i].placement===place)place=i+2;
+    place=Math.max(place,i+2);
   }
   for(let i=0;i<result.length;i++)result[i].tied=result.some((r,j)=>j!==i&&r.placement===result[i].placement);
   return[...result,...out.map(a=>({...a,placement:null,tied:false})),...dns.map(a=>({...a,placement:null,tied:false}))];
@@ -923,15 +923,13 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
   const bestResult=ath=>{const idx=highestClearedIdx(ath,n);return idx>=0?heights[idx]:null};
   return(
     <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(400,220+n*52)+'px'}}>
+      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(360,280+n*52)+'px'}}>
         <thead>
           <tr style={{background:C.surface,borderBottom:`2px solid ${C.border}`}}>
             <th style={{position:'sticky',left:0,background:C.surface,padding:'7px 5px',textAlign:'center',color:C.muted,width:30,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>#</th>
             <th style={{position:'sticky',left:30,background:C.surface,padding:'7px 6px',textAlign:'center',color:C.muted,width:36,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>PL</th>
-            <th style={{position:'sticky',left:66,background:C.surface,padding:'7px 10px',textAlign:'left',color:C.muted,minWidth:130,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
-            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:52,fontSize:9,fontWeight:800,letterSpacing:.5}}>PB</th>
-            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:52,fontSize:9,fontWeight:800,letterSpacing:.5}}>SB</th>
-            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:54,fontSize:9,fontWeight:800,letterSpacing:.5}}>BEST</th>
+            <th style={{position:'sticky',left:66,background:C.surface,padding:'7px 10px',textAlign:'left',color:C.muted,minWidth:155,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
+            <th style={{position:'sticky',left:221,background:C.surface,padding:'7px 5px',textAlign:'center',color:C.muted,width:60,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>BEST</th>
             {heights.map((h,i)=>(
               <th key={i} style={{padding:'7px 4px',textAlign:'center',minWidth:52,color:i===curH&&isActive?C.accent:C.muted,fontWeight:i===curH&&isActive?800:600,fontSize:9,letterSpacing:.3,background:i===curH&&isActive?`${C.accent}18`:C.surface}}>
                 <div>{fmtH(h,primaryMetric)}</div>
@@ -957,29 +955,29 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
                     ?<span style={{color:C.muted,fontSize:11}}>{plInfo.pl}{plInfo.tied?'=':''}</span>
                     :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':best?'':'NH'}</span>}
                 </td>
-                <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px'}}>
+                <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px',minWidth:155}}>
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
                     <FlagCell athlete={ath} size={18}/>
                     <div style={{minWidth:0}}>
-                      <div style={{fontWeight:isCur?800:600,fontSize:13,color:isCur?C.accent:isOut?C.muted:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110,textDecoration:ath.status==='dns'?'line-through':'none'}}>
+                      <div style={{fontWeight:isCur?800:600,fontSize:13,color:isCur?C.accent:isOut?C.muted:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130,textDecoration:ath.status==='dns'?'line-through':'none'}}>
                         {isCur&&<span style={{fontSize:9,marginRight:3}}>▶</span>}
                         {ath.firstName} {ath.lastName}
                       </div>
-                      {(ath.affiliation||ath.status==='nh'||ath.status==='retired')&&(
-                        <div style={{fontSize:9,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>
-                          {ath.affiliation||''}
-                          {ath.status==='nh'&&<span style={{color:C.danger}}> NH</span>}
-                          {ath.status==='retired'&&<span style={{color:C.warn}}> RET</span>}
-                        </div>
-                      )}
+                      <div style={{fontSize:9,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130}}>
+                        {ath.affiliation&&<span>{ath.affiliation}</span>}
+                        {(ath.pb||ath.sb)&&<span style={{marginLeft:ath.affiliation?4:0}}>
+                          {ath.pb&&<span style={{color:C.accent}}>PB {ath.pb}</span>}
+                          {ath.pb&&ath.sb&&<span style={{color:C.muted}}> · </span>}
+                          {ath.sb&&<span style={{color:C.success}}>SB {ath.sb}</span>}
+                        </span>}
+                        {ath.status==='retired'&&<span style={{color:C.warn}}> RET</span>}
+                      </div>
                     </div>
                   </div>
                 </td>
-                <td style={{padding:'7px 4px',textAlign:'center',fontSize:10,color:C.muted}}>{ath.pb||'—'}</td>
-                <td style={{padding:'7px 4px',textAlign:'center',fontSize:10,color:C.muted}}>{ath.sb||'—'}</td>
-                <td style={{padding:'7px 4px',textAlign:'center'}}>
+                <td style={{position:'sticky',left:221,background:rowBg,padding:'7px 5px',textAlign:'center',width:60}}>
                   {best?<DualH cm={best} primaryMetric={primaryMetric} pSize={11} sSize={9} style={{alignItems:'center'}}/>
-                       :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':'NH'}</span>}
+                       :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
                 </td>
                 {heights.map((h,hIdx)=>{
                   const{text,color,bg}=getCellContent(ath,hIdx);
@@ -1112,7 +1110,7 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
 }
 
 // ─── SCORING SCREEN ───────────────────────────────────────────────────────────
-function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primaryMetric,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,startJumpOff,onEnd}){
+function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primaryMetric,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,startJumpOff,onEnd,onEditSetup}){
   const isActive=compStatus==='active';
   const rbCfg=RULEBOOK_CFG[rulebook]||RULEBOOK_CFG.WA;
   const tiedFirst=ranked.filter(r=>r.placement===1&&r.tied);
@@ -1139,51 +1137,41 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
 
   return(
     <div style={{paddingBottom:20}}>
-      {/* HERO */}
-      <div style={{background:`linear-gradient(180deg,${C.accent}1a 0%,${C.bg} 100%)`,borderBottom:`1px solid ${C.border}`,padding:'16px 16px 14px',textAlign:'center'}}>
-        {info.name&&<div style={{fontSize:10,color:C.muted,letterSpacing:1.5,textTransform:'uppercase',marginBottom:6}}>{info.name}{info.venue?` · ${info.venue}`:''}</div>}
-        <div style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,color:C.muted,background:C.card,borderRadius:6,padding:'2px 8px',marginBottom:6,border:`1px solid ${C.border}`,letterSpacing:.5}}>
-          <span className={isActive?'live-dot':''} style={{width:5,height:5,borderRadius:'50%',background:isActive?C.success:C.muted,display:'inline-block'}}/>
-          {isActive?'LIVE':compStatus==='complete-pending'?'PENDING OFFICIAL':'OFFICIAL'}
-        </div>
-        {curHt&&(
-          <div style={{marginBottom:4}}>
-            <div style={{fontSize:46,fontWeight:900,color:C.text,letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
-            <div style={{fontSize:18,color:C.muted,marginTop:2,fontWeight:600}}>{fmtH(curHt,!primaryMetric)}</div>
-          </div>
-        )}
-        {isActive&&curAth&&(
-          <div style={{marginTop:8}}>
-            <div style={{display:'flex',alignItems:'center',gap:6,justifyContent:'center',marginBottom:4}}>
-              <FlagCell athlete={curAth} size={24}/>
-              <span style={{fontWeight:800,fontSize:18,color:C.accent}}>{curAth.firstName} {curAth.lastName}</span>
+      {/* COMPETITION HEADER */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'8px 14px'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+          <div style={{minWidth:0}}>
+            {info.name&&<div style={{fontWeight:800,fontSize:14,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{info.name}</div>}
+            <div style={{fontSize:10,color:C.muted,marginTop:1,display:'flex',gap:6,flexWrap:'wrap'}}>
+              {info.date&&<span>{info.date}</span>}
+              {info.startTime&&<span>· {info.startTime}</span>}
+              {info.venue&&<span>· {info.venue}</span>}
+              {rulebook&&<span>· {RULEBOOKS.find(r=>r.key===rulebook)?.label}</span>}
+              {info.gender&&<span>· {info.gender==='M'?"Men's":info.gender==='W'?"Women's":'Mixed'}</span>}
+              <span style={{display:'inline-flex',alignItems:'center',gap:3}}>
+                · <span className={isActive?'live-dot':''} style={{width:5,height:5,borderRadius:'50%',background:isActive?C.success:C.muted,display:'inline-block'}}/>
+                {isActive?'LIVE':compStatus==='complete-pending'?'PENDING':'OFFICIAL'}
+              </span>
             </div>
-            {curAth.affiliation&&<div style={{fontSize:11,color:C.muted}}>{curAth.affiliation}</div>}
-            <div style={{fontSize:11,color:C.muted,marginTop:2}}>Attempt {attemptNum} · {curMarks.length>0?curMarks.join(''):'—'}</div>
           </div>
-        )}
+          <button onClick={onEditSetup} style={{...btn(C.card,'6px 12px',11),border:`1px solid ${C.border}`,flexShrink:0}}>✏ Edit</button>
+        </div>
       </div>
 
-      {/* JUMP-OFF BANNER */}
-      {showJumpOffBanner&&(
-        <div style={{margin:'12px 14px 0',background:`${C.warn}15`,borderRadius:12,padding:'12px 14px',border:`1px solid ${C.warn}44`}}>
-          <div style={{fontWeight:800,fontSize:14,color:C.warn,marginBottom:4}}>{rbCfg.tieLabel}</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:10}}>{rbCfg.jumpOffNote}</div>
-          {rbCfg.jumpOffRequired&&<button onClick={startJumpOff} style={btn(C.warn,'8px 16px',13)}>Start Jump-Off</button>}
-        </div>
-      )}
-
-      {/* MEET OVER */}
-      {meetOver&&(
-        <div style={{margin:'12px 14px 0',background:`${C.success}15`,borderRadius:12,padding:'12px 14px',border:`1px solid ${C.success}44`}}>
-          <div style={{fontWeight:800,fontSize:14,color:C.success,marginBottom:6}}>Competition Complete</div>
-          <button onClick={onEnd} style={btn(C.success,'8px 16px',13)}>Finalize Results</button>
+      {/* ROTATION — On Deck / In Hole (above height selector) */}
+      {isActive&&live!==null&&(
+        <div style={{padding:'8px 14px 0'}}>
+          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+            {live!==null&&athletes[live]&&<div style={{fontSize:12,color:C.accent,background:`${C.accent}15`,borderRadius:8,padding:'4px 10px',border:`1px solid ${C.accent}44`,fontWeight:700}}>▶ {athletes[live].firstName} {athletes[live].lastName}</div>}
+            {onDeck!==null&&athletes[onDeck]&&<div style={{fontSize:12,color:C.warn,background:`${C.warn}10`,borderRadius:8,padding:'4px 10px',border:`1px solid ${C.warn}33`}}>On deck: {athletes[onDeck].firstName} {athletes[onDeck].lastName}</div>}
+            {inHole!==null&&athletes[inHole]&&<div style={{fontSize:12,color:C.muted,background:C.card,borderRadius:8,padding:'4px 10px',border:`1px solid ${C.border}`}}>In hole: {athletes[inHole].firstName} {athletes[inHole].lastName}</div>}
+          </div>
         </div>
       )}
 
       {/* HEIGHT SELECTOR */}
       {isActive&&(
-        <div style={{padding:'10px 14px 0',overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+        <div style={{padding:'8px 14px 0',overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
           <div style={{display:'flex',gap:5,flexWrap:'nowrap',paddingBottom:4}}>
             {heights.map((h,i)=>{
               const elig=firstEligible(athletes,i)!==-1;
@@ -1199,9 +1187,46 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
         </div>
       )}
 
+      {/* HERO — current height + vaulter */}
+      <div style={{background:`linear-gradient(180deg,${C.accent}18 0%,${C.bg} 100%)`,padding:'12px 16px 10px',textAlign:'center'}}>
+        {curHt&&(
+          <div style={{marginBottom:4}}>
+            <div style={{fontSize:46,fontWeight:900,color:C.text,letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
+            <div style={{fontSize:18,color:C.muted,marginTop:2,fontWeight:600}}>{fmtH(curHt,!primaryMetric)}</div>
+          </div>
+        )}
+        {isActive&&curAth&&(
+          <div style={{marginTop:6}}>
+            <div style={{display:'flex',alignItems:'center',gap:6,justifyContent:'center',marginBottom:3}}>
+              <FlagCell athlete={curAth} size={22}/>
+              <span style={{fontWeight:800,fontSize:18,color:C.accent}}>{curAth.firstName} {curAth.lastName}</span>
+            </div>
+            {curAth.affiliation&&<div style={{fontSize:11,color:C.muted}}>{curAth.affiliation}</div>}
+            <div style={{fontSize:11,color:C.muted,marginTop:2}}>Attempt {attemptNum} · {curMarks.length>0?curMarks.join(''):'—'}</div>
+          </div>
+        )}
+      </div>
+
+      {/* JUMP-OFF BANNER */}
+      {showJumpOffBanner&&(
+        <div style={{margin:'8px 14px 0',background:`${C.warn}15`,borderRadius:12,padding:'12px 14px',border:`1px solid ${C.warn}44`}}>
+          <div style={{fontWeight:800,fontSize:14,color:C.warn,marginBottom:4}}>{rbCfg.tieLabel}</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:10}}>{rbCfg.jumpOffNote}</div>
+          {rbCfg.jumpOffRequired&&<button onClick={startJumpOff} style={btn(C.warn,'8px 16px',13)}>Start Jump-Off</button>}
+        </div>
+      )}
+
+      {/* MEET OVER */}
+      {meetOver&&(
+        <div style={{margin:'8px 14px 0',background:`${C.success}15`,borderRadius:12,padding:'12px 14px',border:`1px solid ${C.success}44`}}>
+          <div style={{fontWeight:800,fontSize:14,color:C.success,marginBottom:6}}>Competition Complete</div>
+          <button onClick={onEnd} style={btn(C.success,'8px 16px',13)}>Finalize Results</button>
+        </div>
+      )}
+
       {/* MARK BUTTONS */}
       {isActive&&(
-        <div style={{padding:'12px 14px 0'}}>
+        <div style={{padding:'10px 14px 0'}}>
           <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:7}}>
             {MARKS.map(({mark,bg,symbol,label})=>(
               <button key={mark} onClick={()=>recordMark(mark)} disabled={alreadyDone&&mark!=='DNS'}
@@ -1217,25 +1242,14 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
         </div>
       )}
 
-      {/* ROTATION */}
-      {isActive&&live!==null&&(
-        <div style={{padding:'10px 14px 0'}}>
-          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
-            {live!==null&&athletes[live]&&<div style={{fontSize:12,color:C.accent,background:`${C.accent}15`,borderRadius:8,padding:'4px 10px',border:`1px solid ${C.accent}44`}}>▶ {athletes[live].firstName} {athletes[live].lastName}</div>}
-            {onDeck!==null&&athletes[onDeck]&&<div style={{fontSize:12,color:C.warn,background:`${C.warn}10`,borderRadius:8,padding:'4px 10px',border:`1px solid ${C.warn}33`}}>On deck: {athletes[onDeck].firstName} {athletes[onDeck].lastName}</div>}
-            {inHole!==null&&athletes[inHole]&&<div style={{fontSize:12,color:C.muted,background:C.card,borderRadius:8,padding:'4px 10px',border:`1px solid ${C.border}`}}>In hole: {athletes[inHole].firstName} {athletes[inHole].lastName}</div>}
-          </div>
-        </div>
-      )}
-
       {/* RESULTS TABLE */}
-      <div style={{padding:'12px 14px 0'}}>
+      <div style={{padding:'10px 14px 0'}}>
         <ResultsTable athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={curA} primaryMetric={primaryMetric} setCurA={isActive?setCurA:null} setCurH={isActive?setCurH:null} isActive={isActive}/>
       </div>
 
       {/* FINALIZE */}
       {isActive&&!meetOver&&(
-        <div style={{padding:'12px 14px 0'}}>
+        <div style={{padding:'10px 14px 0'}}>
           <button onClick={onEnd} style={{...btn(C.card,'9px 16px',13),border:`1px solid ${C.border}`,width:'100%'}}>End Competition / Finalize</button>
         </div>
       )}
@@ -1521,19 +1535,24 @@ function VaultDeskApp(){
     const ath=athletes[curA];
     if(mark==='DNS'){updSc({athletes:athletes.map((a,i)=>i===curA?{...a,status:'dns',attempts:a.attempts}:a)});const nA=nextVaulter(athletes,curH,curA);updSc({curA:nA});return;}
     const newMarks=[...(ath.attempts[curH]||[]),mark];
-    const newAthletes=athletes.map((a,i)=>{if(i!==curA)return a;const newAtt=[...a.attempts];newAtt[curH]=newMarks;let status=a.status;if(mark==='R')status='retired';if(isNH(newMarks))status='nh';return{...a,attempts:newAtt,status};});
+    const newAthletes=athletes.map((a,i)=>{
+      if(i!==curA)return a;
+      const newAtt=[...a.attempts];newAtt[curH]=newMarks;
+      let status=a.status;
+      if(mark==='R')status='retired';
+      // NH only if 3 misses at this height AND zero clears across all heights
+      if(isNH(newMarks)&&!newAtt.some(hasCleared))status='nh';
+      return{...a,attempts:newAtt,status};
+    });
     updSc({athletes:newAthletes});
-    const done=isDone(newMarks,mark==='R'?'retired':ath.status);
-    if(done){
-      // Advance to next vaulter or next height
-      const nA=nextVaulter(newAthletes,curH,curA);
-      if(nA!==-1){updSc({curA:nA});return;}
-      // No one left at this height — advance height
-      let nH=curH+1;
-      while(nH<heights.length&&firstEligible(newAthletes,nH)===-1)nH++;
-      if(nH<heights.length)updSc({curH:nH,curA:firstEligible(newAthletes,nH)});
-      else updSc({curA:-1}); // meet over
-    }
+    // Always advance rotation after any mark (X included) — nextVaulter skips done athletes
+    const nA=nextVaulter(newAthletes,curH,curA);
+    if(nA!==-1){updSc({curA:nA});return;}
+    // No one left at this height — advance height
+    let nH=curH+1;
+    while(nH<heights.length&&firstEligible(newAthletes,nH)===-1)nH++;
+    if(nH<heights.length)updSc({curH:nH,curA:firstEligible(newAthletes,nH)});
+    else updSc({curA:-1}); // meet over
   },[]);
 
   const undoMark=useCallback(()=>{
@@ -1591,12 +1610,6 @@ function VaultDeskApp(){
         <div style={{fontWeight:900,fontSize:17,letterSpacing:-.5,flex:1}}>
           <span style={{color:C.accent}}>Vault</span>Desk
         </div>
-        {sc&&<div style={{fontSize:11,color:C.muted,maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{sc.info?.name||'Live'}</div>}
-        {/* Units indicator — no toggle, auto-set by rulebook */}
-        <div style={{fontSize:10,color:C.muted,background:C.card,borderRadius:5,padding:'2px 7px',border:`1px solid ${C.border}`,letterSpacing:.3}}>
-          {primaryMetric?'m / ft':'ft / m'}
-        </div>
-        {sc&&screen==='scoring'&&<button onClick={()=>setShowEdit(true)} style={{...btn(C.card,'6px 12px',12),border:`1px solid ${C.border}`}}>Edit</button>}
         {sc&&sc.compStatus==='complete-pending'&&<button onClick={verifyOfficial} style={btn(C.success,'6px 12px',12)}>Verify Official</button>}
       </div>
 
@@ -1650,6 +1663,7 @@ function VaultDeskApp(){
             live={live} onDeck={onDeck} inHole={inHole}
             compStatus={sc.compStatus} info={sc.info} rulebook={sc.rulebook}
             startJumpOff={startJumpOff} onEnd={endCompetition}
+            onEditSetup={()=>setShowEdit(true)}
           />
         )}
         {screen==='scoring'&&!sc&&<div style={{padding:40,textAlign:'center',color:C.muted}}>No active competition. Set up a competition in the Setup tab.</div>}
