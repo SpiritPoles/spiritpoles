@@ -265,8 +265,14 @@ const parseAthleteCSV=text=>{
       const firstName=cols[idx]||'';const lastName=cols[idx+1]||'';
       const country=cols.find(c=>IOC_ISO[c.toUpperCase()])?cols.find(c=>IOC_ISO[c.toUpperCase()]).toUpperCase():'';
       const affiliation=cols[idx+2]&&!IOC_ISO[cols[idx+2].toUpperCase()]?cols[idx+2]:'';
-      const pb=cols.find(c=>/^\d+[\.''-]/.test(c)&&c!==firstName&&c!==lastName)||'';
-      return{firstName,lastName,country,affiliation,pb,sb:''};
+      const heightCols=cols.filter(c=>/^\d+[\.''-]/.test(c)&&c!==firstName&&c!==lastName);
+      let pb='',sb='';
+      if(heightCols.length===1){sb=heightCols[0];}
+      else if(heightCols.length>=2){
+        const sorted=[...heightCols].sort((a,b)=>{const pa=parseHeight(a),pb_=parseHeight(b);return(isNaN(pa)?0:pa)-(isNaN(pb_)?0:pb_);});
+        sb=sorted[0];pb=sorted[sorted.length-1];
+      }
+      return{firstName,lastName,country,affiliation,pb,sb};
     }
     return null;
   }).filter(Boolean);
@@ -373,24 +379,27 @@ function ImportDialog({onImport,onClose}){
           <div style={{fontWeight:800,fontSize:16,flex:1}}>Import Athletes</div>
           <button onClick={onClose} style={btn('#333','7px 14px',13)}>✕</button>
         </div>
-        <div style={{fontSize:13,color:C.muted,marginBottom:14,lineHeight:1.7,background:C.card,borderRadius:8,padding:'10px 12px',border:`1px solid ${C.border}`}}>
+        <div style={{fontSize:13,color:C.muted,marginBottom:12,lineHeight:1.7,background:C.card,borderRadius:8,padding:'10px 12px',border:`1px solid ${C.border}`}}>
           <strong style={{color:C.text}}>Three ways to import:</strong><br/>
-          1. <strong style={{color:C.text}}>Paste from Excel / Google Sheets</strong> — select cells and paste below<br/>
+          1. <strong style={{color:C.text}}>Paste from Excel / Google Sheets</strong> — select cells and paste below or type data manually<br/>
           2. Drop or select a <strong style={{color:C.text}}>CSV / TXT file</strong><br/>
-          3. Type or paste data manually<br/>
           <span style={{color:C.muted,fontSize:11}}>Expected columns: First · Last · Country (IOC code or name) · Affiliation · PB</span>
         </div>
+        {/* Manual entry — dotted box, above the drop zone */}
+        <div style={{border:`2px dashed ${C.border}`,borderRadius:12,padding:'12px 14px',marginBottom:12}}>
+          <div style={{fontSize:12,color:C.muted,marginBottom:6,fontWeight:700}}>Paste or type athlete data:</div>
+          <textarea value={raw} onChange={e=>processText(e.target.value)} onPaste={handlePaste} placeholder={"John\tSmith\tUSA\tUniversity of Oregon\t5.45m"} style={{...inp,height:70,resize:'vertical',fontSize:13,display:'block'}}/>
+        </div>
+        {/* Drop zone — smaller */}
         <div onDrop={handleDrop} onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
-          style={{border:`2px dashed ${dragOver?C.accent:C.border}`,borderRadius:12,padding:'16px',textAlign:'center',marginBottom:14,background:dragOver?`${C.accent}11`:'transparent',transition:'all .2s'}}>
-          <div style={{fontSize:24,marginBottom:4}}>📂</div>
-          <div style={{fontSize:13,color:C.muted,marginBottom:8}}>Drop CSV / TXT file here</div>
-          <label style={{display:'inline-block'}}>
-            <span style={{...btn(C.accent,'6px 12px',12),cursor:'pointer'}}>Browse</span>
+          style={{border:`1px dashed ${dragOver?C.accent:C.border}`,borderRadius:10,padding:'10px 14px',marginBottom:14,background:dragOver?`${C.accent}11`:'transparent',transition:'all .2s',display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:18}}>📂</span>
+          <span style={{fontSize:13,color:C.muted,flex:1}}>Drop CSV / TXT file here</span>
+          <label style={{display:'inline-block',flexShrink:0}}>
+            <span style={{...btn(C.card,'5px 12px',12),cursor:'pointer',border:`1px solid ${C.border}`}}>Browse</span>
             <input type="file" accept=".csv,.txt,.tsv" onChange={handleFile} style={{display:'none'}}/>
           </label>
         </div>
-        <div style={{fontSize:12,color:C.muted,marginBottom:6}}>Paste data (from Excel, Sheets, or manually typed):</div>
-        <textarea value={raw} onChange={e=>processText(e.target.value)} onPaste={handlePaste} placeholder="John&#9;Smith&#9;USA&#9;University of Oregon&#9;5.45m" style={{...inp,height:80,resize:'vertical',marginBottom:10,fontSize:13,display:'block'}}/>
         {error&&<div style={{fontSize:12,color:C.danger,marginBottom:10}}>{error}</div>}
         {preview.length>0&&(
           <div>
@@ -403,6 +412,7 @@ function ImportDialog({onImport,onClose}){
                   {a.country&&<span style={{color:C.muted,fontSize:11}}>{a.country}</span>}
                   {a.affiliation&&<span style={{color:C.muted,fontSize:11}}>{a.affiliation}</span>}
                   {a.pb&&<span style={{color:C.accent,fontSize:11}}>PB {a.pb}</span>}
+                  {a.sb&&<span style={{color:C.success,fontSize:11}}>SB {a.sb}</span>}
                 </div>
               ))}
             </div>
@@ -472,14 +482,12 @@ function IncStepBuilder({incStr,setIncStr}){
 }
 
 // ─── SIMPLE INCREMENT PICKER ──────────────────────────────────────────────────
-// Quick-pick for common increments (metric or imperial), tied to rulebook
+// Both metric and imperial rows always visible regardless of rulebook
 function SimpleIncPicker({incStr,setIncStr,primaryMetric}){
   const METRIC_OPTS=[{v:5,l:'5cm'},{v:10,l:'10cm'},{v:15,l:'15cm'},{v:20,l:'20cm'}];
   const IMP_OPTS=[{v:7.62,l:'3"'},{v:15.24,l:'6"'},{v:22.86,l:'9"'},{v:30.48,l:'12"'}];
-  const opts=primaryMetric?METRIC_OPTS:IMP_OPTS;
   const[showAdv,setShowAdv]=useState(false);
   const[other,setOther]=useState('');
-  // Parse current selection: is it a simple single cm value?
   const cmMatch=(incStr||'').match(/^(\d+(?:\.\d+)?)\s*cm$/i);
   const curCm=cmMatch?parseFloat(cmMatch[1]):null;
   const isSelected=v=>curCm!==null&&Math.abs(curCm-v)<0.1;
@@ -487,29 +495,39 @@ function SimpleIncPicker({incStr,setIncStr,primaryMetric}){
   const applyOther=()=>{
     const v=parseFloat(other);
     if(!isNaN(v)&&v>0){
-      // if imperial mode and value looks like inches (e.g. "4"), convert
-      const cm=(!primaryMetric&&v<36)?v*2.54:v;
+      // value < 36 with no "cm" label treated as inches
+      const cm=v<36?v*2.54:v;
       setIncStr(`${parseFloat(cm.toFixed(2))}cm`);
     }
   };
+  const rowStyle={display:'flex',gap:5,alignItems:'center',marginBottom:5};
+  const lblStyle={fontSize:10,color:C.muted,width:22,flexShrink:0,fontWeight:700};
   return(
     <div>
-      <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:8}}>
-        {opts.map(o=>(
+      <div style={rowStyle}>
+        <span style={lblStyle}>m</span>
+        {METRIC_OPTS.map(o=>(
           <button key={o.v} onClick={()=>pick(o.v)}
-            style={{...btn(isSelected(o.v)?C.accent:C.card,'8px 16px',14),border:`1px solid ${isSelected(o.v)?C.accent:C.border}`,minWidth:52}}>
+            style={{...btn(isSelected(o.v)?C.accent:C.card,'7px 14px',13),border:`1px solid ${isSelected(o.v)?C.accent:C.border}`,minWidth:48}}>
             {o.l}
           </button>
         ))}
-        <div style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:120}}>
-          <input style={{...inp,padding:'7px 10px',fontSize:13,flex:1}}
-            placeholder={primaryMetric?'Other (cm)':'Other (in or cm)'}
-            value={other} onChange={e=>setOther(e.target.value)}
-            onBlur={applyOther}
-            onKeyDown={e=>{if(e.key==='Enter')applyOther();}}/>
-        </div>
       </div>
-      {!primaryMetric&&<div style={{fontSize:10,color:C.muted,marginBottom:6}}>Imperial: 3"=7.62cm · 6"=15.24cm · 9"=22.86cm · 12"=30.48cm (heights stored in cm)</div>}
+      <div style={{...rowStyle,marginBottom:8}}>
+        <span style={lblStyle}>in</span>
+        {IMP_OPTS.map(o=>(
+          <button key={o.v} onClick={()=>pick(o.v)}
+            style={{...btn(isSelected(o.v)?C.accent:C.card,'7px 14px',13),border:`1px solid ${isSelected(o.v)?C.accent:C.border}`,minWidth:48}}>
+            {o.l}
+          </button>
+        ))}
+        <input style={{...inp,padding:'6px 9px',fontSize:12,flex:1,minWidth:80}}
+          placeholder='Other (in or cm)'
+          value={other} onChange={e=>setOther(e.target.value)}
+          onBlur={applyOther}
+          onKeyDown={e=>{if(e.key==='Enter')applyOther();}}/>
+      </div>
+      <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Heights stored in cm · 3"=7.62 · 6"=15.24 · 9"=22.86 · 12"=30.48</div>
       <div>
         <button onClick={()=>setShowAdv(a=>!a)} style={{fontSize:11,color:C.muted,background:'none',border:'none',cursor:'pointer',textDecoration:'underline',padding:0}}>
           {showAdv?'↑ Hide advanced':'↓ Advanced stepped increments'}
@@ -1475,6 +1493,17 @@ function VaultDeskApp(){
         {sc&&sc.compStatus==='complete-pending'&&<button onClick={verifyOfficial} style={btn(C.success,'6px 12px',12)}>Verify Official</button>}
       </div>
 
+      {/* TOP NAV */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:'flex'}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setScreen(t.id)}
+            style={{...btn(C.surface,'8px 0',10),flex:1,borderRadius:0,border:'none',flexDirection:'column',gap:2,padding:'7px 0',borderBottom:screen===t.id?`2px solid ${C.accent}`:'2px solid transparent',color:screen===t.id?C.accent:C.muted}}>
+            <span style={{fontSize:16}}>{t.icon}</span>
+            <span style={{fontSize:9,letterSpacing:.3,fontWeight:700}}>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
       {/* ACTIVE COMP BANNER (in setup, if a comp is scoring) */}
       {screen==='setup'&&sc&&sc.compStatus==='active'&&(
         <div style={{background:`${C.accent}18`,borderBottom:`1px solid ${C.accent}44`,padding:'8px 14px',display:'flex',alignItems:'center',gap:10}}>
@@ -1528,17 +1557,6 @@ function VaultDeskApp(){
             onDelete={id=>{deleteComp(id);setSavedComps(loadSaved());}}
           />
         )}
-      </div>
-
-      {/* BOTTOM NAV */}
-      <div style={{background:C.surface,borderTop:`1px solid ${C.border}`,display:'flex',position:'sticky',bottom:0,zIndex:100}}>
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setScreen(t.id)}
-            style={{...btn(screen===t.id?C.surface:C.surface,'10px 0',10),flex:1,borderRadius:0,border:'none',flexDirection:'column',gap:2,padding:'8px 0',borderTop:screen===t.id?`2px solid ${C.accent}`:'2px solid transparent',color:screen===t.id?C.accent:C.muted}}>
-            <span style={{fontSize:16}}>{t.icon}</span>
-            <span style={{fontSize:9,letterSpacing:.3,fontWeight:700}}>{t.label}</span>
-          </button>
-        ))}
       </div>
 
       {/* MODALS */}
