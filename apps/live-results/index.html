@@ -63,7 +63,7 @@ const fmtH=(cm,metric)=>{if(!cm&&cm!==0)return'';return metric?`${(cm/100).toFix
 const hasCleared=m=>Array.isArray(m)&&m.includes('O');
 const hasRetired=m=>Array.isArray(m)&&m.includes('R');
 const hasPassed=m=>Array.isArray(m)&&m.includes('P');
-const countMisses=m=>Array.isArray(m)?m.filter(x=>x==='X').length:0;
+const countMisses=m=>Array.isArray(m)?m.filter(x=>x==='X'||x==='R').length:0;
 // TERMINAL statuses — out of rotation entirely
 const TERMINAL=['dns','retired','nh'];
 // done at current height (won't jump again at this height)
@@ -668,49 +668,37 @@ function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,move
   const[dragIdx,setDragIdx]=useState(null);
   const[overIdx,setOverIdx]=useState(null);
   const containerRef=useRef(null);
-  const touchDragRef=useRef({from:-1,to:-1,active:false});
+  const dragStateRef=useRef({active:false,from:-1,to:-1});
 
-  // Non-passive touchmove listener to prevent scroll during drag
-  useEffect(()=>{
-    const el=containerRef.current;
-    if(!el)return;
-    const prevent=e=>{if(touchDragRef.current.active)e.preventDefault();};
-    el.addEventListener('touchmove',prevent,{passive:false});
-    return()=>el.removeEventListener('touchmove',prevent);
-  },[]);
+  const findRowAt=clientY=>{
+    const rows=containerRef.current?.querySelectorAll('[data-row-idx]');
+    if(!rows)return -1;
+    for(const row of rows){const r=row.getBoundingClientRect();if(clientY>=r.top&&clientY<=r.bottom)return parseInt(row.dataset.rowIdx);}
+    return -1;
+  };
 
-  const onTouchStartHandle=(e,idx)=>{
-    touchDragRef.current={from:idx,to:idx,active:true};
+  const onHandlePointerDown=(e,idx)=>{
+    e.preventDefault();
+    try{e.currentTarget.setPointerCapture(e.pointerId);}catch(_){}
+    dragStateRef.current={active:true,from:idx,to:idx};
     setDragIdx(idx);
   };
 
-  const onTouchMove=e=>{
-    if(!touchDragRef.current.active)return;
-    const touch=e.touches[0];
-    const rows=containerRef.current?.querySelectorAll('[data-row-idx]');
-    if(!rows)return;
-    let found=-1;
-    rows.forEach(row=>{
-      const rect=row.getBoundingClientRect();
-      if(touch.clientY>=rect.top&&touch.clientY<rect.bottom){
-        found=parseInt(row.dataset.rowIdx);
-      }
-    });
-    if(found!==-1){
-      touchDragRef.current.to=found;
-      setOverIdx(found);
-    }
+  const onHandlePointerMove=(e)=>{
+    if(!dragStateRef.current.active)return;
+    const found=findRowAt(e.clientY);
+    if(found!==-1&&found!==dragStateRef.current.to){dragStateRef.current.to=found;setOverIdx(found);}
   };
 
-  const onTouchEnd=()=>{
-    const{from,to}=touchDragRef.current;
-    if(from!==-1&&to!==-1&&from!==to)reorder(from,to);
-    touchDragRef.current={from:-1,to:-1,active:false};
+  const onHandlePointerUp=(e)=>{
+    const{active,from,to}=dragStateRef.current;
+    dragStateRef.current={active:false,from:-1,to:-1};
+    if(active&&from!==-1&&to!==-1&&from!==to)reorder(from,to);
     setDragIdx(null);setOverIdx(null);
   };
 
   return(
-    <div ref={containerRef} style={{display:'grid',gap:8}} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+    <div ref={containerRef} style={{display:'grid',gap:8}}>
       {athletes.map((a,i)=>(
         <div key={a.id}
           data-row-idx={i}
@@ -730,7 +718,9 @@ function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,move
             onUp={()=>moveAthlete(a.id,-1)}
             onDown={()=>moveAthlete(a.id,1)}
             onSetOrder={n=>setOrder(a.id,n)}
-            onTouchStartHandle={e=>onTouchStartHandle(e,i)}
+            onHandlePointerDown={e=>onHandlePointerDown(e,i)}
+            onHandlePointerMove={onHandlePointerMove}
+            onHandlePointerUp={onHandlePointerUp}
           />
         </div>
       ))}
@@ -739,7 +729,7 @@ function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,move
 }
 
 // ─── ATHLETE ROW ─────────────────────────────────────────────────────────────
-function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp,onDown,onSetOrder,rulebook,onTouchStartHandle}){
+function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp,onDown,onSetOrder,rulebook,onHandlePointerDown,onHandlePointerMove,onHandlePointerUp}){
   const[orderInput,setOrderInput]=useState('');
   const[showLookup,setShowLookup]=useState(false);
   const commitOrder=()=>{const n=parseInt(orderInput);if(!isNaN(n))onSetOrder(n);setOrderInput('');};
@@ -759,8 +749,10 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
       <button onClick={onEdit} style={btn(C.accent,'6px 12px',12)}>Edit</button>
       <button onClick={onDelete} style={{...btn('#374151','6px 10px',13),border:`1px solid ${C.border}`,color:C.muted}}>✕</button>
       <div
-        onTouchStart={onTouchStartHandle}
-        onMouseDown={e=>e.preventDefault()}
+        onPointerDown={onHandlePointerDown}
+        onPointerMove={onHandlePointerMove}
+        onPointerUp={onHandlePointerUp}
+        onPointerCancel={onHandlePointerUp}
         style={{cursor:'grab',color:C.muted,flexShrink:0,userSelect:'none',touchAction:'none',padding:'4px 2px 4px 6px',fontSize:18,lineHeight:1,display:'flex',alignItems:'center'}}>
         ☰
       </div>
