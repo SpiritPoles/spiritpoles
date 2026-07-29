@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk</title>
+  <title>VaultDesk v1.12a</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -307,7 +307,7 @@ const deleteComp=id=>saveAll(loadSaved().filter(c=>c.id!==id));
 let _ctr=0;
 const mkAthlete=order=>({id:`a${++_ctr}_${Date.now().toString(36)}`,order,firstName:'',lastName:'',country:'',affiliation:'',pb:'',sb:'',logoUrl:'',attempts:Array.from({length:10},()=>[]),status:'competing'});
 // Default incStr: 10cm works for both metric meets. NFHS/imperial users will use the quick-pick buttons.
-const mkSu=()=>({info:{name:'',date:new Date().toISOString().split('T')[0],venue:'',gender:'M'},athletes:[mkAthlete(1)],heights:[],startH:'',incStr:'10cm x3, 5cm x3, 2cm',manualH:'',rulebook:'WA',dirEmail:'',compId:`c_${Date.now().toString(36)}`,editingId:null});
+const mkSu=()=>({info:{name:'',date:new Date().toISOString().split('T')[0],startTime:'',venue:'',gender:'M'},athletes:[mkAthlete(1)],heights:[],startH:'',incStr:'10cm x3, 5cm x3, 2cm',manualH:'',rulebook:'WA',dirEmail:'',compId:`c_${Date.now().toString(36)}`,editingId:null});
 
 // ─── STYLE HELPERS ────────────────────────────────────────────────────────────
 const inp={background:C.card,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:'11px 13px',fontSize:16,width:'100%',outline:'none'};
@@ -373,17 +373,17 @@ function ImportDialog({onImport,onClose}){
   const handleFile=e=>{const file=e.target.files[0];if(file)file.text().then(processText);};
   const handlePaste=e=>{const text=e.clipboardData.getData('text');if(text){e.preventDefault();processText(text);}};
   return(
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:700,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={onClose}>
-      <div style={{background:C.surface,borderRadius:'16px 16px 0 0',padding:20,width:'100%',maxWidth:560,maxHeight:'85vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px 10px'}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:16,padding:20,width:'100%',maxWidth:560,maxHeight:'85vh',overflowY:'auto',border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
         <div style={{display:'flex',alignItems:'center',marginBottom:14}}>
           <div style={{fontWeight:800,fontSize:16,flex:1}}>Import Athletes</div>
           <button onClick={onClose} style={btn('#333','7px 14px',13)}>✕</button>
         </div>
         <div style={{fontSize:13,color:C.muted,marginBottom:12,lineHeight:1.7,background:C.card,borderRadius:8,padding:'10px 12px',border:`1px solid ${C.border}`}}>
           <strong style={{color:C.text}}>Three ways to import:</strong><br/>
-          1. <strong style={{color:C.text}}>Paste from Excel / Google Sheets</strong> — select cells and paste below or type data manually<br/>
+          1. <strong style={{color:C.text}}>Paste from Spreadsheet</strong> — select cells and paste below or type data manually<br/>
           2. Drop or select a <strong style={{color:C.text}}>CSV / TXT file</strong><br/>
-          <span style={{color:C.muted,fontSize:11}}>Expected columns: First · Last · Country (IOC code or name) · Affiliation · PB</span>
+          <span style={{color:C.muted,fontSize:11}}>Expected columns: First · Last · Country (IOC code or name) · Affiliation · PB · SB</span>
         </div>
         {/* Manual entry — dotted box, above the drop zone */}
         <div style={{border:`2px dashed ${C.border}`,borderRadius:12,padding:'12px 14px',marginBottom:12}}>
@@ -599,6 +599,22 @@ function SimpleIncPicker({incStr,setIncStr,primaryMetric}){
   );
 }
 
+// ─── HEIGHT INPUT — local edit state to allow mid-value typing ────────────────
+function HeightInput({h,idx,updateHeight}){
+  const[val,setVal]=useState(()=>(h/100).toFixed(2));
+  const[editing,setEditing]=useState(false);
+  useEffect(()=>{if(!editing)setVal((h/100).toFixed(2));},[h,editing]);
+  const commit=()=>{setEditing(false);updateHeight(idx,val);};
+  return(
+    <input type="text" value={val}
+      onChange={e=>{setVal(e.target.value);setEditing(true);}}
+      onFocus={()=>setEditing(true)}
+      onBlur={commit}
+      onKeyDown={e=>{if(e.key==='Enter')commit();}}
+      style={{...inp,padding:'5px 8px',fontSize:15,width:90,fontWeight:700}}/>
+  );
+}
+
 // ─── HEIGHT EDITOR ────────────────────────────────────────────────────────────
 // BUG FIX: setHeights is h=>updSu({heights:h}) — NOT a setState, does NOT support functional updaters.
 // Always pass the computed array directly: heights.filter(...) NOT p=>p.filter(...)
@@ -609,8 +625,7 @@ function HeightEditor({heights,setHeights,updateHeight,primaryMetric}){
       {heights.map((h,i)=>(
         <div key={i} style={{display:'flex',alignItems:'center',gap:8,background:C.card,borderRadius:8,border:`1px solid ${C.border}`,padding:'7px 10px'}}>
           <span style={{width:20,fontSize:11,color:C.muted,fontWeight:700,flexShrink:0}}>{i+1}</span>
-          <input type="number" step="0.01" value={(h/100).toFixed(2)} onChange={e=>updateHeight(i,e.target.value)}
-            style={{...inp,padding:'5px 8px',fontSize:15,width:90,fontWeight:700}}/>
+          <HeightInput h={h} idx={i} updateHeight={updateHeight}/>
           <div style={{flex:1}}>
             <div style={{fontSize:13,fontWeight:700,color:primaryMetric?C.text:C.muted}}>{fmtH(h,true)}</div>
             <div style={{fontSize:11,color:primaryMetric?C.muted:C.text}}>{fmtH(h,false)}</div>
@@ -720,17 +735,26 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
           placeholder="PB" value={athlete.pb||''}
           onChange={e=>onUpdate({pb:e.target.value})}
           onClick={e=>e.stopPropagation()}
-          style={{...inlineInp,width:58,textAlign:'center',fontSize:12,color:C.accent,flexShrink:0}}/>
-        <button onClick={onEdit} title="More options"
-          style={{background:'none',border:`1px solid ${C.border}`,borderRadius:6,color:C.muted,cursor:'pointer',fontSize:13,padding:'2px 7px',flexShrink:0,lineHeight:1.5}}>▼</button>
+          style={{...inlineInp,width:52,textAlign:'center',fontSize:12,color:C.accent,flexShrink:0}}/>
+        <input
+          placeholder="SB" value={athlete.sb||''}
+          onChange={e=>onUpdate({sb:e.target.value})}
+          onClick={e=>e.stopPropagation()}
+          style={{...inlineInp,width:52,textAlign:'center',fontSize:12,color:C.success,flexShrink:0}}/>
+        <button onClick={onEdit} title="Edit all fields"
+          style={{background:'none',border:`1px solid ${C.border}`,borderRadius:6,color:C.muted,cursor:'pointer',fontSize:11,padding:'2px 8px',flexShrink:0,lineHeight:1.6,fontWeight:700}}>Edit</button>
+        <button onClick={onUp} title="Move up"
+          style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:14,flexShrink:0,padding:'2px 2px',lineHeight:1}}>↑</button>
+        <button onClick={onDown} title="Move down"
+          style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:14,flexShrink:0,padding:'2px 2px',lineHeight:1}}>↓</button>
+        <div onPointerDown={onHandlePointerDown} onPointerMove={onHandlePointerMove} onPointerUp={onHandlePointerUp} onPointerCancel={onHandlePointerUp}
+          style={{cursor:'grab',color:C.muted,flexShrink:0,userSelect:'none',touchAction:'none',padding:'4px 4px',fontSize:17,lineHeight:1}}>☰</div>
         <button onClick={onDelete}
           style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:15,flexShrink:0,padding:'2px 3px',lineHeight:1}}>✕</button>
-        <div onPointerDown={onHandlePointerDown} onPointerMove={onHandlePointerMove} onPointerUp={onHandlePointerUp} onPointerCancel={onHandlePointerUp}
-          style={{cursor:'grab',color:C.muted,flexShrink:0,userSelect:'none',touchAction:'none',padding:'4px 2px 4px 4px',fontSize:17,lineHeight:1}}>☰</div>
       </div>
-      {(athlete.affiliation||athlete.sb)&&(
+      {athlete.affiliation&&(
         <div style={{fontSize:11,color:C.muted,marginTop:4,paddingLeft:30,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-          {[athlete.affiliation,athlete.sb&&'SB '+athlete.sb].filter(Boolean).join(' · ')}
+          {athlete.affiliation}
         </div>
       )}
     </div>
@@ -990,22 +1014,29 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
           <input style={inp} placeholder="Meet / Event Name" value={info.name} onChange={e=>ci('name',e.target.value)}/>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
             <input style={inp} type="date" value={info.date} onChange={e=>ci('date',e.target.value)}/>
-            <input style={inp} placeholder="Venue" value={info.venue} onChange={e=>ci('venue',e.target.value)}/>
+            <input style={inp} type="time" value={info.startTime||''} onChange={e=>ci('startTime',e.target.value)}/>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <select style={inp} value={info.gender} onChange={e=>ci('gender',e.target.value)}>
-              <option value="M">Men's / Boys'</option>
-              <option value="W">Women's / Girls'</option>
-              <option value="MX">Mixed</option>
-            </select>
-            <select style={inp} value={rulebook} onChange={e=>setRulebook(e.target.value)}>
-              {RULEBOOKS.map(r=><option key={r.key} value={r.key}>{r.label}</option>)}
-            </select>
+            <div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:4,fontWeight:700,letterSpacing:.5,textTransform:'uppercase'}}>Select Gender</div>
+              <select style={inp} value={info.gender} onChange={e=>ci('gender',e.target.value)}>
+                <option value="M">Men's / Boys'</option>
+                <option value="W">Women's / Girls'</option>
+                <option value="MX">Mixed</option>
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:4,fontWeight:700,letterSpacing:.5,textTransform:'uppercase'}}>Rulebook</div>
+              <select style={inp} value={rulebook} onChange={e=>setRulebook(e.target.value)}>
+                {RULEBOOKS.map(r=><option key={r.key} value={r.key}>{r.label}</option>)}
+              </select>
+            </div>
           </div>
+          <input style={inp} placeholder="Venue" value={info.venue} onChange={e=>ci('venue',e.target.value)}/>
           <input style={inp} placeholder="Meet Director email (optional)" value={dirEmail} onChange={e=>setDirEmail(e.target.value)}/>
         </div>
         <div style={{marginTop:10,fontSize:11,color:C.muted,background:C.card,borderRadius:8,padding:'7px 11px',border:`1px solid ${C.border}`}}>
-          📋 {RULEBOOKS.find(r=>r.key===rulebook)?.label}: {rbCfg.minIncCm?`Min increment ${rbCfg.minIncCm}cm`:' No mandatory minimum increment'} · {rbCfg.jumpOffRequired?'Jump-off required for 1st':'Co-champions by default'}
+          📋 {RULEBOOKS.find(r=>r.key===rulebook)?.label}: {rbCfg.minIncCm?`Min increment ${rbCfg.minIncCm}cm`:' No mandatory minimum increment'} · {rbCfg.jumpOffRequired?'Jump-off required for 1st, in case of tie':'Co-champions by default'}
           · Units default: {rulebook==='NFHS'?'Imperial (ft/in)':'Metric (m)'}
         </div>
       </div>
@@ -1015,9 +1046,9 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
         <div style={{display:'grid',gap:10}}>
           <div>
             <div style={{fontSize:12,color:C.muted,marginBottom:5}}>
-              Starting Height {primaryMetric?'(meters, e.g. 5.00)':'(ft-in e.g. 11-6, or meters e.g. 3.50)'}
+              Starting Height <span style={{color:C.muted}}>(meters e.g. 5.00 · ft-in e.g. 16-6)</span>
             </div>
-            <input style={inp} placeholder={primaryMetric?'e.g. 5.00':'e.g. 11-6 or 3.50'} value={startH} onChange={e=>setStartH(e.target.value)}/>
+            <input style={inp} placeholder="e.g. 5.00 or 16-6" value={startH} onChange={e=>setStartH(e.target.value)}/>
           </div>
           <div>
             <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Increment per height</div>
@@ -1025,7 +1056,7 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
           </div>
           <div>
             <div style={{fontSize:12,color:C.muted,marginBottom:5}}>Or manual heights (comma-separated, max 10)</div>
-            <input style={inp} placeholder={primaryMetric?'5.00, 5.10, 5.20...':'11-6, 11-9, 12-0... or 3.50, 3.55...'} value={manualH} onChange={e=>setManualH(e.target.value)}/>
+            <input style={inp} placeholder="5.00, 5.10, 5.20... or 16-6, 17-0, 17-6..." value={manualH} onChange={e=>setManualH(e.target.value)}/>
           </div>
           <button onClick={doGenHeights} style={btn(C.accent)}>Generate Heights (up to 6)</button>
         </div>
