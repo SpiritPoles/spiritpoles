@@ -425,22 +425,65 @@ function ImportDialog({onImport,onClose}){
 }
 
 // ─── INCREMENT STEP BUILDER (Advanced mode) ───────────────────────────────────
-function IncStepBuilder({incStr,setIncStr}){
-  const CM_OPTS=[2,3,4,5,6,7,8,10,12,15,20];
-  const PRESETS=[
+function IncStepBuilder({incStr,setIncStr,primaryMetric=true}){
+  // Metric: 4 standard options matching the simple picker
+  const CM_STEPS=[5,10,15,20];
+  // Imperial step options (stored as cm internally, displayed as inches)
+  const IMP_STEPS=[
+    {cm:7.62,l:'3"'},{cm:10.16,l:'4"'},{cm:15.24,l:'6"'},
+    {cm:20.32,l:'8"'},{cm:22.86,l:'9"'},{cm:30.48,l:'12"'},
+  ];
+  const PRESETS_M=[
     {label:'Standard',str:'10cm x3, 5cm x3, 2cm'},
     {label:'Collegiate',str:'10cm x2, 5cm x3, 2cm'},
     {label:'HS Indoor',str:'10cm x3, 5cm'},
     {label:'5cm Flat',str:'5cm'},
   ];
-  const toSteps=s=>{const r=[];for(const p of(s||'').split(',').map(x=>x.trim())){const m=p.match(/(\d+(?:\.\d+)?)\s*cm(?:\s*[x×]\s*(\d+))?/i);if(m)r.push({cm:parseInt(m[1]),count:m[2]?parseInt(m[2]):null});}return r.length?r:[{cm:10,count:3}]};
+  const PRESETS_I=[
+    {label:'HS Standard',str:'15.24cm x3, 7.62cm x3'},
+    {label:'HS Indoor',str:'15.24cm x3, 7.62cm'},
+    {label:'3" Flat',str:'7.62cm'},
+    {label:'6" Flat',str:'15.24cm'},
+  ];
+  const PRESETS=primaryMetric?PRESETS_M:PRESETS_I;
+  const toSteps=s=>{const r=[];for(const p of(s||'').split(',').map(x=>x.trim())){const m=p.match(/(\d+(?:\.\d+)?)\s*cm(?:\s*[x×]\s*(\d+))?/i);if(m)r.push({cm:parseFloat(m[1]),count:m[2]?parseInt(m[2]):null});}return r.length?r:[{cm:primaryMetric?10:7.62,count:3}]};
   const toStr=steps=>steps.map(s=>`${s.cm}cm${s.count?' x'+s.count:''}`).join(', ');
   const[steps,setSteps]=useState(()=>toSteps(incStr));
+  const[manualEntry,setManualEntry]=useState('');
+  // Per-step Other input values
+  const[stepOtherVals,setStepOtherVals]=useState(()=>steps.map(()=>''));
   const update=ns=>{setSteps(ns);setIncStr(toStr(ns));};
-  const addStep=()=>update([...steps,{cm:5,count:null}]);
-  const removeStep=i=>update(steps.filter((_,j)=>j!==i));
+  const addStep=()=>{update([...steps,{cm:primaryMetric?5:7.62,count:null}]);setStepOtherVals(v=>[...v,'']);};
+  const removeStep=i=>{update(steps.filter((_,j)=>j!==i));setStepOtherVals(v=>v.filter((_,j)=>j!==i));};
   const setCm=(i,v)=>update(steps.map((s,j)=>j===i?{...s,cm:v}:s));
   const setCount=(i,v)=>update(steps.map((s,j)=>j===i?{...s,count:v}:s));
+  const applyStepOther=(i)=>{
+    const raw=stepOtherVals[i];if(!raw)return;
+    const v=parseFloat(raw);if(isNaN(v)||v<=0)return;
+    // inches if value < 36 and imperial mode, otherwise cm
+    const cm=(!primaryMetric&&v<36)?parseFloat((v*2.54).toFixed(2)):v;
+    setCm(i,cm);
+    setStepOtherVals(vals=>vals.map((x,j)=>j===i?'':x));
+  };
+  // Display label for a cm value — inches when imperial mode
+  const getStepLabel=cm=>{
+    if(!primaryMetric){
+      const match=IMP_STEPS.find(o=>Math.abs(o.cm-cm)<0.1);
+      if(match)return match.l;
+      return`${parseFloat((cm/2.54).toFixed(2))}"`;
+    }
+    return`${cm}cm`;
+  };
+  // Manual entry: convert inch notation → cm ("3" x3" → "7.62cm x3")
+  const parseIncEntry=str=>str.replace(/(\d+(?:\.\d+)?)\s*["'']/g,(_,n)=>`${parseFloat((parseFloat(n)*2.54).toFixed(2))}cm`);
+  const applyManual=()=>{
+    if(!manualEntry.trim())return;
+    const converted=parseIncEntry(manualEntry.trim());
+    const ns=toSteps(converted);
+    if(ns.length)update(ns);
+    setManualEntry('');
+  };
+  const stepOpts=primaryMetric?CM_STEPS.map(c=>({cm:c})):IMP_STEPS;
   return(
     <div>
       <div style={{display:'flex',gap:5,flexWrap:'wrap',marginBottom:10}}>
@@ -455,10 +498,16 @@ function IncStepBuilder({incStr,setIncStr}){
             <span style={{fontSize:11,color:C.muted,width:18,flexShrink:0}}>#{i+1}</span>
             <div style={{display:'flex',gap:3,flexWrap:'wrap',flex:1,alignItems:'center'}}>
               <span style={{fontSize:11,color:C.muted,marginRight:2}}>Inc:</span>
-              {CM_OPTS.map(c=>(
-                <button key={c} onClick={()=>setCm(i,c)}
-                  style={{...btn(s.cm===c?C.accent:C.surface,'3px 8px',11),border:`1px solid ${s.cm===c?C.accent:C.border}`,minWidth:34}}>{c}cm</button>
+              {stepOpts.map(o=>(
+                <button key={o.cm} onClick={()=>setCm(i,o.cm)}
+                  style={{...btn(Math.abs(s.cm-o.cm)<0.1?C.accent:C.surface,'3px 8px',11),border:`1px solid ${Math.abs(s.cm-o.cm)<0.1?C.accent:C.border}`,minWidth:34}}>
+                  {getStepLabel(o.cm)}
+                </button>
               ))}
+              <input style={{...inp,padding:'3px 7px',fontSize:11,width:68}}
+                placeholder={primaryMetric?'Other cm':'Other in'}
+                value={stepOtherVals[i]||''} onChange={e=>setStepOtherVals(v=>v.map((x,j)=>j===i?e.target.value:x))}
+                onBlur={()=>applyStepOther(i)} onKeyDown={e=>{if(e.key==='Enter')applyStepOther(i);}}/>
             </div>
             <div style={{display:'flex',gap:3,alignItems:'center',flexShrink:0}}>
               <span style={{fontSize:11,color:C.muted,marginRight:2}}>×</span>
@@ -473,16 +522,23 @@ function IncStepBuilder({incStr,setIncStr}){
           </div>
         ))}
       </div>
-      <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
-        <button onClick={addStep} style={{...btn(C.card,'5px 12px',12),border:`1px solid ${C.border}`}}>+ Step</button>
-        <span style={{fontSize:10,color:C.muted,flex:1}}>{toStr(steps)||'—'}</span>
+      {/* Manual entry + Add Step */}
+      <div style={{display:'flex',gap:6,alignItems:'center',marginTop:8}}>
+        <input style={{...inp,padding:'6px 10px',fontSize:12,flex:1}}
+          placeholder={primaryMetric?'Type e.g. 5cm x3, 2cm':'Type e.g. 3" x3, 6" x2'}
+          value={manualEntry} onChange={e=>setManualEntry(e.target.value)}
+          onBlur={applyManual} onKeyDown={e=>{if(e.key==='Enter')applyManual();}}/>
+        <button onClick={addStep} style={{...btn(C.card,'6px 12px',12),border:`1px solid ${C.border}`,flexShrink:0}}>+ Step</button>
+      </div>
+      <div style={{marginTop:5}}>
+        <span style={{fontSize:10,color:C.muted}}>Stored as: {toStr(steps)||'—'}</span>
       </div>
     </div>
   );
 }
 
 // ─── SIMPLE INCREMENT PICKER ──────────────────────────────────────────────────
-// Both metric and imperial rows always visible regardless of rulebook
+// Both rows always visible; primary row first depends on rulebook (NFHS → imperial first)
 function SimpleIncPicker({incStr,setIncStr,primaryMetric}){
   const METRIC_OPTS=[{v:5,l:'5cm'},{v:10,l:'10cm'},{v:15,l:'15cm'},{v:20,l:'20cm'}];
   const IMP_OPTS=[{v:7.62,l:'3"'},{v:15.24,l:'6"'},{v:22.86,l:'9"'},{v:30.48,l:'12"'}];
@@ -495,18 +551,22 @@ function SimpleIncPicker({incStr,setIncStr,primaryMetric}){
   const applyOther=()=>{
     const v=parseFloat(other);
     if(!isNaN(v)&&v>0){
-      // value < 36 with no "cm" label treated as inches
-      const cm=v<36?v*2.54:v;
+      // When imperial primary (NFHS), values < 36 assumed inches; otherwise cm
+      const cm=(!primaryMetric&&v<36)?v*2.54:v;
       setIncStr(`${parseFloat(cm.toFixed(2))}cm`);
     }
   };
   const rowStyle={display:'flex',gap:5,alignItems:'center',marginBottom:5};
   const lblStyle={fontSize:10,color:C.muted,width:22,flexShrink:0,fontWeight:700};
+  // NFHS: imperial row on top; WA/NCAA: metric row on top
+  const[topOpts,topLbl,botOpts,botLbl]=primaryMetric
+    ?[METRIC_OPTS,'m',IMP_OPTS,'in']
+    :[IMP_OPTS,'in',METRIC_OPTS,'m'];
   return(
     <div>
       <div style={rowStyle}>
-        <span style={lblStyle}>m</span>
-        {METRIC_OPTS.map(o=>(
+        <span style={lblStyle}>{topLbl}</span>
+        {topOpts.map(o=>(
           <button key={o.v} onClick={()=>pick(o.v)}
             style={{...btn(isSelected(o.v)?C.accent:C.card,'7px 14px',13),border:`1px solid ${isSelected(o.v)?C.accent:C.border}`,minWidth:48}}>
             {o.l}
@@ -514,15 +574,15 @@ function SimpleIncPicker({incStr,setIncStr,primaryMetric}){
         ))}
       </div>
       <div style={{...rowStyle,marginBottom:8}}>
-        <span style={lblStyle}>in</span>
-        {IMP_OPTS.map(o=>(
+        <span style={lblStyle}>{botLbl}</span>
+        {botOpts.map(o=>(
           <button key={o.v} onClick={()=>pick(o.v)}
             style={{...btn(isSelected(o.v)?C.accent:C.card,'7px 14px',13),border:`1px solid ${isSelected(o.v)?C.accent:C.border}`,minWidth:48}}>
             {o.l}
           </button>
         ))}
         <input style={{...inp,padding:'6px 9px',fontSize:12,flex:1,minWidth:80}}
-          placeholder='Other (in or cm)'
+          placeholder={primaryMetric?'Other (cm)':'Other (in or cm)'}
           value={other} onChange={e=>setOther(e.target.value)}
           onBlur={applyOther}
           onKeyDown={e=>{if(e.key==='Enter')applyOther();}}/>
@@ -534,7 +594,7 @@ function SimpleIncPicker({incStr,setIncStr,primaryMetric}){
         </button>
         {!showAdv&&curCm!==null&&<span style={{fontSize:11,color:C.muted,marginLeft:8}}>({curCm}cm uniform)</span>}
       </div>
-      {showAdv&&<div style={{marginTop:10}}><IncStepBuilder incStr={incStr} setIncStr={setIncStr}/></div>}
+      {showAdv&&<div style={{marginTop:10}}><IncStepBuilder incStr={incStr} setIncStr={setIncStr} primaryMetric={primaryMetric}/></div>}
     </div>
   );
 }
