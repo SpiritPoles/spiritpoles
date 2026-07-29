@@ -32,13 +32,55 @@
 <script type="text/babel">
 const {useState,useMemo,useCallback,useEffect,useRef}=React;
 
+// ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const RULEBOOKS=[{key:'WA',label:'World Athletics / USATF'},{key:'NCAA',label:'NCAA'},{key:'NFHS',label:'NFHS (High School)'}];
+
 const RULEBOOK_CFG={
-  WA:{minIncCm:5,jumpOffRequired:true,jumpOffNote:'Jump-off required — WA Rule 26.8.4',tieLabel:'Tie for 1st · Jump-off Required'},
-  NCAA:{minIncCm:null,jumpOffRequired:true,jumpOffNote:'Jump-off required — NCAA Rule 13-5.7c',tieLabel:'Tie for 1st · Jump-off Required'},
-  NFHS:{minIncCm:null,jumpOffRequired:false,jumpOffNote:'Co-Champions by default; jump-off optional — NFHS Rule 6-3-Art.2',tieLabel:'Tie for 1st · Co-Champions (NFHS)'},
+  WA:{minIncCm:5,jumpOffRequired:true,jumpOffNote:'Jump-off required — WA Rule 26.8.4',tieLabel:'Tie for 1st · Jump-Off Required'},
+  NCAA:{minIncCm:5,jumpOffRequired:true,jumpOffNote:'Jump-off required — NCAA Rule 13-5.7.c.1',tieLabel:'Tie for 1st · Jump-Off Required'},
+  NFHS:{minIncCm:null,jumpOffRequired:false,jumpOffNote:'Co-Champions by default; jump-off optional by mutual consent — NFHS Rule 6-3 Art.2',tieLabel:'Tie for 1st · Co-Champions (NFHS)'},
 };
-const SEARCH_URL=(name,rb)=>({WA:`https://worldathletics.org/athletes/search?term=${encodeURIComponent(name)}`,NCAA:`https://www.tfrrs.org/search?q=${encodeURIComponent(name)}`,NFHS:`https://www.milesplit.com/search?q=${encodeURIComponent(name)}&type=athlete`}[rb]||`https://worldathletics.org/athletes/search?term=${encodeURIComponent(name)}`);
+
+const RULES_DATA={
+  WA:{name:'World Athletics / USATF',sections:[
+    {title:'Elimination',rule:'Rule 26.2',text:'An athlete who fails three consecutive jumps is eliminated from the competition. A pass does not count as a failure and does not reset the consecutive count.'},
+    {title:'Minimum Increment — Pole Vault',rule:'Rule 26.4.1',text:'The crossbar shall not be raised by less than 5 cm at any time during the Pole Vault competition.'},
+    {title:'Passes',rule:'Rule 26.3',text:'An athlete may elect to pass (not attempt) any height. Once a height is passed, the athlete cannot return to attempt it. Passing is a tactical decision — it does not count as a failure.'},
+    {title:'Failed Attempt — Pole Vault',rule:'Rule 28.2',text:'A vault is failed if: (a) the bar is dislodged by the athlete\'s action; (b) the athlete steadies the bar during an attempt; (c) any part of the athlete\'s body or the pole touches the ground or landing area beyond the zero line of the vaulting box before the bar is cleared; or (d) the athlete moves the upper hand higher on the pole, or raises the lower hand above the upper hand during the vault.'},
+    {title:'Tie-Breaking — Step 1',rule:'Rule 26.8.1',text:'If two or more athletes clear the same maximum height, the athlete with fewer failures at that final height is placed higher.'},
+    {title:'Tie-Breaking — Step 2',rule:'Rule 26.8.2',text:'If a tie remains: the athlete with the fewest total failures throughout the entire competition (up to and including the last cleared height) is placed higher.'},
+    {title:'Tie-Breaking — Non-1st Place',rule:'Rule 26.8.3',text:'If the remaining tie concerns any place other than first, the tied athletes are declared equal. No further resolution is required.'},
+    {title:'Jump-Off for 1st Place',rule:'Rule 26.8.4',text:'If the remaining tie concerns first place, a mandatory jump-off is conducted. Each tied athlete gets one attempt per height. If all clear: bar raises 5 cm. If all fail: bar lowers 5 cm. Continues until one clears and the other(s) fail at the same height.'},
+    {title:'Jump-Off Starting Height',rule:'Rule 26.9',text:'The jump-off starts at the next height in the original competition progression above the last cleared height. If the tie occurred outside the progression, the bar is set 5 cm above the last cleared height. Minimum increment in the jump-off is 5 cm.'},
+    {title:'Measurement',rule:'Rule 26.5',text:'The height of the crossbar is measured from the ground to the lowest point of the upper side of the crossbar. All measurements must be made before and immediately after each new height is set.'},
+  ]},
+  NCAA:{name:'NCAA Track & Field',sections:[
+    {title:'Elimination',rule:'Rule 16-1.2',text:'An athlete who fails three consecutive jumps is eliminated from the competition. A pass does not count as a failure.'},
+    {title:'Starting Height & Increments',rule:'Rule 13-5.2',text:'The crossbar shall be initially raised in increments of 15 cm. The increment shall never be increased and shall never be less than 5 cm. The crossbar cannot be lowered except for a tie-breaking jump-off (Rule 13-5.7.c.1).'},
+    {title:'Failed Attempt — Pole Vault',rule:'Rule 16-1.5.3',text:'A vault is failed if: (a) the bar is dislodged; (b) the athlete steadies the bar; (c) any part of the body or the pole touches the ground or landing area beyond the vertical plane of the inside edge of the top of the vaulting box before clearing the bar; or (d) the athlete moves the upper hand higher or raises the lower hand above the upper hand during the vault.'},
+    {title:'Tie-Breaking — Step 1',rule:'Rule 13-5.7a',text:'The competitor with the lowest number of jumps at the height at which the tie occurs shall be awarded the higher place.'},
+    {title:'Tie-Breaking — Step 2',rule:'Rule 13-5.7b',text:'If still tied: the competitor with the lowest total of failures throughout the competition up to and including the height last cleared shall be awarded the higher place.'},
+    {title:'Jump-Off for 1st Place',rule:'Rule 13-5.7c.1',text:'If the tie concerns first place, competitors shall have one more jump at each height, starting at the next height in the original progression above the tying height. If a decision is not reached, the bar shall be raised (if all clear) or lowered (if all miss) by 5 cm in Pole Vault. Competitors must jump once on each occasion.'},
+    {title:'Withdrawal from Jump-Off',rule:'Rule 13-5.7c.3',text:'A competitor withdrawing from a jump-off shall concede any opportunity for a higher placing in the event, but shall not be barred from subsequent events, nor shall their performance in the event prior to withdrawal be negated.'},
+    {title:'Non-1st Place Ties',rule:'Rule 13-5.7c.5',text:'If the tie concerns any place other than first, the competitors shall be awarded the same place. Team points shall be added together and divided equally between the tying competitors.'},
+    {title:'Solo Competitor — Increments',rule:'Rule 13-5.2e',text:'Increment restrictions do not apply to a single competitor who has won the competition and decides to continue vaulting (e.g., for a record attempt).'},
+  ]},
+  NFHS:{name:'NFHS (High School)',sections:[
+    {title:'Elimination',rule:'Rule 6-3 Art.1',text:'An athlete who fails three consecutive jumps is eliminated from the competition. A pass does not count as a failure.'},
+    {title:'Ties — Default',rule:'Rule 6-3 Art.2',text:'In case of a tie for any place, all tied athletes are declared co-champions (or co-place holders). No mandatory jump-off is required. Tied athletes share the place equally.'},
+    {title:'Jump-Off — Optional',rule:'Rule 6-3 Art.2 Note',text:'A jump-off may be conducted only by mutual consent of all tied athletes. If any tied athlete declines, all are declared co-champions. When conducted, jump-off procedure mirrors WA: one attempt per height, bar raised 5 cm if all clear, lowered 5 cm if all miss.'},
+    {title:'Tie-Breaking Order (before jump-off)',rule:'Rule 6-3 Art.2',text:'Before considering a jump-off: (1) fewer misses at the last cleared height wins; (2) fewer total misses through last cleared height wins; (3) if still tied and athletes consent, conduct jump-off.'},
+    {title:'Height Increments',rule:'Rule 6-3',text:'Meet management determines the starting height and all increments. NFHS does not mandate a specific minimum increment (unlike WA/NCAA\'s 5 cm floor). State associations may establish additional standards.'},
+    {title:'Failed Attempt',rule:'Rule 6-3',text:'Same conditions as WA/NCAA: bar dislodged by athlete, athlete steadies bar, any part of body or pole crosses zero line before clearing, or illegal hand movement on the pole.'},
+    {title:'Passes',rule:'Rule 6-3',text:'An athlete may pass any height and move to a higher height. Once a height is passed, the athlete cannot return to attempt it.'},
+  ]},
+};
+
+const SEARCH_URL=(name,rb)=>({
+  WA:`https://worldathletics.org/athletes/search?term=${encodeURIComponent(name)}`,
+  NCAA:`https://www.tfrrs.org/search?q=${encodeURIComponent(name)}`,
+  NFHS:`https://www.milesplit.com/search?q=${encodeURIComponent(name)}&type=athlete`,
+}[rb]||`https://worldathletics.org/athletes/search?term=${encodeURIComponent(name)}`);
 const SEARCH_LABEL={WA:'World Athletics',NCAA:'TFRRS',NFHS:'MileSplit'};
 
 const C={bg:'#0f0f14',surface:'#1a1a24',card:'#22222e',border:'#2e2e3d',accent:'#4f7cff',success:'#22c55e',danger:'#ef4444',warn:'#f59e0b',text:'#f0f0f0',muted:'#8888aa',cleared:'#0a2b0a',missed:'#2b0a0a'};
@@ -50,9 +92,7 @@ const COUNTRY_NAMES={'afghanistan':'AFG','albania':'ALB','algeria':'ALG','andorr
 const getFlagUrl=code=>{if(!code)return null;const u=code.toUpperCase().trim();const iso=IOC_ISO[u]||(u.length===2?u.toLowerCase():null);return iso?`https://flagcdn.com/24x18/${iso}.png`:null};
 const resolveCountry=input=>{if(!input)return null;const u=input.toUpperCase().trim();if(IOC_ISO[u])return u;const lower=input.toLowerCase().trim();if(COUNTRY_NAMES[lower])return COUNTRY_NAMES[lower];const match=Object.keys(COUNTRY_NAMES).find(k=>k.startsWith(lower));return match?COUNTRY_NAMES[match]:null};
 const getCountrySuggestions=q=>{if(!q||q.length<2)return[];const lower=q.toLowerCase().trim();const upper=q.toUpperCase().trim();const results=[];Object.keys(IOC_ISO).filter(k=>k.startsWith(upper)).slice(0,3).forEach(k=>results.push({code:k,label:k}));Object.keys(COUNTRY_NAMES).filter(k=>k.startsWith(lower)&&!results.find(r=>r.code===COUNTRY_NAMES[k])).slice(0,5).forEach(k=>results.push({code:COUNTRY_NAMES[k],label:k}));return results.slice(0,6)};
-
 const parsePaste=text=>{const r={};const pb=text.match(/(?:PB|PR|Personal\s+(?:Best|Record))[:\s]+([0-9]+[''\-.][0-9]*(?:\s*[0-9]+\/[0-9]+)?(?:m|in)?)/i);const sb=text.match(/(?:SB|Season(?:al)?\s+(?:Best|Record))[:\s]+([0-9]+[''\-.][0-9]*(?:\s*[0-9]+\/[0-9]+)?(?:m|in)?)/i);const cc=text.match(/\b([A-Z]{3})\b/g);if(pb)r.pb=pb[1].trim();if(sb)r.sb=sb[1].trim();if(cc){const k=cc.find(c=>IOC_ISO[c]);if(k)r.country=k;}return r};
-
 const mToFtIn=m=>{const ti=m*39.3701,ft=Math.floor(ti/12),raw=ti%12;const q=Math.round(raw*4)/4,whole=Math.floor(q),frac=q-whole;return`${ft}'${whole}${frac===0?'':frac===.25?'¼':frac===.5?'½':'¾'}"`};
 const fmtH=(cm,metric)=>{if(!cm&&cm!==0)return'';return metric?`${(cm/100).toFixed(2)}m`:mToFtIn(cm/100)};
 
@@ -60,12 +100,9 @@ const hasCleared=m=>Array.isArray(m)&&m.includes('O');
 const hasRetired=m=>Array.isArray(m)&&m.includes('R');
 const hasPassed=m=>Array.isArray(m)&&m.includes('P');
 const countMisses=m=>Array.isArray(m)?m.filter(x=>x==='X'||x==='R').length:0;
-// TERMINAL statuses — out of rotation entirely
 const TERMINAL=['dns','retired','nh'];
-// done at current height (won't jump again at this height)
 const isDone=(marks,status)=>TERMINAL.includes(status)||hasCleared(marks)||marks.length>=3||hasRetired(marks)||hasPassed(marks);
-// 3 misses with no clear = NH
-const isNH=(marks)=>marks.length>=3&&!hasCleared(marks);
+const isNH=marks=>marks.length>=3&&!hasCleared(marks);
 
 const highestClearedIdx=(a,n)=>{for(let i=n-1;i>=0;i--)if(hasCleared(a.attempts[i]))return i;return-1};
 const totalMisses=(a,n)=>{let t=0;for(let i=0;i<n;i++)t+=countMisses(a.attempts[i]||[]);return t};
@@ -85,7 +122,11 @@ const calcPlacements=(athletes,heights)=>{
   const result=[];let place=1;
   for(let i=0;i<sorted.length;i++){
     let p=place;
-    if(i>0){const pr=sorted[i-1],cr=sorted[i];const pi=highestClearedIdx(pr,n),ci=highestClearedIdx(cr,n);if(pi===ci&&countMisses(pr.attempts[pi]||[])===countMisses(cr.attempts[ci]||[])&&totalMisses(pr,n)===totalMisses(cr,n))p=result[i-1].placement;}
+    if(i>0){
+      const pr=sorted[i-1],cr=sorted[i];
+      const pi=highestClearedIdx(pr,n),ci=highestClearedIdx(cr,n);
+      if(pi===ci&&countMisses(pr.attempts[pi]||[])===countMisses(cr.attempts[ci]||[])&&totalMisses(pr,n)===totalMisses(cr,n))p=result[i-1].placement;
+    }
     result.push({...sorted[i],placement:p});
     if(result[i].placement===place)place=i+2;
   }
@@ -93,33 +134,35 @@ const calcPlacements=(athletes,heights)=>{
   return[...result,...out.map(a=>({...a,placement:null,tied:false})),...dns.map(a=>({...a,placement:null,tied:false}))];
 };
 
-// athletes still to jump at hIdx (in jump order)
 const nextVaulter=(athletes,hIdx,fromIdx)=>{const n=athletes.length;for(let s=1;s<=n;s++){const idx=(fromIdx+s)%n;if(!isDone(athletes[idx].attempts[hIdx]||[],athletes[idx].status))return idx;}return-1};
 const firstEligible=(athletes,hIdx)=>{for(let i=0;i<athletes.length;i++)if(!isDone(athletes[i].attempts[hIdx]||[],athletes[i].status))return i;return-1};
 
-const genHeights=(startM,incStr)=>{const startCm=Math.round(parseFloat(startM)*100);if(isNaN(startCm))return[];const rules=[];for(const part of incStr.split(',').map(s=>s.trim())){const m=part.match(/(\d+(?:\.\d+)?)\s*cm(?:\s*[x×]\s*(\d+))?/i);if(m)rules.push({cm:parseFloat(m[1]),count:m[2]?parseInt(m[2]):99});}const hs=[startCm];let cur=startCm;for(const{cm,count}of rules){for(let i=0;i<count;i++){cur+=cm;hs.push(cur);if(hs.length>=10)return hs;}}return hs};
+const genHeights=(startM,incStr)=>{
+  const startCm=Math.round(parseFloat(startM)*100);
+  if(isNaN(startCm))return[];
+  const rules=[];
+  for(const part of incStr.split(',').map(s=>s.trim())){
+    const m=part.match(/(\d+(?:\.\d+)?)\s*cm(?:\s*[x×]\s*(\d+))?/i);
+    if(m)rules.push({cm:parseFloat(m[1]),count:m[2]?parseInt(m[2]):99});
+  }
+  const hs=[startCm];let cur=startCm;
+  for(const{cm,count}of rules){for(let i=0;i<count;i++){cur+=cm;hs.push(cur);if(hs.length>=10)return hs;}}
+  return hs;
+};
 const parseManual=str=>str.split(/[,\s]+/).map(s=>parseFloat(s)).filter(n=>!isNaN(n)).map(m=>Math.round(m*100)).slice(0,10);
 
-// parse CSV text into athlete rows
 const parseAthleteCSV=text=>{
   const lines=text.trim().split(/\r?\n/).filter(l=>l.trim());
   if(!lines.length)return[];
-  // detect header
   const first=lines[0].toLowerCase();
   const hasHeader=first.includes('name')||first.includes('first')||first.includes('last')||first.includes('country');
   const dataLines=hasHeader?lines.slice(1):lines;
   return dataLines.map(line=>{
     const cols=line.split(/[,\t;]/).map(c=>c.trim().replace(/^["']|["']$/g,''));
-    // try to detect columns
     if(cols.length>=2){
-      // heuristic: if first col is a number it's order/bib, skip it
-      let idx=0;
-      if(!isNaN(cols[0]))idx=1;
-      const firstName=cols[idx]||'';
-      const lastName=cols[idx+1]||'';
-      // find country (3-letter IOC code)
+      let idx=0;if(!isNaN(cols[0]))idx=1;
+      const firstName=cols[idx]||'';const lastName=cols[idx+1]||'';
       const country=cols.find(c=>IOC_ISO[c.toUpperCase()])?cols.find(c=>IOC_ISO[c.toUpperCase()]).toUpperCase():'';
-      // find affiliation (non-country string after names)
       const affiliation=cols[idx+2]&&!IOC_ISO[cols[idx+2].toUpperCase()]?cols[idx+2]:'';
       const pb=cols.find(c=>/^\d+[\.''-]/.test(c)&&c!==firstName&&c!==lastName)||'';
       return{firstName,lastName,country,affiliation,pb,sb:''};
@@ -128,7 +171,6 @@ const parseAthleteCSV=text=>{
   }).filter(Boolean);
 };
 
-// CSV export for results
 const buildResultsCSV=(athletes,heights,ranked,info,metric)=>{
   const n=heights.length;
   const headers=['Order','Place','First','Last','Country','Affiliation','PB','SB','Best',...heights.map((h,i)=>`H${i+1} ${fmtH(h,metric)}`)];
@@ -150,7 +192,6 @@ const buildResultsCSV=(athletes,heights,ranked,info,metric)=>{
 // ─── STORAGE ─────────────────────────────────────────────────────────────────
 const LS_CUR='vaultdesk_current_v15';
 const LS_ALL='vaultdesk_saved_v14';
-const loadCurrent=()=>{try{return JSON.parse(localStorage.getItem(LS_CUR));}catch{return null}};
 const loadSaved=()=>{try{return JSON.parse(localStorage.getItem(LS_ALL)||'[]');}catch{return[]}};
 const saveAll=comps=>{try{localStorage.setItem(LS_ALL,JSON.stringify(comps.slice(0,20)));}catch{}};
 const saveCurrent=state=>{try{localStorage.setItem(LS_CUR,JSON.stringify(state));}catch{}};
@@ -160,11 +201,12 @@ let _ctr=0;
 const mkAthlete=order=>({id:`a${++_ctr}_${Date.now().toString(36)}`,order,firstName:'',lastName:'',country:'',affiliation:'',pb:'',sb:'',logoUrl:'',attempts:Array.from({length:10},()=>[]),status:'competing'});
 const mkSu=()=>({info:{name:'',date:new Date().toISOString().split('T')[0],venue:'',gender:'M'},athletes:[mkAthlete(1)],heights:[],startH:'',incStr:'10cm x3, 5cm x3, 2cm',manualH:'',rulebook:'WA',dirEmail:'',compId:`c_${Date.now().toString(36)}`,editingId:null});
 
-// ─── STYLES ──────────────────────────────────────────────────────────────────
+// ─── STYLE HELPERS ────────────────────────────────────────────────────────────
 const inp={background:C.card,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:'11px 13px',fontSize:16,width:'100%',outline:'none'};
 const sec={marginBottom:18,padding:16,background:C.surface,borderRadius:14,border:`1px solid ${C.border}`};
 const secTit={fontWeight:700,fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:1.2,marginBottom:12};
 const btn=(bg,pad='10px 18px',fs=14)=>({background:bg,color:'#fff',border:'none',borderRadius:10,padding:pad,fontSize:fs,fontWeight:700,cursor:'pointer',WebkitTapHighlightColor:'transparent',letterSpacing:.2,display:'inline-flex',alignItems:'center',justifyContent:'center',gap:4});
+
 
 // ─── FLAG CELL ───────────────────────────────────────────────────────────────
 function FlagCell({athlete,size=26}){
@@ -206,34 +248,19 @@ function ImportDialog({onImport,onClose}){
   const[preview,setPreview]=useState([]);
   const[error,setError]=useState('');
   const[raw,setRaw]=useState('');
-
-  const processText=text=>{
-    setRaw(text);
-    const rows=parseAthleteCSV(text);
-    if(rows.length>0){setPreview(rows);setError('');}
-    else setError('Could not parse athletes. Paste CSV with First, Last, Country columns.');
-  };
-
+  const processText=text=>{setRaw(text);const rows=parseAthleteCSV(text);if(rows.length>0){setPreview(rows);setError('');}else setError('Could not parse. Paste CSV with First, Last, Country columns.');};
   const handleDrop=e=>{e.preventDefault();setDragOver(false);const file=e.dataTransfer.files[0];if(file)file.text().then(processText);};
   const handleFile=e=>{const file=e.target.files[0];if(file)file.text().then(processText);};
-
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:700,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={onClose}>
       <div style={{background:C.surface,borderRadius:'16px 16px 0 0',padding:20,width:'100%',maxWidth:560,maxHeight:'85vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
         <div style={{display:'flex',alignItems:'center',marginBottom:14}}>
           <div style={{fontWeight:800,fontSize:16,flex:1}}>Import Athletes</div>
-          <button onClick={onClose} style={btn('#333','7px 14px',13)}>x</button>
+          <button onClick={onClose} style={btn('#333','7px 14px',13)}>✕</button>
         </div>
-        <div style={{fontSize:13,color:C.muted,marginBottom:14,lineHeight:1.6}}>
-          Drop or select a CSV/TXT file, or paste data below.<br/>
-          Columns: <strong style={{color:C.text}}>First, Last, Country (IOC), Affiliation, PB</strong>
-        </div>
-        {/* Drop zone */}
-        <div
-          onDrop={handleDrop}
-          onDragOver={e=>{e.preventDefault();setDragOver(true);}}
-          onDragLeave={()=>setDragOver(false)}
-          style={{border:`2px dashed ${dragOver?C.accent:C.border}`,borderRadius:12,padding:'20px 16px',textAlign:'center',marginBottom:14,background:dragOver?`${C.accent}11`:'transparent',cursor:'pointer',transition:'all .2s'}}>
+        <div style={{fontSize:13,color:C.muted,marginBottom:14,lineHeight:1.6}}>Drop or select a CSV file, or paste data below.<br/>Columns: <strong style={{color:C.text}}>First, Last, Country (IOC), Affiliation, PB</strong></div>
+        <div onDrop={handleDrop} onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
+          style={{border:`2px dashed ${dragOver?C.accent:C.border}`,borderRadius:12,padding:'20px 16px',textAlign:'center',marginBottom:14,background:dragOver?`${C.accent}11`:'transparent',transition:'all .2s'}}>
           <div style={{fontSize:28,marginBottom:6}}>📂</div>
           <div style={{fontSize:13,color:C.muted}}>Drop CSV / TXT file here</div>
           <label style={{display:'inline-block',marginTop:8}}>
@@ -241,7 +268,6 @@ function ImportDialog({onImport,onClose}){
             <input type="file" accept=".csv,.txt,.tsv" onChange={handleFile} style={{display:'none'}}/>
           </label>
         </div>
-        {/* Paste area */}
         <div style={{fontSize:12,color:C.muted,marginBottom:6}}>Or paste data directly:</div>
         <textarea value={raw} onChange={e=>processText(e.target.value)} placeholder="John,Smith,USA,University of Oregon,5.45m" style={{...inp,height:80,resize:'vertical',marginBottom:10,fontSize:13,display:'block'}}/>
         {error&&<div style={{fontSize:12,color:C.danger,marginBottom:10}}>{error}</div>}
@@ -267,246 +293,7 @@ function ImportDialog({onImport,onClose}){
   );
 }
 
-// ─── MAIN APP ────────────────────────────────────────────────────────────────
-function VaultDeskApp(){
-  const[screen,setScreen]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.screen||'setup';}catch{return'setup';}});
-  const[metric,setMetric]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.metric??true;}catch{return true;}});
-  const[live,setLive]=useState(true);
-  const[showEdit,setShowEdit]=useState(false);
-  const[showImport,setShowImport]=useState(false);
-  const[showSave,setShowSave]=useState(false);
-  const[savedComps,setSavedComps]=useState(loadSaved);
-
-  // ── SETUP SLOT (fresh competition being built) ──────────────────────────
-  const[su,setSu]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.su||mkSu();}catch{return mkSu();}});
-  const suRef=useRef(su);
-  useEffect(()=>{suRef.current=su;},[su]);
-  const updSu=useCallback(patch=>setSu(p=>({...p,...patch})),[]);
-
-  // ── SCORING SLOT (active competition being scored) ──────────────────────
-  const[sc,setSc]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.sc||null;}catch{return null;}});
-  const scRef=useRef(sc);
-  useEffect(()=>{scRef.current=sc;},[sc]);
-  const updSc=useCallback(patch=>setSc(p=>p?({...p,...patch}):p),[]);
-
-  // ── PERSIST ─────────────────────────────────────────────────────────────
-  useEffect(()=>{saveCurrent({screen,metric,su,sc});},[screen,metric,su,sc]);
-
-  // ── SETUP CALLBACKS ──────────────────────────────────────────────────────
-  const addAthlete=useCallback(()=>{
-    const current=suRef.current.athletes;
-    const last=current[current.length-1];
-    if(last&&!last.firstName&&!last.lastName){updSu({editingId:last.id});return;}
-    const newAth=mkAthlete(current.length+1);
-    setSu(p=>({...p,athletes:[...p.athletes,newAth],editingId:newAth.id}));
-  },[]);
-
-  const updAthlete=useCallback((id,ch)=>setSu(p=>({...p,athletes:p.athletes.map(a=>a.id===id?{...a,...ch}:a)})),[]);
-  const delAthlete=useCallback(id=>setSu(p=>({...p,athletes:p.athletes.filter(a=>a.id!==id).map((a,i)=>({...a,order:i+1}))})),[]);
-  const moveAthlete=useCallback((id,dir)=>setSu(p=>{const i=p.athletes.findIndex(a=>a.id===id),j=i+dir;if(j<0||j>=p.athletes.length)return p;const arr=[...p.athletes];[arr[i],arr[j]]=[arr[j],arr[i]];return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
-  const reorder=useCallback((from,to)=>setSu(p=>{if(from===to)return p;const arr=[...p.athletes];const[item]=arr.splice(from,1);arr.splice(to,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
-  const setOrder=useCallback((id,n)=>setSu(p=>{const i=p.athletes.findIndex(a=>a.id===id);const t=Math.max(0,Math.min(p.athletes.length-1,n-1));if(i<0||i===t)return p;const arr=[...p.athletes];const[item]=arr.splice(i,1);arr.splice(t,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
-
-  const importAthletes=useCallback(rows=>{
-    setSu(p=>{const existing=p.athletes.filter(a=>a.firstName||a.lastName);const newOnes=rows.map((r,i)=>({...mkAthlete(existing.length+i+1),...r}));return{...p,athletes:[...existing,...newOnes].map((a,i)=>({...a,order:i+1}))};});
-    setShowImport(false);
-  },[]);
-  const doGenHeights=()=>{const hs=su.manualH.trim()?parseManual(su.manualH):genHeights(su.startH,su.incStr);updSu({heights:hs});};
-  const updateHeight=(idx,v)=>{const n=parseFloat(v);if(!isNaN(n))setSu(p=>({...p,heights:p.heights.map((h,i)=>i===idx?Math.round(n*100):h)}));};
-
-  // ── SCORING CALLBACKS ─────────────────────────────────────────────────────
-  const addAthleteScoring=useCallback(()=>{
-    const current=scRef.current?.athletes||[];
-    const last=current[current.length-1];
-    if(last&&!last.firstName&&!last.lastName){updSc({editingId:last.id});return;}
-    const a=mkAthlete(current.length+1);
-    setSc(p=>p?{...p,athletes:[...p.athletes,a],editingId:a.id}:p);
-  },[]);
-  const updAthleteScoring=useCallback((id,ch)=>setSc(p=>p?{...p,athletes:p.athletes.map(a=>a.id===id?{...a,...ch}:a)}:p),[]);
-  const delAthleteScoring=useCallback(id=>setSc(p=>p?{...p,athletes:p.athletes.filter(a=>a.id!==id).map((a,i)=>({...a,order:i+1}))}:p),[]);
-  const moveAthleteScoring=useCallback((id,dir)=>setSc(p=>{if(!p)return p;const i=p.athletes.findIndex(a=>a.id===id),j=i+dir;if(j<0||j>=p.athletes.length)return p;const arr=[...p.athletes];[arr[i],arr[j]]=[arr[j],arr[i]];return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
-  const reorderScoring=useCallback((from,to)=>setSc(p=>{if(!p||from===to)return p;const arr=[...p.athletes];const[item]=arr.splice(from,1);arr.splice(to,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
-  const setOrderScoring=useCallback((id,n)=>setSc(p=>{if(!p)return p;const i=p.athletes.findIndex(a=>a.id===id);const t=Math.max(0,Math.min(p.athletes.length-1,n-1));if(i<0||i===t)return p;const arr=[...p.athletes];const[item]=arr.splice(i,1);arr.splice(t,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
-  const updateHeightScoring=(idx,v)=>{const n=parseFloat(v);if(!isNaN(n))setSc(p=>p?{...p,heights:p.heights.map((h,i)=>i===idx?Math.round(n*100):h)}:p);};
-  const doGenHeightsScoring=()=>{if(!sc)return;const hs=sc.manualH?.trim()?parseManual(sc.manualH):genHeights(sc.startH||'',sc.incStr||'');if(hs.length)updSc({heights:hs});};
-
-  // ── RECORD MARK ──────────────────────────────────────────────────────────
-  const recordMark=useCallback(mark=>{
-    const prev=scRef.current;
-    if(!prev)return;
-    const{athletes:aths,curH,curA,heights}=prev;
-    const next=aths.map((a,i)=>{
-      if(i!==curA)return a;
-      const marks=a.attempts[curH]||[];
-      if(isDone(marks,a.status))return a;
-      if(mark==='DNS')return{...a,status:'dns'};
-      if(mark==='R'){const att=a.attempts.map((ar,hi)=>hi===curH?[...ar,'R']:ar);return{...a,attempts:att,status:'retired'};}
-      const att=a.attempts.map((ar,hi)=>hi===curH?[...ar,mark]:ar);
-      return{...a,attempts:att,status:isNH(att[curH])?'nh':a.status};
-    });
-    let nextCurA=-1,nextCurH=curH;
-    const nxt=nextVaulter(next,curH,curA);
-    if(nxt===-1){const nh=curH+1;if(nh<heights.length){nextCurH=nh;const fe=firstEligible(next,nh);nextCurA=fe>=0?fe:0;}}
-    else{nextCurA=nxt;}
-    setSc(p=>p?{...p,athletes:next,...(nextCurA!==-1?{curA:nextCurA}:{}),curH:nextCurH}:p);
-  },[]);
-
-  const undoMark=useCallback(()=>{
-    setSc(p=>{
-      if(!p)return p;
-      const{athletes:aths,curH,curA}=p;
-      const next=aths.map((a,i)=>{
-        if(i!==curA)return a;
-        if(a.status==='dns')return{...a,status:'competing'};
-        const att=a.attempts.map((ar,hi)=>hi===curH?[...ar]:ar);
-        if(att[curH].length>0)att[curH].pop();
-        const wasRetired=a.status==='retired'&&!att[curH].includes('R');
-        const wasNH=a.status==='nh'&&!isNH(att[curH]);
-        return{...a,attempts:att,status:(wasRetired||wasNH)?'competing':a.status};
-      });
-      return{...p,athletes:next};
-    });
-  },[]);
-
-  // ── COMPETITION LIFECYCLE ─────────────────────────────────────────────────
-  const startComp=()=>{
-    const hs=su.heights.length?su.heights:(su.manualH.trim()?parseManual(su.manualH):genHeights(su.startH,su.incStr));
-    if(!hs.length){alert('Set up heights first.');return;}
-    const fe=firstEligible(su.athletes,0);
-    const newSc={id:su.compId,info:su.info,rulebook:su.rulebook,athletes:su.athletes,heights:hs,
-      curH:0,curA:fe>=0?fe:0,compStatus:'active',dirEmail:su.dirEmail,metric,
-      startH:su.startH,incStr:su.incStr,manualH:su.manualH,editingId:null};
-    setSc(newSc);
-    const snap={id:su.compId,name:su.info.name||'Unnamed',date:su.info.date,savedAt:new Date().toISOString(),compStatus:'active',state:newSc};
-    const all=loadSaved().filter(c=>c.id!==snap.id);
-    saveAll([snap,...all]);setSavedComps(loadSaved());
-    setSu(mkSu());
-    setScreen('scoring');
-  };
-
-  const endCompetition=()=>{
-    if(!confirm('End this competition? Results will be marked as pending verification.'))return;
-    if(!sc)return;
-    setLive(false);
-    const upd={...sc,compStatus:'complete-pending'};
-    setSc(upd);
-    const snap={id:sc.id,name:sc.info.name||'Unnamed',date:sc.info.date,savedAt:new Date().toISOString(),compStatus:'complete-pending',state:upd};
-    const all=loadSaved().filter(c=>c.id!==snap.id);
-    saveAll([snap,...all]);setSavedComps(loadSaved());
-  };
-
-  const verifyOfficial=()=>{
-    if(!sc)return;
-    const upd={...sc,compStatus:'official'};
-    setSc(upd);
-    const snap={id:sc.id,name:sc.info.name||'Unnamed',date:sc.info.date,savedAt:new Date().toISOString(),compStatus:'official',state:upd};
-    const all=loadSaved().filter(c=>c.id!==snap.id);
-    saveAll([snap,...all]);setSavedComps(loadSaved());
-  };
-
-  const startJumpOff=useCallback(()=>{
-    if(!sc)return;
-    const ranked_now=calcPlacements(sc.athletes,sc.heights);
-    const tiedFirst=ranked_now.filter(r=>r.placement===1&&r.tied);
-    if(!tiedFirst.length)return;
-    const lastH=sc.heights[sc.heights.length-1]||50000;
-    const jumpOffH=lastH+5;
-    const newHIdx=sc.heights.length;
-    const newAthletes=sc.athletes.map(a=>{
-      const isTied=tiedFirst.some(t=>t.id===a.id);
-      if(!isTied)return a;
-      return{...a,status:'competing'};
-    });
-    updSc({
-      heights:[...sc.heights,jumpOffH],
-      athletes:newAthletes,
-      curH:newHIdx,
-      curA:newAthletes.findIndex(a=>tiedFirst.some(t=>t.id===a.id)),
-      compStatus:'active',
-    });
-    setLive(true);
-  },[sc,updSc]);
-
-  const saveSnapshot=useCallback(()=>{
-    if(!sc)return;
-    const snap={id:sc.id,name:sc.info.name||'Unnamed',date:sc.info.date,savedAt:new Date().toISOString(),compStatus:sc.compStatus,state:sc};
-    const all=loadSaved().filter(c=>c.id!==snap.id);
-    saveAll([snap,...all]);setSavedComps(loadSaved());
-  },[sc]);
-
-  const loadSnapshot=snap=>{
-    const s=snap.state;
-    setSc({id:snap.id,info:s.info,rulebook:s.rulebook||'WA',athletes:s.athletes,heights:s.heights,
-      curH:s.curH||0,curA:s.curA||0,compStatus:snap.compStatus||'active',
-      dirEmail:s.dirEmail||'',metric:s.metric??true,editingId:null,
-      startH:s.startH||'',incStr:s.incStr||'10cm x3, 5cm x3, 2cm',manualH:s.manualH||''});
-    setMetric(s.metric??true);
-    setScreen('scoring');
-  };
-
-  // ── DERIVED ───────────────────────────────────────────────────────────────
-  const ranked=useMemo(()=>sc?calcPlacements(sc.athletes,sc.heights):[],[sc]);
-  const onDeckIdx=sc?nextVaulter(sc.athletes,sc.curH,sc.curA):-1;
-  const inHoleIdx=onDeckIdx!==-1?nextVaulter(sc.athletes,sc.curH,onDeckIdx):-1;
-  const onDeck=sc&&onDeckIdx!==-1&&onDeckIdx!==sc.curA?sc.athletes[onDeckIdx]:null;
-  const inHole=sc&&inHoleIdx!==-1&&inHoleIdx!==sc.curA&&inHoleIdx!==onDeckIdx?sc.athletes[inHoleIdx]:null;
-
-  const TABS=[{id:'setup',icon:'⚙️',label:'Setup'},{id:'scoring',icon:'🎯',label:'Score'},{id:'display',icon:'📺',label:'Display'},{id:'history',icon:'🗂️',label:'History'}];
-
-  return(
-    <div style={{background:C.bg,minHeight:'100vh',color:C.text,maxWidth:'100vw',overflowX:'hidden'}}>
-      <header style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'9px 14px',position:'sticky',top:0,zIndex:300,display:'flex',alignItems:'center',gap:8}}>
-        <div style={{fontWeight:900,fontSize:16,color:C.accent,letterSpacing:-.5,flexShrink:0}}>VaultDesk</div>
-        <div style={{flex:1,fontSize:11,color:C.muted,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{sc?.info?.name||'Pole Vault'}{screen==='scoring'&&sc?.heights[sc.curH]?` · ${fmtH(sc.heights[sc.curH],metric)}`:''}</div>
-        <button onClick={()=>setMetric(m=>!m)} style={{...btn(C.card,'5px 9px',10),border:`1px solid ${C.border}`}}>{metric?'m→ft':'ft→m'}</button>
-        {screen==='scoring'&&sc&&<>
-          <button onClick={()=>setLive(l=>!l)} style={{...btn(live?'#7f1d1d':C.card,'5px 8px',10),border:live?'none':`1px solid ${C.border}`}}>
-            <span className={live?'live-dot':''} style={{width:6,height:6,borderRadius:'50%',background:live?'#ff4444':C.muted,flexShrink:0,display:'inline-block'}}/>
-            {live?'LIVE':'OFF'}
-          </button>
-          <button onClick={()=>setShowEdit(true)} style={{...btn(C.card,'5px 9px',10),border:`1px solid ${C.border}`}}>Edit</button>
-          {sc.compStatus==='active'&&<button onClick={endCompetition} style={{...btn('#374151','5px 9px',10),border:`1px solid ${C.border}`}}>End</button>}
-        </>}
-      </header>
-      {sc&&sc.compStatus!=='active'&&(
-        <div style={{background:sc.compStatus==='official'?`${C.success}22`:`${C.warn}22`,borderBottom:`1px solid ${sc.compStatus==='official'?C.success:C.warn}44`,padding:'8px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-          <div style={{fontSize:12,fontWeight:700,color:sc.compStatus==='official'?C.success:C.warn,flex:1}}>{sc.compStatus==='official'?'Official Results':'Pending Verification'}</div>
-          {sc.compStatus==='complete-pending'&&<button onClick={verifyOfficial} style={btn(C.success,'5px 12px',11)}>Verify Official</button>}
-          {sc.compStatus==='official'&&<button onClick={()=>setShowSave(true)} style={btn(C.accent,'5px 12px',11)}>Save Results</button>}
-          {sc.compStatus==='complete-pending'&&sc.dirEmail&&<a href={`mailto:${sc.dirEmail}?subject=Results: ${sc.info.name}`} style={{...btn('#2d3748','5px 12px',11),textDecoration:'none'}}>Email Director</a>}
-        </div>
-      )}
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:'flex'}}>
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>{if((t.id==='scoring'||t.id==='display')&&!sc?.heights?.length)return;setScreen(t.id);}}
-            style={{flex:1,padding:'8px 0',background:'none',border:'none',color:screen===t.id?C.accent:C.muted,fontWeight:screen===t.id?700:400,fontSize:11,cursor:'pointer',borderBottom:`2px solid ${screen===t.id?C.accent:'transparent'}`,fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:3,WebkitTapHighlightColor:'transparent',position:'relative'}}>
-            <span>{t.icon}</span><span>{t.label}</span>
-            {t.id==='scoring'&&sc&&sc.compStatus==='active'&&<span style={{position:'absolute',top:3,right:4,width:6,height:6,borderRadius:'50%',background:'#ff4444'}}/>}
-          </button>
-        ))}
-      </div>
-      <main>
-        {screen==='setup'&&(
-          <>
-            {sc&&<div style={{background:`${C.accent}12`,borderBottom:`1px solid ${C.accent}33`,padding:'8px 16px',display:'flex',alignItems:'center',gap:10}}>
-              <span style={{fontSize:12,color:C.accent,fontWeight:700,flex:1}}>⚡ Scoring: {sc.info.name||'Unnamed'}</span>
-              <button onClick={()=>setScreen('scoring')} style={{...btn(C.accent,'4px 10px',11)}}>Resume →</button>
-            </div>}
-            <SetupScreen info={su.info} setInfo={v=>setSu(p=>({...p,info:typeof v==='function'?v(p.info):v}))} rulebook={su.rulebook} setRulebook={v=>updSu({rulebook:v})} athletes={su.athletes} addAthlete={addAthlete} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} editingId={su.editingId} setEditingId={id=>updSu({editingId:id})} startH={su.startH} setStartH={v=>updSu({startH:v})} incStr={su.incStr} setIncStr={v=>updSu({incStr:v})} manualH={su.manualH} setManualH={v=>updSu({manualH:v})} doGenHeights={doGenHeights} heights={su.heights} setHeights={h=>updSu({heights:h})} updateHeight={updateHeight} metric={metric} startComp={startComp} dirEmail={su.dirEmail} setDirEmail={v=>updSu({dirEmail:v})} onImport={()=>setShowImport(true)}/>
-          </>
-        )}
-        {screen==='scoring'&&sc&&<ScoringScreen athletes={sc.athletes} ranked={ranked} heights={sc.heights} curH={sc.curH} setCurH={h=>updSc({curH:h})} curA={sc.curA} setCurA={a=>updSc({curA:a})} metric={metric} recordMark={recordMark} undoMark={undoMark} live={live} onDeck={onDeck} inHole={inHole} compStatus={sc.compStatus} info={sc.info} rulebook={sc.rulebook} startJumpOff={startJumpOff} onEnd={endCompetition}/>}
-        {screen==='display'&&sc&&<DisplayScreen athletes={sc.athletes} ranked={ranked} heights={sc.heights} curH={sc.curH} curA={sc.curA} metric={metric} live={live} info={sc.info} onDeck={onDeck} inHole={inHole} compStatus={sc.compStatus}/>}
-        {screen==='history'&&<HistoryScreen savedComps={savedComps} setSavedComps={setSavedComps} loadSnapshot={loadSnapshot} saveSnapshot={saveSnapshot}/>}
-      </main>
-      {showEdit&&sc&&<EditOverlay onClose={()=>setShowEdit(false)} athletes={sc.athletes} addAthlete={addAthleteScoring} updAthlete={updAthleteScoring} delAthlete={delAthleteScoring} moveAthlete={moveAthleteScoring} reorder={reorderScoring} setOrder={setOrderScoring} editingId={sc.editingId} setEditingId={id=>updSc({editingId:id})} rulebook={sc.rulebook} heights={sc.heights} setHeights={h=>updSc({heights:h})} updateHeight={updateHeightScoring} metric={metric} startH={sc.startH||''} setStartH={v=>updSc({startH:v})} incStr={sc.incStr||''} setIncStr={v=>updSc({incStr:v})} manualH={sc.manualH||''} setManualH={v=>updSc({manualH:v})} doGenHeights={doGenHeightsScoring}/>}
-      {showImport&&<ImportDialog onImport={importAthletes} onClose={()=>setShowImport(false)}/>}
-      {showSave&&sc&&<SaveResultsDialog athletes={sc.athletes} heights={sc.heights} ranked={ranked} info={sc.info} metric={metric} onClose={()=>setShowSave(false)}/>}
-    </div>
-  );
-}
-
-// ─── INCREMENT STEP BUILDER ──────────────────────────────────────────────────
+// ─── INCREMENT STEP BUILDER ───────────────────────────────────────────────────
 function IncStepBuilder({incStr,setIncStr}){
   const CM_OPTS=[2,3,4,5,6,7,8,10,12,15,20];
   const PRESETS=[
@@ -563,103 +350,26 @@ function IncStepBuilder({incStr,setIncStr}){
   );
 }
 
-// ─── SETUP SCREEN ────────────────────────────────────────────────────────────
-function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updAthlete,delAthlete,moveAthlete,reorder,setOrder,editingId,setEditingId,startH,setStartH,incStr,setIncStr,manualH,setManualH,doGenHeights,heights,setHeights,updateHeight,metric,startComp,dirEmail,setDirEmail,onImport}){
-  const ci=(k,v)=>setInfo(p=>({...p,[k]:v}));
-  return(
-    <div style={{padding:14,maxWidth:640,margin:'0 auto',paddingBottom:40}}>
-      <div style={sec}>
-        <div style={secTit}>Competition Info</div>
-        <div style={{display:'grid',gap:10}}>
-          <input style={inp} placeholder="Meet / Event Name" value={info.name} onChange={e=>ci('name',e.target.value)}/>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <input style={inp} type="date" value={info.date} onChange={e=>ci('date',e.target.value)}/>
-            <input style={inp} placeholder="Venue" value={info.venue} onChange={e=>ci('venue',e.target.value)}/>
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <select style={inp} value={info.gender} onChange={e=>ci('gender',e.target.value)}>
-              <option value="M">Men's / Boys'</option>
-              <option value="W">Women's / Girls'</option>
-              <option value="MX">Mixed</option>
-            </select>
-            <select style={inp} value={rulebook} onChange={e=>setRulebook(e.target.value)}>
-              {RULEBOOKS.map(r=><option key={r.key} value={r.key}>{r.label}</option>)}
-            </select>
-          </div>
-          <input style={inp} placeholder="Meet Director email (optional)" value={dirEmail} onChange={e=>setDirEmail(e.target.value)}/>
-        </div>
-      </div>
-
-      <div style={sec}>
-        <div style={secTit}>Height Progression <span style={{color:C.muted,fontWeight:400,fontSize:10,letterSpacing:0}}>(max 10)</span></div>
-        <div style={{display:'grid',gap:10}}>
-          <div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:5}}>Starting Height (m)</div>
-            <input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e=>setStartH(e.target.value)}/>
-          </div>
-          <div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Increments</div>
-            <IncStepBuilder incStr={incStr} setIncStr={setIncStr}/>
-          </div>
-          <div><div style={{fontSize:12,color:C.muted,marginBottom:5}}>Or manual (m, comma-separated, max 10)</div><input style={inp} placeholder="5.00, 5.10, 5.20..." value={manualH} onChange={e=>setManualH(e.target.value)}/></div>
-          <button onClick={doGenHeights} style={btn(C.accent)}>Generate Heights</button>
-        </div>
-        {heights.length>0&&(
-          <div style={{marginTop:14}}>
-            <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Click any height to edit:</div>
-            <HeightEditor heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric}/>
-        {rulebook==='WA'&&heights.some((_,i)=>i>0&&heights[i]-heights[i-1]<5)&&(
-          <div style={{marginTop:8,fontSize:11,color:C.warn,background:`${C.warn}15`,borderRadius:8,padding:'7px 11px',border:`1px solid ${C.warn}44`}}>
-            ⚠ WA Rule 26.4.1 requires minimum 5cm increments. One or more gaps below 5cm detected.
-          </div>
-        )}
-          </div>
-        )}
-      </div>
-
-      <div style={sec}>
-        <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
-          <div style={{...secTit,marginBottom:0}}>Athletes ({athletes.length})</div>
-          <div style={{flex:1}}/>
-          <button onClick={onImport} style={{...btn(C.card,'7px 12px',12),border:`1px solid ${C.border}`,marginRight:6}}>Import CSV</button>
-          <button onClick={addAthlete} style={btn(C.success,'7px 14px',13)}>+ Add</button>
-        </div>
-        <div style={{fontSize:11,color:C.muted,marginBottom:10}}>Hold and drag the handle to reorder. Type # to jump position.</div>
-        <AthleteList athletes={athletes} editingId={editingId} setEditingId={setEditingId} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} rulebook={rulebook}/>
-        {!athletes.length&&<div style={{textAlign:'center',padding:20,color:C.muted,fontSize:14}}>No athletes — tap + Add</div>}
-      </div>
-
-      <button onClick={startComp} style={{...btn(athletes.length>0&&heights.length>0?C.success:'#2a2a2a'),width:'100%',padding:15,fontSize:16,borderRadius:14,opacity:athletes.length>0&&heights.length>0?1:.5}}>
-        Start Competition
-      </button>
-    </div>
-  );
-}
-
-// ─── HEIGHT EDITOR ───────────────────────────────────────────────────────────
+// ─── HEIGHT EDITOR ────────────────────────────────────────────────────────────
 function HeightEditor({heights,setHeights,updateHeight,metric}){
   return(
     <div style={{display:'grid',gap:6}}>
       {heights.map((h,i)=>(
         <div key={i} style={{display:'flex',alignItems:'center',gap:8,background:C.card,borderRadius:8,border:`1px solid ${C.border}`,padding:'6px 10px'}}>
           <span style={{width:22,fontSize:11,color:C.muted,fontWeight:700,flexShrink:0}}>{i+1}</span>
-          <input
-            type="number"
-            step="0.01"
-            value={(h/100).toFixed(2)}
-            onChange={e=>updateHeight(i,e.target.value)}
-            style={{...inp,padding:'5px 8px',fontSize:15,width:90,fontWeight:700}}
-          />
+          <input type="number" step="0.01" value={(h/100).toFixed(2)} onChange={e=>updateHeight(i,e.target.value)}
+            style={{...inp,padding:'5px 8px',fontSize:15,width:90,fontWeight:700}}/>
           <span style={{fontSize:12,color:C.muted,flex:1}}>{metric?fmtH(h,false):fmtH(h,true)}</span>
-          <button onClick={()=>setHeights(p=>p.filter((_,j)=>j!==i))} style={{...btn('#7f1d1d','4px 10px',11),flexShrink:0}}>x</button>
+          <button onClick={()=>setHeights(p=>p.filter((_,j)=>j!==i))} style={{...btn('#7f1d1d','4px 10px',11),flexShrink:0}}>✕</button>
         </div>
       ))}
-      <button onClick={()=>setHeights(p=>{if(p.length>=10)return p;const last=p[p.length-1]||50000;return[...p,last+500];})} style={{...btn(C.card,'7px 12px',12),border:`1px solid ${C.border}`,marginTop:2}}>+ Add Height</button>
+      <button onClick={()=>setHeights(p=>{if(p.length>=10)return p;const last=p[p.length-1]||50000;return[...p,last+500];})}
+        style={{...btn(C.card,'7px 12px',12),border:`1px solid ${C.border}`,marginTop:2}}>+ Add Height</button>
     </div>
   );
 }
 
-// ─── ATHLETE LIST (with touch drag) ─────────────────────────────────────────
+// ─── ATHLETE LIST (pointer-capture drag) ─────────────────────────────────────
 function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,moveAthlete,reorder,setOrder,rulebook}){
   const[dragIdx,setDragIdx]=useState(null);
   const[overIdx,setOverIdx]=useState(null);
@@ -672,21 +382,18 @@ function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,move
     for(const row of rows){const r=row.getBoundingClientRect();if(clientY>=r.top&&clientY<=r.bottom)return parseInt(row.dataset.rowIdx);}
     return -1;
   };
-
   const onHandlePointerDown=(e,idx)=>{
     e.preventDefault();
     try{e.currentTarget.setPointerCapture(e.pointerId);}catch(_){}
     dragStateRef.current={active:true,from:idx,to:idx};
     setDragIdx(idx);
   };
-
-  const onHandlePointerMove=(e)=>{
+  const onHandlePointerMove=e=>{
     if(!dragStateRef.current.active)return;
     const found=findRowAt(e.clientY);
     if(found!==-1&&found!==dragStateRef.current.to){dragStateRef.current.to=found;setOverIdx(found);}
   };
-
-  const onHandlePointerUp=(e)=>{
+  const onHandlePointerUp=e=>{
     const{active,from,to}=dragStateRef.current;
     dragStateRef.current={active:false,from:-1,to:-1};
     if(active&&from!==-1&&to!==-1&&from!==to)reorder(from,to);
@@ -696,17 +403,14 @@ function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,move
   return(
     <div ref={containerRef} style={{display:'grid',gap:8}}>
       {athletes.map((a,i)=>(
-        <div key={a.id}
-          data-row-idx={i}
-          draggable
-          onContextMenu={e=>e.preventDefault()}
+        <div key={a.id} data-row-idx={i}
+          draggable onContextMenu={e=>e.preventDefault()}
           onDragStart={e=>{setDragIdx(i);e.dataTransfer.effectAllowed='move';}}
           onDragOver={e=>{e.preventDefault();setOverIdx(i);}}
           onDrop={e=>{e.preventDefault();if(dragIdx!==null&&dragIdx!==i)reorder(dragIdx,i);setDragIdx(null);setOverIdx(null);}}
           onDragEnd={()=>{setDragIdx(null);setOverIdx(null);}}
           className={overIdx===i&&dragIdx!==i?'vd-drag-over':dragIdx===i?'vd-dragging':''}>
-          <AthleteRow
-            athlete={a} index={i} total={athletes.length} rulebook={rulebook}
+          <AthleteRow athlete={a} index={i} total={athletes.length} rulebook={rulebook}
             isEditing={editingId===a.id}
             onEdit={()=>setEditingId(editingId===a.id?null:a.id)}
             onUpdate={ch=>updAthlete(a.id,ch)}
@@ -724,12 +428,9 @@ function AthleteList({athletes,editingId,setEditingId,updAthlete,delAthlete,move
   );
 }
 
-// ─── ATHLETE ROW ─────────────────────────────────────────────────────────────
+// ─── ATHLETE ROW ──────────────────────────────────────────────────────────────
 function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp,onDown,onSetOrder,rulebook,onHandlePointerDown,onHandlePointerMove,onHandlePointerUp}){
-  const[orderInput,setOrderInput]=useState('');
   const[showLookup,setShowLookup]=useState(false);
-  const commitOrder=()=>{const n=parseInt(orderInput);if(!isNaN(n))onSetOrder(n);setOrderInput('');};
-
   if(!isEditing)return(
     <div style={{display:'flex',alignItems:'center',gap:8,padding:'11px 12px',background:C.card,borderRadius:10,border:`1px solid ${C.border}`,userSelect:'none',WebkitUserSelect:'none'}}>
       <FlagCell athlete={athlete} size={26}/>
@@ -744,17 +445,10 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
       </div>
       <button onClick={onEdit} style={btn(C.accent,'6px 12px',12)}>Edit</button>
       <button onClick={onDelete} style={{...btn('#374151','6px 10px',13),border:`1px solid ${C.border}`,color:C.muted}}>✕</button>
-      <div
-        onPointerDown={onHandlePointerDown}
-        onPointerMove={onHandlePointerMove}
-        onPointerUp={onHandlePointerUp}
-        onPointerCancel={onHandlePointerUp}
-        style={{cursor:'grab',color:C.muted,flexShrink:0,userSelect:'none',touchAction:'none',padding:'4px 2px 4px 6px',fontSize:18,lineHeight:1,display:'flex',alignItems:'center'}}>
-        ☰
-      </div>
+      <div onPointerDown={onHandlePointerDown} onPointerMove={onHandlePointerMove} onPointerUp={onHandlePointerUp} onPointerCancel={onHandlePointerUp}
+        style={{cursor:'grab',color:C.muted,flexShrink:0,userSelect:'none',touchAction:'none',padding:'4px 2px 4px 6px',fontSize:18,lineHeight:1,display:'flex',alignItems:'center'}}>☰</div>
     </div>
   );
-
   return(
     <div style={{padding:14,background:C.card,borderRadius:10,border:`2px solid ${C.accent}`}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
@@ -777,7 +471,7 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
         <div>
           <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Entry PR / PB</div>
-          <input style={inp} placeholder="e.g. 5.45m or 17-10.75in" value={athlete.pb||''} onChange={e=>onUpdate({pb:e.target.value})}/>
+          <input style={inp} placeholder="e.g. 5.45m or 17-10.75" value={athlete.pb||''} onChange={e=>onUpdate({pb:e.target.value})}/>
         </div>
         <div>
           <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Season Best</div>
@@ -785,7 +479,7 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
         </div>
       </div>
       <div style={{marginBottom:12}}>
-        <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Logo / Flag</div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Logo / Photo</div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <input style={{...inp,flex:1}} placeholder="Image URL, or upload →" value={athlete.logoUrl||''} onChange={e=>onUpdate({logoUrl:e.target.value})}/>
           <label style={{cursor:'pointer',flexShrink:0}}>
@@ -804,7 +498,7 @@ function AthleteRow({athlete,index,total,isEditing,onEdit,onUpdate,onDelete,onUp
   );
 }
 
-// ─── LOOKUP DIALOG ───────────────────────────────────────────────────────────
+// ─── LOOKUP DIALOG ────────────────────────────────────────────────────────────
 function LookupDialog({athlete,rulebook,onApply,onClose}){
   const[paste,setPaste]=useState('');
   const[parsed,setParsed]=useState(null);
@@ -818,7 +512,7 @@ function LookupDialog({athlete,rulebook,onApply,onClose}){
       <div style={{background:C.surface,borderRadius:'16px 16px 0 0',padding:20,width:'100%',maxWidth:560,maxHeight:'75vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
         <div style={{display:'flex',alignItems:'center',marginBottom:14}}>
           <div style={{fontWeight:800,fontSize:15,flex:1}}>Lookup: {name}</div>
-          <button onClick={onClose} style={btn('#333','7px 14px',13)}>x</button>
+          <button onClick={onClose} style={btn('#333','7px 14px',13)}>✕</button>
         </div>
         <a href={url} target="_blank" rel="noreferrer" style={{...btn(C.accent,'9px 18px',13),textDecoration:'none',display:'inline-block',marginBottom:14}}>Open {SEARCH_LABEL[rulebook]}</a>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
@@ -842,11 +536,11 @@ function LookupDialog({athlete,rulebook,onApply,onClose}){
   );
 }
 
-// ─── SAVE RESULTS DIALOG ─────────────────────────────────────────────────────
+
+// ─── SAVE RESULTS DIALOG ──────────────────────────────────────────────────────
 function SaveResultsDialog({athletes,heights,ranked,info,metric,onClose}){
   const[saving,setSaving]=useState(false);
   const[saved,setSaved]=useState(false);
-
   const doSave=async()=>{
     setSaving(true);
     const csv=buildResultsCSV(athletes,heights,ranked,info,metric);
@@ -856,44 +550,220 @@ function SaveResultsDialog({athletes,heights,ranked,info,metric,onClose}){
     try{
       if(window.showSaveFilePicker){
         const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'CSV File',accept:{'text/csv':['.csv']}}]});
-        const w=await handle.createWritable();
-        await w.write(blob);await w.close();
-        setSaved(true);
+        const w=await handle.createWritable();await w.write(blob);await w.close();setSaved(true);
       }else throw new Error('fallback');
     }catch(err){
       if(err.name!=='AbortError'){
-        const url=URL.createObjectURL(blob);
-        const a=document.createElement('a');a.href=url;a.download=filename;a.click();
-        setTimeout(()=>URL.revokeObjectURL(url),1000);
-        setSaved(true);
+        const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);setSaved(true);
       }
     }
     setSaving(false);
   };
-
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
       <div style={{background:C.surface,borderRadius:16,padding:24,width:'100%',maxWidth:400,border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
         <div style={{fontWeight:800,fontSize:17,marginBottom:8}}>Save Official Results</div>
-        <div style={{fontSize:13,color:C.muted,marginBottom:20,lineHeight:1.6}}>
-          Saves a CSV file with final results, placements, and all attempts.
-        </div>
-        {saved?(
-          <div style={{background:`${C.success}22`,borderRadius:10,padding:'12px 16px',marginBottom:16,border:`1px solid ${C.success}44`,fontSize:14,color:C.success,fontWeight:700}}>
-            Results saved successfully
-          </div>
-        ):(
-          <button onClick={doSave} disabled={saving} style={{...btn(C.success,'12px 20px',15),width:'100%',marginBottom:12,opacity:saving?.6:1}}>
-            {saving?'Saving...':'Download Results CSV'}
-          </button>
-        )}
-        <button onClick={onClose} style={{...btn(C.card,'10px 20px',14),width:'100%',border:`1px solid ${C.border}`}}>
-          {saved?'Close':'Cancel'}
-        </button>
+        <div style={{fontSize:13,color:C.muted,marginBottom:20,lineHeight:1.6}}>Saves a CSV with final results, placements, and all attempts.</div>
+        {saved
+          ?<div style={{background:`${C.success}22`,borderRadius:10,padding:'12px 16px',marginBottom:16,border:`1px solid ${C.success}44`,fontSize:14,color:C.success,fontWeight:700}}>Results saved successfully</div>
+          :<button onClick={doSave} disabled={saving} style={{...btn(C.success,'12px 20px',15),width:'100%',marginBottom:12,opacity:saving?.6:1}}>{saving?'Saving...':'Download Results CSV'}</button>
+        }
+        <button onClick={onClose} style={{...btn(C.card,'10px 20px',14),width:'100%',border:`1px solid ${C.border}`}}>{saved?'Close':'Cancel'}</button>
       </div>
     </div>
   );
 }
+
+// ─── RESULTS TABLE ────────────────────────────────────────────────────────────
+function ResultsTable({athletes,ranked,heights,curH,curA,metric,setCurA,setCurH,compact=false,isActive=true}){
+  const n=heights.length;
+  if(!n)return null;
+  const placementOf=useMemo(()=>{const map={};ranked.forEach(r=>{map[r.id]={pl:r.placement,tied:r.tied};});return map;},[ranked]);
+  const displayAthletes=useMemo(()=>{
+    if(!isActive)return[...ranked];
+    const getSort=a=>{const marks=a.attempts[curH]||[];const done=isDone(marks,a.status);return[a.status==='dns'?3:a.status==='nh'?2:done?1:0,a.order];};
+    return[...athletes].sort((a,b)=>{const[ag,ao]=getSort(a);const[bg,bo]=getSort(b);if(ag!==bg)return ag-bg;return ao-bo;});
+  },[athletes,ranked,curH,isActive]);
+  const getCellContent=(ath,hIdx)=>{
+    const m=ath.attempts[hIdx]||[];
+    if(ath.status==='dns')return{text:'- -',color:C.muted,bg:'transparent'};
+    if(!m.length)return{text:'',color:C.muted,bg:'transparent'};
+    const text=m.join('');
+    if(hasCleared(m))return{text,color:'#4ade80',bg:C.cleared};
+    if(m.length>=3&&!hasCleared(m))return{text,color:'#f87171',bg:C.missed};
+    return{text,color:hasPassed(m)?'#60a5fa':C.muted,bg:'transparent'};
+  };
+  const bestResult=ath=>{const idx=highestClearedIdx(ath,n);return idx>=0?heights[idx]:null};
+  return(
+    <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(400,220+n*52)+'px'}}>
+        <thead>
+          <tr style={{background:C.surface,borderBottom:`2px solid ${C.border}`}}>
+            <th style={{position:'sticky',left:0,background:C.surface,padding:'7px 5px',textAlign:'center',color:C.muted,width:30,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>#</th>
+            <th style={{position:'sticky',left:30,background:C.surface,padding:'7px 6px',textAlign:'center',color:C.muted,width:36,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>PL</th>
+            <th style={{position:'sticky',left:66,background:C.surface,padding:'7px 10px',textAlign:'left',color:C.muted,minWidth:130,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
+            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:52,fontSize:9,fontWeight:800,letterSpacing:.5}}>PB</th>
+            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:52,fontSize:9,fontWeight:800,letterSpacing:.5}}>SB</th>
+            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:54,fontSize:9,fontWeight:800,letterSpacing:.5}}>BEST</th>
+            {heights.map((h,i)=>(
+              <th key={i} style={{padding:'7px 4px',textAlign:'center',minWidth:46,color:i===curH&&isActive?C.accent:C.muted,fontWeight:i===curH&&isActive?800:600,fontSize:9,letterSpacing:.3,background:i===curH&&isActive?`${C.accent}18`:C.surface}}>
+                {fmtH(h,metric)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {displayAthletes.map((ath,rowIdx)=>{
+            const origIdx=athletes.findIndex(a=>a.id===ath.id);
+            const isCur=isActive&&origIdx===curA;
+            const plInfo=placementOf[ath.id]||{pl:null,tied:false};
+            const best=bestResult(ath);
+            const isOut=TERMINAL.includes(ath.status);
+            const rowBg=isCur?`${C.accent}12`:rowIdx%2===0?'transparent':`${C.surface}60`;
+            const isDoneHere=isDone(ath.attempts[curH]||[],ath.status);
+            return(
+              <tr key={ath.id} style={{background:rowBg,borderBottom:`1px solid ${C.border}`,borderLeft:isCur?`3px solid ${C.accent}`:'3px solid transparent'}}>
+                <td style={{position:'sticky',left:0,background:rowBg,padding:'7px 5px',textAlign:'center',fontWeight:700,fontSize:12,color:isDoneHere?C.muted:C.text}}>{ath.order}</td>
+                <td style={{position:'sticky',left:30,background:rowBg,padding:'7px 6px',textAlign:'center',fontWeight:800,fontSize:compact?13:14}}>
+                  {plInfo.pl===1?'🥇':plInfo.pl===2?'🥈':plInfo.pl===3?'🥉':plInfo.pl
+                    ?<span style={{color:C.muted,fontSize:11}}>{plInfo.pl}{plInfo.tied?'=':''}</span>
+                    :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':best?'':'NH'}</span>}
+                </td>
+                <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                    <FlagCell athlete={ath} size={18}/>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontWeight:isCur?800:600,fontSize:13,color:isCur?C.accent:isOut?C.muted:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110,textDecoration:ath.status==='dns'?'line-through':'none'}}>
+                        {isCur&&<span style={{fontSize:9,marginRight:3}}>▶</span>}
+                        {ath.firstName} {ath.lastName}
+                      </div>
+                      {(ath.affiliation||ath.status==='nh'||ath.status==='retired')&&(
+                        <div style={{fontSize:9,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:110}}>
+                          {ath.affiliation||''}
+                          {ath.status==='nh'&&<span style={{color:C.danger}}> NH</span>}
+                          {ath.status==='retired'&&<span style={{color:C.warn}}> RET</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </td>
+                <td style={{padding:'7px 4px',textAlign:'center',fontSize:10,color:C.muted}}>{ath.pb||'—'}</td>
+                <td style={{padding:'7px 4px',textAlign:'center',fontSize:10,color:C.muted}}>{ath.sb||'—'}</td>
+                <td style={{padding:'7px 4px',textAlign:'center'}}>
+                  {best?<div style={{fontSize:11,fontWeight:800,color:C.success}}>{fmtH(best,metric)}</div>
+                       :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':'NH'}</span>}
+                </td>
+                {heights.map((h,hIdx)=>{
+                  const{text,color,bg}=getCellContent(ath,hIdx);
+                  const isCurCell=isActive&&hIdx===curH&&origIdx===curA;
+                  const clickable=ath.status!=='dns'&&ath.status!=='nh';
+                  return(
+                    <td key={hIdx}
+                      onClick={()=>{if(setCurH)setCurH(hIdx);if(clickable&&isActive&&setCurA)setCurA(origIdx);}}
+                      style={{padding:'7px 4px',textAlign:'center',fontWeight:700,fontSize:11,letterSpacing:.3,color,background:isCurCell?bg||`${C.accent}0d`:bg,cursor:clickable&&isActive&&setCurA?'pointer':'default',outline:isCurCell?`2px inset ${C.accent}55`:'none'}}>
+                      {text}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── SETUP SCREEN ─────────────────────────────────────────────────────────────
+function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updAthlete,delAthlete,moveAthlete,reorder,setOrder,editingId,setEditingId,startH,setStartH,incStr,setIncStr,manualH,setManualH,doGenHeights,heights,setHeights,updateHeight,metric,startComp,dirEmail,setDirEmail,onImport}){
+  const ci=(k,v)=>setInfo(p=>({...p,[k]:v}));
+  const rbCfg=RULEBOOK_CFG[rulebook]||RULEBOOK_CFG.WA;
+  const ready=athletes.length>0&&heights.length>0;
+  return(
+    <div style={{padding:14,maxWidth:640,margin:'0 auto',paddingBottom:40}}>
+      <div style={sec}>
+        <div style={secTit}>Competition Info</div>
+        <div style={{display:'grid',gap:10}}>
+          <input style={inp} placeholder="Meet / Event Name" value={info.name} onChange={e=>ci('name',e.target.value)}/>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <input style={inp} type="date" value={info.date} onChange={e=>ci('date',e.target.value)}/>
+            <input style={inp} placeholder="Venue" value={info.venue} onChange={e=>ci('venue',e.target.value)}/>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <select style={inp} value={info.gender} onChange={e=>ci('gender',e.target.value)}>
+              <option value="M">Men's / Boys'</option>
+              <option value="W">Women's / Girls'</option>
+              <option value="MX">Mixed</option>
+            </select>
+            <select style={inp} value={rulebook} onChange={e=>setRulebook(e.target.value)}>
+              {RULEBOOKS.map(r=><option key={r.key} value={r.key}>{r.label}</option>)}
+            </select>
+          </div>
+          <input style={inp} placeholder="Meet Director email (optional — for post-comp contact)" value={dirEmail} onChange={e=>setDirEmail(e.target.value)}/>
+        </div>
+        {rbCfg.minIncCm&&(
+          <div style={{marginTop:10,fontSize:11,color:C.muted,background:C.card,borderRadius:8,padding:'7px 11px',border:`1px solid ${C.border}`}}>
+            📋 {RULEBOOKS.find(r=>r.key===rulebook)?.label}: Minimum increment {rbCfg.minIncCm}cm · {rbCfg.jumpOffRequired?'Jump-off required for 1st':'Co-champions by default'}
+          </div>
+        )}
+      </div>
+
+      <div style={sec}>
+        <div style={secTit}>Height Progression <span style={{color:C.muted,fontWeight:400,fontSize:10,letterSpacing:0}}>(max 10)</span></div>
+        <div style={{display:'grid',gap:10}}>
+          <div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:5}}>Starting Height (m)</div>
+            <input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e=>setStartH(e.target.value)}/>
+          </div>
+          <div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Increments</div>
+            <IncStepBuilder incStr={incStr} setIncStr={setIncStr}/>
+          </div>
+          <div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:5}}>Or manual (m, comma-separated, max 10)</div>
+            <input style={inp} placeholder="5.00, 5.10, 5.20, 5.30..." value={manualH} onChange={e=>setManualH(e.target.value)}/>
+          </div>
+          <button onClick={doGenHeights} style={btn(C.accent)}>Generate Heights</button>
+        </div>
+        {heights.length>0&&(
+          <div style={{marginTop:14}}>
+            <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Heights (click to edit):</div>
+            <HeightEditor heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric}/>
+            {rulebook==='WA'&&heights.some((_,i)=>i>0&&heights[i]-heights[i-1]<5)&&(
+              <div style={{marginTop:8,fontSize:11,color:C.warn,background:`${C.warn}15`,borderRadius:8,padding:'7px 11px',border:`1px solid ${C.warn}44`}}>
+                ⚠ WA Rule 26.4.1: minimum 5cm increments required. One or more gaps are below 5cm.
+              </div>
+            )}
+            {rulebook==='NCAA'&&heights.some((_,i)=>i>0&&heights[i]-heights[i-1]<5)&&(
+              <div style={{marginTop:8,fontSize:11,color:C.warn,background:`${C.warn}15`,borderRadius:8,padding:'7px 11px',border:`1px solid ${C.warn}44`}}>
+                ⚠ NCAA Rule 13-5.2: minimum 5cm increments required. One or more gaps are below 5cm.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={sec}>
+        <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
+          <div style={{...secTit,marginBottom:0}}>Athletes ({athletes.length})</div>
+          <div style={{flex:1}}/>
+          <button onClick={onImport} style={{...btn(C.card,'7px 12px',12),border:`1px solid ${C.border}`,marginRight:6}}>Import CSV</button>
+          <button onClick={addAthlete} style={btn(C.success,'7px 14px',13)}>+ Add</button>
+        </div>
+        <div style={{fontSize:11,color:C.muted,marginBottom:10}}>Drag ☰ handle to reorder jump order.</div>
+        <AthleteList athletes={athletes} editingId={editingId} setEditingId={setEditingId} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} rulebook={rulebook}/>
+        {!athletes.length&&<div style={{textAlign:'center',padding:20,color:C.muted,fontSize:14}}>No athletes — tap + Add</div>}
+      </div>
+
+      <button onClick={startComp}
+        style={{...btn(ready?C.success:'#2a2a2a'),width:'100%',padding:15,fontSize:16,borderRadius:14,opacity:ready?1:.45}}>
+        {ready?'Start Competition':'Add athletes and heights to begin'}
+      </button>
+    </div>
+  );
+}
+
 
 // ─── SCORING SCREEN ───────────────────────────────────────────────────────────
 function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,startJumpOff,onEnd}){
@@ -903,7 +773,6 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
   const hasFirstTie=tiedFirst.length>=2;
   const showJumpOffBanner=!isActive&&hasFirstTie;
   const curAth=athletes[curA];
-  // Meet-over: no eligible vaulter at any remaining height
   const meetOver=useMemo(()=>{
     if(!isActive||!heights.length)return false;
     for(let h=curH;h<heights.length;h++){if(firstEligible(athletes,h)!==-1)return false;}
@@ -914,21 +783,12 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
   const attemptNum=curMarks.length+1;
   const alreadyDone=curAth?isDone(curMarks,curAth.status):true;
 
-  const AttemptDots=()=>{
-    const dots=Array.from({length:3},(_,i)=>{
-      const m=curMarks[i];
-      const bg=!m?'transparent':m==='O'?C.success:m==='X'?C.danger:'#2563eb';
-      return<span key={i} style={{width:13,height:13,borderRadius:'50%',border:`2px solid ${!m?C.border:bg}`,background:bg,display:'inline-block'}}/>;
-    });
-    return<div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,marginTop:6}}>{dots}</div>;
-  };
-
   const MARKS=[
     {mark:'O',bg:C.success,symbol:'✓',label:'Clear'},
     {mark:'X',bg:C.danger, symbol:'✗',label:'Miss'},
-    {mark:'P',bg:'#2563eb',symbol:'P',      label:'Pass'},
-    {mark:'R',bg:C.warn,   symbol:'R',      label:'Retire'},
-    {mark:'DNS',bg:'#374151',symbol:'-',    label:'DNS'},
+    {mark:'P',bg:'#2563eb',symbol:'P', label:'Pass'},
+    {mark:'R',bg:C.warn,   symbol:'R', label:'Retire'},
+    {mark:'DNS',bg:'#374151',symbol:'—',label:'DNS'},
   ];
 
   return(
@@ -936,21 +796,23 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
       {/* ── HERO ── */}
       <div style={{background:`linear-gradient(180deg,${C.accent}1a 0%,${C.bg} 100%)`,borderBottom:`1px solid ${C.border}`,padding:'16px 16px 14px',textAlign:'center'}}>
         {info.name&&<div style={{fontSize:10,color:C.muted,letterSpacing:1.5,textTransform:'uppercase',marginBottom:6}}>{info.name}{info.venue?` · ${info.venue}`:''}</div>}
-        <div style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,color:C.muted,background:C.card,borderRadius:6,padding:'2px 8px',marginBottom:4,border:`1px solid ${C.border}`,letterSpacing:.5}}>{RULEBOOKS.find(r=>r.key===rulebook)?.label||rulebook}</div>
+        <div style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,color:C.muted,background:C.card,borderRadius:6,padding:'2px 8px',marginBottom:6,border:`1px solid ${C.border}`,letterSpacing:.5}}>
+          {RULEBOOKS.find(r=>r.key===rulebook)?.label||rulebook}
+        </div>
         {live&&isActive&&(
-          <div style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:9,color:'#ff4444',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,fontSize:9,color:'#ff4444',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:8}}>
             <span className="live-dot" style={{width:6,height:6,borderRadius:'50%',background:'#ff4444',display:'inline-block'}}/>LIVE
           </div>
         )}
-        {!isActive&&<div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,color:C.warn,fontWeight:700,letterSpacing:.5,marginBottom:6,background:`${C.warn}18`,borderRadius:8,padding:'3px 10px'}}>
-          {compStatus==='official'?'Official Results':'Pending Verification'}
-        </div>}
-        {/* Big height — only show when active */}
+        {!isActive&&(
+          <div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,color:C.warn,fontWeight:700,letterSpacing:.5,marginBottom:8,background:`${C.warn}18`,borderRadius:8,padding:'3px 10px'}}>
+            {compStatus==='official'?'✓ Official Results':'⏳ Pending Verification'}
+          </div>
+        )}
         {isActive&&<>
           <div style={{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:2,marginBottom:4}}>Current Bar</div>
           <div style={{fontSize:54,fontWeight:900,color:C.accent,lineHeight:1,letterSpacing:-2}}>{curHt?fmtH(curHt,metric):'—'}</div>
           {curHt&&<div style={{fontSize:14,color:C.muted,marginBottom:14}}>{fmtH(curHt,!metric)}</div>}
-          {/* Current vaulter card */}
           {curAth&&!alreadyDone?(
             <div style={{display:'inline-flex',alignItems:'center',gap:14,background:C.surface,borderRadius:16,padding:'12px 18px',border:`2px solid ${C.accent}`,textAlign:'left',maxWidth:'100%'}}>
               <FlagCell athlete={curAth} size={48}/>
@@ -966,20 +828,21 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
                     {curAth.pb&&` · PB ${curAth.pb}`}
                   </div>
                 )}
-                <AttemptDots/>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,marginTop:8}}>
+                  {Array.from({length:3},(_,i)=>{const m=curMarks[i];const bg=!m?'transparent':m==='O'?C.success:m==='X'?C.danger:'#2563eb';return<span key={i} style={{width:13,height:13,borderRadius:'50%',border:`2px solid ${!m?C.border:bg}`,background:bg,display:'inline-block'}}/>;})}</div>
               </div>
             </div>
           ):(isActive&&(
             <div style={{background:`${C.warn}18`,borderRadius:12,padding:'10px 16px',display:'inline-block',border:`1px solid ${C.warn}44`,fontSize:13,color:C.warn,fontWeight:600}}>
               {alreadyDone&&curAth?.status==='dns'
-                ?`${curAth.firstName||'Athlete'} DNS — tap Undo or select another vaulter`
-                :'All athletes done at this height — advance to next height'}
+                ?`${curAth.firstName||'Athlete'} DNS — tap Undo or select below`
+                :'All athletes done at this height — advance bar or end meet'}
             </div>
           ))}
         </>}
       </div>
 
-      {/* ── ON DECK / IN THE HOLE (active only) ── */}
+      {/* ── ON DECK / IN THE HOLE ── */}
       {isActive&&(onDeck||inHole)&&(
         <div style={{display:'flex',background:C.surface,borderBottom:`1px solid ${C.border}`}}>
           {onDeck&&(
@@ -1019,31 +882,31 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
       {showJumpOffBanner&&(
         <div style={{margin:'12px 14px',background:'#1a1a00',border:`1px solid ${C.warn}`,borderRadius:14,padding:'14px 16px'}}>
           <div style={{fontSize:13,fontWeight:800,color:C.warn,marginBottom:4}}>{rbCfg.tieLabel}</div>
-          <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.6}}>{rbCfg.jumpOffNote}<br/>Tied: {tiedFirst.map(a=>a.lastName||a.firstName||`#${a.order}`).join(' · ')}</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.6}}>{rbCfg.jumpOffNote}<br/>Tied athletes: {tiedFirst.map(a=>a.lastName||a.firstName||`#${a.order}`).join(' · ')}</div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-            <button onClick={startJumpOff} style={btn(C.warn,'8px 16px',12)}>Start Jump-Off (+5cm)</button>
-            {!rbCfg.jumpOffRequired&&<div style={{fontSize:11,color:C.muted,alignSelf:'center'}}>or declare co-champions above</div>}
+            {rbCfg.jumpOffRequired&&<button onClick={startJumpOff} style={btn(C.warn,'8px 16px',12)}>Start Jump-Off (+5cm)</button>}
+            {!rbCfg.jumpOffRequired&&<button onClick={startJumpOff} style={{...btn(C.card,'8px 16px',12),border:`1px solid ${C.warn}`}}>Optional Jump-Off (+5cm)</button>}
           </div>
         </div>
       )}
 
-      {/* ── MARK BUTTONS (active only) ── */}
+      {/* ── MARK BUTTONS ── */}
       {isActive&&!meetOver&&(
-        <div style={{padding:'10px 10px',display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:6,background:C.bg,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{padding:'10px',display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:6,background:C.bg,borderBottom:`1px solid ${C.border}`}}>
           {MARKS.map(({mark,bg,symbol,label})=>(
             <button key={mark} onClick={()=>recordMark(mark)}
-              style={{background:bg,color:'#fff',border:'none',borderRadius:12,padding:'10px 2px',fontSize:10,fontWeight:700,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,minHeight:54,fontFamily:'inherit',WebkitTapHighlightColor:'transparent',touchAction:'manipulation'}}>
-              <span style={{fontSize:20}}>{symbol}</span><span>{label}</span>
+              style={{background:bg,color:'#fff',border:'none',borderRadius:12,padding:'10px 2px',fontSize:10,fontWeight:700,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,minHeight:56,fontFamily:'inherit',WebkitTapHighlightColor:'transparent',touchAction:'manipulation'}}>
+              <span style={{fontSize:22}}>{symbol}</span><span>{label}</span>
             </button>
           ))}
           <button onClick={undoMark}
-            style={{background:'#4c1d95',color:'#fff',border:'none',borderRadius:12,padding:'10px 2px',fontSize:10,fontWeight:700,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,minHeight:54,fontFamily:'inherit',WebkitTapHighlightColor:'transparent'}}>
-            <span style={{fontSize:20}}>{'↩'}</span><span>Undo</span>
+            style={{background:'#4c1d95',color:'#fff',border:'none',borderRadius:12,padding:'10px 2px',fontSize:10,fontWeight:700,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,minHeight:56,fontFamily:'inherit',WebkitTapHighlightColor:'transparent'}}>
+            <span style={{fontSize:22}}>↩</span><span>Undo</span>
           </button>
         </div>
       )}
 
-      {/* ── HEIGHT TABS (active only) ── */}
+      {/* ── HEIGHT SELECTOR TABS ── */}
       {isActive&&(
         <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'6px 10px',display:'flex',gap:5,overflowX:'auto',alignItems:'center',WebkitOverflowScrolling:'touch'}}>
           <span style={{fontSize:9,color:C.muted,flexShrink:0,textTransform:'uppercase',letterSpacing:.8}}>Bar:</span>
@@ -1062,164 +925,513 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,metric
   );
 }
 
-// ─── RESULTS TABLE ───────────────────────────────────────────────────────────
-function ResultsTable({athletes,ranked,heights,curH,curA,metric,setCurA,setCurH,compact=false,isActive=true}){
-  const n=heights.length;
-  if(!n)return null;
-
-  // Build placement lookup from ranked array
-  const placementOf=useMemo(()=>{
-    const map={};
-    ranked.forEach(r=>{map[r.id]={pl:r.placement,tied:r.tied};});
-    return map;
-  },[ranked]);
-
-  // During active competition: sort by jump order, with active athletes first
-  // After competition: sort by placement
-  const displayAthletes=useMemo(()=>{
-    if(!isActive){
-      // sort by placement (same as ranked order)
-      return [...ranked];
-    }
-    // Sort: active at current height first (by order), then passed/cleared, then NH, then DNS
-    const getSort=a=>{
-      const marks=a.attempts[curH]||[];
-      const done=isDone(marks,a.status);
-      const isNHStatus=a.status==='nh';
-      const isDNS=a.status==='dns';
-      return[isDNS?3:isNHStatus?2:done?1:0, a.order];
-    };
-    return [...athletes].sort((a,b)=>{
-      const [ag,ao]=getSort(a);
-      const [bg,bo]=getSort(b);
-      if(ag!==bg)return ag-bg;
-      return ao-bo;
-    });
-  },[athletes,ranked,curH,isActive]);
-
-  const getCellContent=(ath,hIdx)=>{
-    const m=ath.attempts[hIdx]||[];
-    if(ath.status==='dns')return{text:'- -',color:C.muted,bg:'transparent'};
-    if(!m.length)return{text:'',color:C.muted,bg:'transparent'};
-    const text=m.join('');
-    if(hasCleared(m))return{text,color:'#4ade80',bg:C.cleared};
-    if(m.length>=3&&!hasCleared(m))return{text,color:'#f87171',bg:C.missed};
-    return{text,color:hasPassed(m)?'#60a5fa':C.muted,bg:'transparent'};
-  };
-
-  const bestResult=ath=>{const idx=highestClearedIdx(ath,n);return idx>=0?heights[idx]:null};
-
+// ─── DISPLAY SCREEN (read-only scoreboard) ────────────────────────────────────
+function DisplayScreen({athletes,ranked,heights,curH,curA,metric,live,info,onDeck,inHole,compStatus}){
+  const isActive=compStatus==='active';
+  const curHt=heights[curH];
+  const top3=ranked.filter(r=>r.placement&&r.placement<=3);
   return(
-    <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(400,220+n*52)+'px'}}>
-        <thead>
-          <tr style={{background:C.surface,borderBottom:`2px solid ${C.border}`}}>
-            <th style={{position:'sticky',left:0,background:C.surface,padding:'7px 5px',textAlign:'center',color:C.muted,width:30,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>#</th>
-            <th style={{position:'sticky',left:30,background:C.surface,padding:'7px 6px',textAlign:'center',color:C.muted,width:36,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>PL</th>
-            <th style={{position:'sticky',left:66,background:C.surface,padding:'7px 10px',textAlign:'left',color:C.muted,minWidth:130,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
-            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:52,fontSize:9,fontWeight:800,letterSpacing:.5}}>PB</th>
-            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:52,fontSize:9,fontWeight:800,letterSpacing:.5}}>SB</th>
-            <th style={{padding:'7px 5px',textAlign:'center',color:C.muted,width:54,fontSize:9,fontWeight:800,letterSpacing:.5}}>BEST</th>
-            {heights.map((h,i)=>(
-              <th key={i} style={{padding:'7px 4px',textAlign:'center',minWidth:46,color:i===curH&&isActive?C.accent:C.muted,fontWeight:i===curH&&isActive?800:600,fontSize:9,letterSpacing:.3,background:i===curH&&isActive?`${C.accent}18`:C.surface}}>
-                {fmtH(h,metric)}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {displayAthletes.map((ath,rowIdx)=>{
-            const origIdx=athletes.findIndex(a=>a.id===ath.id);
-            const isCur=isActive&&origIdx===curA;
-            const plInfo=placementOf[ath.id]||{pl:null,tied:false};
-            const best=bestResult(ath);
-            const isOut=TERMINAL.includes(ath.status);
-            const rowBg=isCur?`${C.accent}12`:rowIdx%2===0?'transparent':`${C.surface}60`;
-            const isPassed=a=>hasPassed(a.attempts[curH]||[]);
-            const isDoneHere=isDone(ath.attempts[curH]||[],ath.status);
-            return(
-              <tr key={ath.id} style={{background:rowBg,borderBottom:`1px solid ${C.border}`,borderLeft:isCur?`3px solid ${C.accent}`:'3px solid transparent',opacity:ath.status==='dns'?.55:isOut&&!hasCleared({attempts:ath.attempts})?1:1}}>
-                {/* Jump order */}
-                <td style={{position:'sticky',left:0,background:rowBg,padding:'7px 5px',textAlign:'center',fontWeight:700,fontSize:12,color:isDoneHere?C.muted:C.text}}>{ath.order}</td>
-                {/* Placement */}
-                <td style={{position:'sticky',left:30,background:rowBg,padding:'7px 6px',textAlign:'center',fontWeight:800,fontSize:compact?13:14}}>
-                  {plInfo.pl===1?'🥇':plInfo.pl===2?'🥈':plInfo.pl===3?'🥉':plInfo.pl?
-                    <span style={{color:C.muted,fontSize:11}}>{plInfo.pl}{plInfo.tied?'=':''}</span>:
-                    <span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':best?'':'NH'}</span>}
-                </td>
-                {/* Athlete */}
-                <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:6}}>
-                    <FlagCell athlete={ath} size={18}/>
-                    <div style={{minWidth:0}}>
-                      <div style={{fontWeight:isCur?800:600,fontSize:13,color:isCur?C.accent:isOut?C.muted:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:100,textDecoration:ath.status==='dns'?'line-through':'none'}}>
-                        {isCur&&<span style={{fontSize:9,marginRight:3}}>&#9658;</span>}
-                        {ath.firstName} {ath.lastName}
-                      </div>
-                      {(ath.affiliation||ath.status==='nh'||ath.status==='retired')&&(
-                        <div style={{fontSize:9,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:100}}>
-                          {ath.affiliation||''}
-                          {ath.status==='nh'&&<span style={{color:C.danger}}> NH</span>}
-                          {ath.status==='retired'&&<span style={{color:C.warn}}> RET</span>}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </td>
-                {/* PB */}
-                <td style={{padding:'7px 4px',textAlign:'center',fontSize:10,color:C.muted}}>{ath.pb||'—'}</td>
-                {/* SB */}
-                <td style={{padding:'7px 4px',textAlign:'center',fontSize:10,color:C.muted}}>{ath.sb||'—'}</td>
-                {/* Best */}
-                <td style={{padding:'7px 4px',textAlign:'center'}}>
-                  {best?<div><div style={{fontSize:11,fontWeight:800,color:C.success}}>{fmtH(best,metric)}</div></div>
-                      :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':'NH'}</span>}
-                </td>
-                {/* Height cells */}
-                {heights.map((h,hIdx)=>{
-                  const{text,color,bg}=getCellContent(ath,hIdx);
-                  const isCurCell=isActive&&hIdx===curH&&origIdx===curA;
-                  const clickable=ath.status!=='dns'&&ath.status!=='nh';
-                  return(
-                    <td key={hIdx}
-                      onClick={()=>{setCurH(hIdx);if(clickable&&isActive)setCurA(origIdx);}}
-                      style={{padding:'7px 4px',textAlign:'center',fontWeight:700,fontSize:11,letterSpacing:.3,color,background:isCurCell?bg||`${C.accent}0d`:bg,cursor:clickable&&isActive?'pointer':'default',outline:isCurCell?`2px inset ${C.accent}55`:'none'}}>
-                      {text}
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div style={{paddingBottom:20}}>
+      <div style={{background:`linear-gradient(135deg,${C.accent}22 0%,${C.bg} 60%)`,padding:'20px 16px 14px',borderBottom:`1px solid ${C.border}`,textAlign:'center'}}>
+        <div style={{fontWeight:900,fontSize:20,letterSpacing:-.5,marginBottom:2}}>{info.name||'Pole Vault'}</div>
+        {info.venue&&<div style={{fontSize:12,color:C.muted,marginBottom:6}}>{info.venue} · {info.date}</div>}
+        {live&&isActive&&(
+          <div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:10,color:'#ff4444',fontWeight:700,letterSpacing:1,textTransform:'uppercase',background:'rgba(255,68,68,.1)',borderRadius:20,padding:'3px 10px',marginBottom:8}}>
+            <span className="live-dot" style={{width:7,height:7,borderRadius:'50%',background:'#ff4444',display:'inline-block'}}/>LIVE SCORING
+          </div>
+        )}
+        {isActive&&curHt&&(
+          <div>
+            <div style={{fontSize:10,color:C.muted,textTransform:'uppercase',letterSpacing:2,marginTop:4}}>Bar Height</div>
+            <div style={{fontSize:52,fontWeight:900,color:C.accent,lineHeight:1.1}}>{fmtH(curHt,metric)}</div>
+            <div style={{fontSize:14,color:C.muted}}>{fmtH(curHt,!metric)}</div>
+          </div>
+        )}
+        {!isActive&&<div style={{fontSize:12,color:compStatus==='official'?C.success:C.warn,fontWeight:700,marginTop:4}}>{compStatus==='official'?'✓ Official Results':'Pending Verification'}</div>}
+      </div>
+
+      {/* On Deck strip */}
+      {isActive&&(onDeck||inHole)&&(
+        <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:'flex'}}>
+          {onDeck&&(
+            <div style={{flex:1,padding:'10px 16px',borderRight:inHole?`1px solid ${C.border}`:undefined}}>
+              <div style={{fontSize:9,fontWeight:800,letterSpacing:2,color:C.muted,textTransform:'uppercase',marginBottom:4}}>On Deck</div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <FlagCell athlete={onDeck} size={22}/>
+                <span style={{fontWeight:700,fontSize:14}}>{onDeck.firstName} {onDeck.lastName}</span>
+              </div>
+            </div>
+          )}
+          {inHole&&(
+            <div style={{flex:1,padding:'10px 16px'}}>
+              <div style={{fontSize:9,fontWeight:800,letterSpacing:2,color:C.muted,textTransform:'uppercase',marginBottom:4}}>In the Hole</div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <FlagCell athlete={inHole} size={22}/>
+                <span style={{fontWeight:700,fontSize:14}}>{inHole.firstName} {inHole.lastName}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Top 3 podium */}
+      {top3.length>0&&(
+        <div style={{display:'flex',gap:8,padding:'12px 14px',justifyContent:'center',flexWrap:'wrap'}}>
+          {top3.map(r=>(
+            <div key={r.id} style={{background:C.surface,borderRadius:12,padding:'10px 14px',border:`1px solid ${r.placement===1?C.warn:C.border}`,minWidth:110,textAlign:'center',flex:'1 1 110px',maxWidth:160}}>
+              <div style={{fontSize:20,marginBottom:2}}>{r.placement===1?'🥇':r.placement===2?'🥈':'🥉'}</div>
+              <FlagCell athlete={r} size={22}/>
+              <div style={{fontWeight:800,fontSize:13,marginTop:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.firstName} {r.lastName}</div>
+              {r.affiliation&&<div style={{fontSize:10,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.affiliation}</div>}
+              {highestClearedIdx(r,heights.length)>=0&&<div style={{fontSize:13,fontWeight:700,color:C.success,marginTop:4}}>{fmtH(heights[highestClearedIdx(r,heights.length)],metric)}</div>}
+              {r.tied&&<div style={{fontSize:9,color:C.warn,marginTop:2}}>TIE</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ResultsTable athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={curA} metric={metric} compact={true} isActive={false}/>
     </div>
   );
 }
 
-// ─── EDIT OVERLAY ────────────────────────────────────────────────────────────
+// ─── HISTORY SCREEN ───────────────────────────────────────────────────────────
+function HistoryScreen({savedComps,setSavedComps,loadSnapshot,saveSnapshot}){
+  const[reviewing,setReviewing]=useState(null);
+  if(reviewing){
+    const snap=reviewing;
+    const s=snap.state;
+    const athletes=s.athletes||[];
+    const heights=s.heights||[];
+    const ranked=calcPlacements(athletes,heights);
+    return(
+      <div style={{paddingBottom:20}}>
+        <div style={{background:C.surface,padding:'12px 14px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:10}}>
+          <button onClick={()=>setReviewing(null)} style={{...btn(C.card,'6px 12px',12),border:`1px solid ${C.border}`}}>← Back</button>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:800,fontSize:14}}>{snap.name||'Competition'}</div>
+            <div style={{fontSize:11,color:C.muted}}>{snap.date} · {snap.compStatus==='official'?'Official':'Pending'}</div>
+          </div>
+          <button onClick={()=>loadSnapshot(snap)} style={btn(C.accent,'6px 12px',12)}>Resume</button>
+        </div>
+        <DisplayScreen athletes={athletes} ranked={ranked} heights={heights} curH={s.curH||0} curA={s.curA||0} metric={s.metric??true} live={false} info={s.info||{}} onDeck={null} inHole={null} compStatus={snap.compStatus||'official'}/>
+      </div>
+    );
+  }
+  return(
+    <div style={{padding:14,maxWidth:640,margin:'0 auto',paddingBottom:40}}>
+      <div style={secTit}>Saved Competitions ({savedComps.length})</div>
+      {!savedComps.length&&(
+        <div style={{textAlign:'center',padding:40,color:C.muted,fontSize:14}}>
+          <div style={{fontSize:36,marginBottom:12}}>🗂️</div>
+          No saved competitions yet.<br/>Start and end a competition to see it here.
+        </div>
+      )}
+      <div style={{display:'grid',gap:10}}>
+        {savedComps.map(snap=>(
+          <div key={snap.id} style={{background:C.surface,borderRadius:12,padding:'12px 14px',border:`1px solid ${C.border}`}}>
+            <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:14,marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{snap.name||'Unnamed Competition'}</div>
+                <div style={{fontSize:11,color:C.muted}}>
+                  {snap.date} · {snap.state?.rulebook||'WA'} ·{' '}
+                  <span style={{color:snap.compStatus==='official'?C.success:snap.compStatus==='active'?'#ff4444':C.warn,fontWeight:700}}>
+                    {snap.compStatus==='official'?'Official':snap.compStatus==='active'?'● Live':'Pending'}
+                  </span>
+                </div>
+                {snap.state?.athletes&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{snap.state.athletes.length} athletes · {snap.state.heights?.length||0} heights</div>}
+              </div>
+              <div style={{display:'flex',gap:6,flexShrink:0,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                {snap.compStatus==='active'&&<button onClick={()=>loadSnapshot(snap)} style={btn(C.accent,'6px 11px',11)}>Resume</button>}
+                <button onClick={()=>setReviewing(snap)} style={{...btn(C.card,'6px 11px',11),border:`1px solid ${C.border}`}}>Review</button>
+                <button onClick={()=>{if(confirm('Delete this result?')){deleteComp(snap.id);setSavedComps(loadSaved());}}} style={{...btn('#7f1d1d','6px 11px',11)}}>Delete</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── RULES TAB ────────────────────────────────────────────────────────────────
+function RulesTab(){
+  const[activeRB,setActiveRB]=useState('WA');
+  const[search,setSearch]=useState('');
+  const rb=RULES_DATA[activeRB];
+  const q=search.trim().toLowerCase();
+  const filtered=q.length>=2
+    ?rb.sections.filter(s=>s.title.toLowerCase().includes(q)||s.text.toLowerCase().includes(q)||s.rule.toLowerCase().includes(q))
+    :rb.sections;
+  return(
+    <div style={{padding:14,maxWidth:640,margin:'0 auto',paddingBottom:40}}>
+      {/* Rulebook selector */}
+      <div style={{display:'flex',gap:4,marginBottom:12,background:C.surface,borderRadius:10,padding:4,border:`1px solid ${C.border}`}}>
+        {RULEBOOKS.map(r=>(
+          <button key={r.key} onClick={()=>{setActiveRB(r.key);setSearch('');}}
+            style={{flex:1,padding:'7px 4px',background:activeRB===r.key?C.accent:'transparent',color:activeRB===r.key?'#fff':C.muted,border:'none',borderRadius:7,fontWeight:activeRB===r.key?700:400,fontSize:r.key==='WA'?10:11,cursor:'pointer',fontFamily:'inherit',transition:'background .15s',letterSpacing:.2,lineHeight:1.3}}>
+            {r.key==='WA'?'World Athletics':r.key}
+          </button>
+        ))}
+      </div>
+      {/* Search */}
+      <div style={{position:'relative',marginBottom:12}}>
+        <span style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:C.muted,fontSize:14,pointerEvents:'none'}}>🔍</span>
+        <input style={{...inp,paddingLeft:36}} placeholder="Search rules..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        {search&&<button onClick={()=>setSearch('')} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:16,lineHeight:1}}>✕</button>}
+      </div>
+      {/* Header */}
+      <div style={{marginBottom:12}}>
+        <div style={{fontWeight:800,fontSize:14,color:C.text}}>{rb.name}</div>
+        <div style={{fontSize:11,color:C.muted,marginTop:2}}>{filtered.length} rule{filtered.length!==1?'s':''} · Key pole vault provisions</div>
+      </div>
+      {/* Rule cards */}
+      <div style={{display:'grid',gap:8}}>
+        {filtered.map((s,i)=>(
+          <div key={i} style={{background:C.surface,borderRadius:12,padding:'12px 14px',border:`1px solid ${C.border}`}}>
+            <div style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:7}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.text,flex:1,lineHeight:1.3}}>{s.title}</div>
+              <div style={{background:C.card,borderRadius:6,padding:'2px 8px',fontSize:10,fontWeight:700,color:C.accent,flexShrink:0,border:`1px solid ${C.accent}44`,whiteSpace:'nowrap'}}>{s.rule}</div>
+            </div>
+            <div style={{fontSize:13,color:C.muted,lineHeight:1.65}}>{s.text}</div>
+          </div>
+        ))}
+        {filtered.length===0&&(
+          <div style={{textAlign:'center',padding:30,color:C.muted,fontSize:13}}>No rules match "{search}"</div>
+        )}
+      </div>
+      {/* Footer citation */}
+      <div style={{marginTop:20,fontSize:10,color:C.muted,lineHeight:1.6,padding:'10px 12px',background:C.surface,borderRadius:8,border:`1px solid ${C.border}`}}>
+        Sources: World Athletics Competition Rules 2024 · NCAA Track &amp; Field Rules 2025-2026 · NFHS Track &amp; Field Rules. This summary is for reference only — always consult the official rulebook for complete provisions.
+      </div>
+    </div>
+  );
+}
+
+// ─── EDIT OVERLAY ─────────────────────────────────────────────────────────────
 function EditOverlay({onClose,athletes,addAthlete,updAthlete,delAthlete,moveAthlete,reorder,setOrder,editingId,setEditingId,rulebook,heights,setHeights,updateHeight,metric,startH,setStartH,incStr,setIncStr,manualH,setManualH,doGenHeights}){
   const[tab,setTab]=useState('athletes');
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',zIndex:500,display:'flex',flexDirection:'column',justifyContent:'flex-end'}} onClick={onClose}>
-      <div style={{background:C.surface,borderRadius:'18px 18px 0 0',maxHeight:'82vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+      <div style={{background:C.surface,borderRadius:'18px 18px 0 0',maxHeight:'85vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
         <div style={{display:'flex',alignItems:'center',padding:'14px 16px 10px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
           <div style={{fontWeight:800,fontSize:16,flex:1}}>Edit Competition</div>
           <button onClick={onClose} style={btn(C.success,'7px 16px',13)}>Done</button>
         </div>
         <div style={{display:'flex',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-          <button onClick={()=>setTab('athletes')} style={{flex:1,padding:'8px 0',background:'none',border:'none',color:tab==='athletes'?C.accent:C.muted,fontWeight:tab==='athletes'?700:400,fontSize:12,cursor:'pointer',borderBottom:`2px solid ${tab==='athletes'?C.accent:'transparent'}`,fontFamily:'inherit'}}>Athletes</button>
-          <button onClick={()=>setTab('heights')} style={{flex:1,padding:'8px 0',background:'none',border:'none',color:tab==='heights'?C.accent:C.muted,fontWeight:tab==='heights'?700:400,fontSize:12,cursor:'pointer',borderBottom:`2px solid ${tab==='heights'?C.accent:'transparent'}`,fontFamily:'inherit'}}>Heights</button>
+          {['athletes','heights'].map(t=>(
+            <button key={t} onClick={()=>setTab(t)}
+              style={{flex:1,padding:'8px 0',background:'none',border:'none',color:tab===t?C.accent:C.muted,fontWeight:tab===t?700:400,fontSize:12,cursor:'pointer',borderBottom:`2px solid ${tab===t?C.accent:'transparent'}`,fontFamily:'inherit',textTransform:'capitalize'}}>
+              {t}
+            </button>
+          ))}
         </div>
         <div style={{overflowY:'auto',padding:14,flex:1}}>
           {tab==='athletes'&&<>
             <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
-              <div style={{fontSize:12,color:C.muted}}>Drag to reorder</div>
+              <div style={{fontSize:12,color:C.muted}}>Drag ☰ to reorder</div>
               <div style={{flex:1}}/>
               <button onClick={addAthlete} style={btn(C.success,'6px 12px',12)}>+ Add</button>
             </div>
             <AthleteList athletes={athletes} editingId={editingId} setEditingId={setEditingId} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder} rulebook={rulebook}/>
           </>}
           {tab==='heights'&&<>
-            <div style={{fontSize:12,color:C.muted,marginBottom:12}}>Click any height to edit inline. Max 10 heights.</div>
-            <div style={{display:'g
+            <div style={{fontSize:12,color:C.muted,marginBottom:12}}>Click any height to edit inline. Max 10.</div>
+            <div style={{display:'grid',gap:10,marginBottom:14}}>
+              <div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:5}}>Starting Height (m)</div>
+                <input style={inp} placeholder="e.g. 5.00" value={startH} onChange={e=>setStartH(e.target.value)}/>
+              </div>
+              <div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Increments</div>
+                <IncStepBuilder incStr={incStr} setIncStr={setIncStr}/>
+              </div>
+              <div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:5}}>Or manual (m, comma-separated)</div>
+                <input style={inp} placeholder="5.00, 5.10, 5.20..." value={manualH} onChange={e=>setManualH(e.target.value)}/>
+              </div>
+              <button onClick={doGenHeights} style={btn(C.accent)}>Regenerate Heights</button>
+            </div>
+            <HeightEditor heights={heights} setHeights={setHeights} updateHeight={updateHeight} metric={metric}/>
+          </>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+function VaultDeskApp(){
+  const[screen,setScreen]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.screen||'setup';}catch{return'setup';}});
+  const[metric,setMetric]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.metric??true;}catch{return true;}});
+  const[live,setLive]=useState(true);
+  const[showEdit,setShowEdit]=useState(false);
+  const[showImport,setShowImport]=useState(false);
+  const[showSave,setShowSave]=useState(false);
+  const[savedComps,setSavedComps]=useState(loadSaved);
+
+  const[su,setSu]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.su||mkSu();}catch{return mkSu();}});
+  const suRef=useRef(su);
+  useEffect(()=>{suRef.current=su;},[su]);
+  const updSu=useCallback(patch=>setSu(p=>({...p,...patch})),[]);
+
+  const[sc,setSc]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_CUR))?.sc||null;}catch{return null;}});
+  const scRef=useRef(sc);
+  useEffect(()=>{scRef.current=sc;},[sc]);
+  const updSc=useCallback(patch=>setSc(p=>p?({...p,...patch}):p),[]);
+
+  useEffect(()=>{saveCurrent({screen,metric,su,sc});},[screen,metric,su,sc]);
+
+  // ── SETUP CALLBACKS ────────────────────────────────────────────────────────
+  const addAthlete=useCallback(()=>{
+    const current=suRef.current.athletes;
+    const last=current[current.length-1];
+    if(last&&!last.firstName&&!last.lastName){updSu({editingId:last.id});return;}
+    const newAth=mkAthlete(current.length+1);
+    setSu(p=>({...p,athletes:[...p.athletes,newAth],editingId:newAth.id}));
+  },[]);
+  const updAthlete=useCallback((id,ch)=>setSu(p=>({...p,athletes:p.athletes.map(a=>a.id===id?{...a,...ch}:a)})),[]);
+  const delAthlete=useCallback(id=>setSu(p=>({...p,athletes:p.athletes.filter(a=>a.id!==id).map((a,i)=>({...a,order:i+1}))})),[]);
+  const moveAthlete=useCallback((id,dir)=>setSu(p=>{const i=p.athletes.findIndex(a=>a.id===id),j=i+dir;if(j<0||j>=p.athletes.length)return p;const arr=[...p.athletes];[arr[i],arr[j]]=[arr[j],arr[i]];return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const reorder=useCallback((from,to)=>setSu(p=>{if(from===to)return p;const arr=[...p.athletes];const[item]=arr.splice(from,1);arr.splice(to,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const setOrder=useCallback((id,n)=>setSu(p=>{const i=p.athletes.findIndex(a=>a.id===id);const t=Math.max(0,Math.min(p.athletes.length-1,n-1));if(i<0||i===t)return p;const arr=[...p.athletes];const[item]=arr.splice(i,1);arr.splice(t,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const importAthletes=useCallback(rows=>{
+    setSu(p=>{const existing=p.athletes.filter(a=>a.firstName||a.lastName);const newOnes=rows.map((r,i)=>({...mkAthlete(existing.length+i+1),...r}));return{...p,athletes:[...existing,...newOnes].map((a,i)=>({...a,order:i+1}))};});
+    setShowImport(false);
+  },[]);
+  const doGenHeights=()=>{const hs=su.manualH.trim()?parseManual(su.manualH):genHeights(su.startH,su.incStr);updSu({heights:hs});};
+  const updateHeight=(idx,v)=>{const n=parseFloat(v);if(!isNaN(n))setSu(p=>({...p,heights:p.heights.map((h,i)=>i===idx?Math.round(n*100):h)}));};
+
+  // ── SCORING CALLBACKS ──────────────────────────────────────────────────────
+  const addAthleteScoring=useCallback(()=>{const current=scRef.current?.athletes||[];const last=current[current.length-1];if(last&&!last.firstName&&!last.lastName){updSc({editingId:last.id});return;}const a=mkAthlete(current.length+1);setSc(p=>p?{...p,athletes:[...p.athletes,a],editingId:a.id}:p);},[]);
+  const updAthleteScoring=useCallback((id,ch)=>setSc(p=>p?{...p,athletes:p.athletes.map(a=>a.id===id?{...a,...ch}:a)}:p),[]);
+  const delAthleteScoring=useCallback(id=>setSc(p=>p?{...p,athletes:p.athletes.filter(a=>a.id!==id).map((a,i)=>({...a,order:i+1}))}:p),[]);
+  const moveAthleteScoring=useCallback((id,dir)=>setSc(p=>{if(!p)return p;const i=p.athletes.findIndex(a=>a.id===id),j=i+dir;if(j<0||j>=p.athletes.length)return p;const arr=[...p.athletes];[arr[i],arr[j]]=[arr[j],arr[i]];return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const reorderScoring=useCallback((from,to)=>setSc(p=>{if(!p||from===to)return p;const arr=[...p.athletes];const[item]=arr.splice(from,1);arr.splice(to,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const setOrderScoring=useCallback((id,n)=>setSc(p=>{if(!p)return p;const i=p.athletes.findIndex(a=>a.id===id);const t=Math.max(0,Math.min(p.athletes.length-1,n-1));if(i<0||i===t)return p;const arr=[...p.athletes];const[item]=arr.splice(i,1);arr.splice(t,0,item);return{...p,athletes:arr.map((a,k)=>({...a,order:k+1}))}}),[]);
+  const updateHeightScoring=(idx,v)=>{const n=parseFloat(v);if(!isNaN(n))setSc(p=>p?{...p,heights:p.heights.map((h,i)=>i===idx?Math.round(n*100):h)}:p);};
+  const doGenHeightsScoring=()=>{if(!sc)return;const hs=sc.manualH?.trim()?parseManual(sc.manualH):genHeights(sc.startH||'',sc.incStr||'');if(hs.length)updSc({heights:hs});};
+
+  // ── RECORD MARK ────────────────────────────────────────────────────────────
+  const recordMark=useCallback(mark=>{
+    const prev=scRef.current;
+    if(!prev)return;
+    const{athletes:aths,curH,curA,heights}=prev;
+    const next=aths.map((a,i)=>{
+      if(i!==curA)return a;
+      const marks=a.attempts[curH]||[];
+      if(isDone(marks,a.status))return a;
+      if(mark==='DNS')return{...a,status:'dns'};
+      if(mark==='R'){const att=a.attempts.map((ar,hi)=>hi===curH?[...ar,'R']:ar);return{...a,attempts:att,status:'retired'};}
+      const att=a.attempts.map((ar,hi)=>hi===curH?[...ar,mark]:ar);
+      return{...a,attempts:att,status:isNH(att[curH])?'nh':a.status};
+    });
+    let nextCurA=-1,nextCurH=curH;
+    const nxt=nextVaulter(next,curH,curA);
+    if(nxt===-1){const nh=curH+1;if(nh<heights.length){nextCurH=nh;const fe=firstEligible(next,nh);nextCurA=fe>=0?fe:0;}}
+    else{nextCurA=nxt;}
+    setSc(p=>p?{...p,athletes:next,...(nextCurA!==-1?{curA:nextCurA}:{}),curH:nextCurH}:p);
+  },[]);
+
+  const undoMark=useCallback(()=>{
+    setSc(p=>{
+      if(!p)return p;
+      const{athletes:aths,curH,curA}=p;
+      const next=aths.map((a,i)=>{
+        if(i!==curA)return a;
+        if(a.status==='dns')return{...a,status:'competing'};
+        const att=a.attempts.map((ar,hi)=>hi===curH?[...ar]:ar);
+        if(att[curH].length>0)att[curH].pop();
+        const wasRetired=a.status==='retired'&&!att[curH].includes('R');
+        const wasNH=a.status==='nh'&&!isNH(att[curH]);
+        return{...a,attempts:att,status:(wasRetired||wasNH)?'competing':a.status};
+      });
+      return{...p,athletes:next};
+    });
+  },[]);
+
+  // ── COMPETITION LIFECYCLE ──────────────────────────────────────────────────
+  const startComp=()=>{
+    const hs=su.heights.length?su.heights:(su.manualH.trim()?parseManual(su.manualH):genHeights(su.startH,su.incStr));
+    if(!hs.length){alert('Set up heights first.');return;}
+    const fe=firstEligible(su.athletes,0);
+    const newSc={id:su.compId,info:su.info,rulebook:su.rulebook,athletes:su.athletes,heights:hs,
+      curH:0,curA:fe>=0?fe:0,compStatus:'active',dirEmail:su.dirEmail,metric,
+      startH:su.startH,incStr:su.incStr,manualH:su.manualH,editingId:null};
+    setSc(newSc);
+    const snap={id:su.compId,name:su.info.name||'Unnamed',date:su.info.date,savedAt:new Date().toISOString(),compStatus:'active',state:newSc};
+    const all=loadSaved().filter(c=>c.id!==snap.id);
+    saveAll([snap,...all]);setSavedComps(loadSaved());
+    setSu(mkSu());
+    setScreen('scoring');
+  };
+
+  const endCompetition=()=>{
+    if(!confirm('End this competition? Results will be marked as pending verification.'))return;
+    if(!sc)return;
+    setLive(false);
+    const upd={...sc,compStatus:'complete-pending'};
+    setSc(upd);
+    const snap={id:sc.id,name:sc.info.name||'Unnamed',date:sc.info.date,savedAt:new Date().toISOString(),compStatus:'complete-pending',state:upd};
+    const all=loadSaved().filter(c=>c.id!==snap.id);
+    saveAll([snap,...all]);setSavedComps(loadSaved());
+  };
+
+  const verifyOfficial=()=>{
+    if(!sc)return;
+    const upd={...sc,compStatus:'official'};
+    setSc(upd);
+    const snap={id:sc.id,name:sc.info.name||'Unnamed',date:sc.info.date,savedAt:new Date().toISOString(),compStatus:'official',state:upd};
+    const all=loadSaved().filter(c=>c.id!==snap.id);
+    saveAll([snap,...all]);setSavedComps(loadSaved());
+  };
+
+  const startJumpOff=useCallback(()=>{
+    if(!sc)return;
+    const ranked_now=calcPlacements(sc.athletes,sc.heights);
+    const tiedFirst=ranked_now.filter(r=>r.placement===1&&r.tied);
+    if(!tiedFirst.length)return;
+    const lastH=sc.heights[sc.heights.length-1]||50000;
+    const jumpOffH=lastH+5;
+    const newHIdx=sc.heights.length;
+    const newAthletes=sc.athletes.map(a=>{
+      const isTied=tiedFirst.some(t=>t.id===a.id);
+      if(!isTied)return a;
+      return{...a,status:'competing'};
+    });
+    updSc({heights:[...sc.heights,jumpOffH],athletes:newAthletes,curH:newHIdx,curA:newAthletes.findIndex(a=>tiedFirst.some(t=>t.id===a.id)),compStatus:'active'});
+    setLive(true);
+  },[sc,updSc]);
+
+  const loadSnapshot=snap=>{
+    const s=snap.state;
+    setSc({id:snap.id,info:s.info,rulebook:s.rulebook||'WA',athletes:s.athletes,heights:s.heights,
+      curH:s.curH||0,curA:s.curA||0,compStatus:snap.compStatus||'active',
+      dirEmail:s.dirEmail||'',metric:s.metric??true,editingId:null,
+      startH:s.startH||'',incStr:s.incStr||'10cm x3, 5cm x3, 2cm',manualH:s.manualH||''});
+    setMetric(s.metric??true);
+    setScreen('scoring');
+  };
+
+  // ── DERIVED ────────────────────────────────────────────────────────────────
+  const ranked=useMemo(()=>sc?calcPlacements(sc.athletes,sc.heights):[],[sc]);
+  const onDeckIdx=sc?nextVaulter(sc.athletes,sc.curH,sc.curA):-1;
+  const inHoleIdx=onDeckIdx!==-1?nextVaulter(sc.athletes,sc.curH,onDeckIdx):-1;
+  const onDeck=sc&&onDeckIdx!==-1&&onDeckIdx!==sc.curA?sc.athletes[onDeckIdx]:null;
+  const inHole=sc&&inHoleIdx!==-1&&inHoleIdx!==sc.curA&&inHoleIdx!==onDeckIdx?sc.athletes[inHoleIdx]:null;
+
+  const TABS=[
+    {id:'setup',  icon:'⚙️', label:'Setup'},
+    {id:'scoring',icon:'🎯', label:'Score'},
+    {id:'display',icon:'📺', label:'Display'},
+    {id:'rules',  icon:'📋', label:'Rules'},
+    {id:'history',icon:'🗂️', label:'History'},
+  ];
+
+  return(
+    <div style={{background:C.bg,minHeight:'100vh',color:C.text,maxWidth:'100vw',overflowX:'hidden'}}>
+      {/* ── HEADER ── */}
+      <header style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'9px 14px',position:'sticky',top:0,zIndex:300,display:'flex',alignItems:'center',gap:8}}>
+        <div style={{fontWeight:900,fontSize:16,color:C.accent,letterSpacing:-.5,flexShrink:0}}>VaultDesk</div>
+        <div style={{flex:1,fontSize:11,color:C.muted,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{sc?.info?.name||'Pole Vault'}{screen==='scoring'&&sc?.heights[sc.curH]?` · ${fmtH(sc.heights[sc.curH],metric)}`:''}</div>
+        <button onClick={()=>setMetric(m=>!m)} style={{...btn(C.card,'5px 9px',10),border:`1px solid ${C.border}`}}>{metric?'m':'ft'}</button>
+        {screen==='scoring'&&sc&&<>
+          <button onClick={()=>setLive(l=>!l)} style={{...btn(live?'#7f1d1d':C.card,'5px 8px',10),border:live?'none':`1px solid ${C.border}`}}>
+            <span className={live?'live-dot':''} style={{width:6,height:6,borderRadius:'50%',background:live?'#ff4444':C.muted,flexShrink:0,display:'inline-block'}}/>
+            {live?'LIVE':'OFF'}
+          </button>
+          <button onClick={()=>setShowEdit(true)} style={{...btn(C.card,'5px 9px',10),border:`1px solid ${C.border}`}}>Edit</button>
+          {sc.compStatus==='active'&&<button onClick={endCompetition} style={{...btn('#374151','5px 9px',10),border:`1px solid ${C.border}`}}>End</button>}
+        </>}
+      </header>
+
+      {/* ── STATUS BANNER ── */}
+      {sc&&sc.compStatus!=='active'&&(
+        <div style={{background:sc.compStatus==='official'?`${C.success}22`:`${C.warn}22`,borderBottom:`1px solid ${sc.compStatus==='official'?C.success:C.warn}44`,padding:'8px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <div style={{fontSize:12,fontWeight:700,color:sc.compStatus==='official'?C.success:C.warn,flex:1}}>
+            {sc.compStatus==='official'?'✓ Official Results':'⏳ Pending Verification — tap Verify to make official'}
+          </div>
+          {sc.compStatus==='complete-pending'&&<button onClick={verifyOfficial} style={btn(C.success,'5px 12px',11)}>Verify Official</button>}
+          {sc.compStatus==='official'&&<button onClick={()=>setShowSave(true)} style={btn(C.accent,'5px 12px',11)}>Save CSV</button>}
+          {sc.compStatus==='complete-pending'&&sc.dirEmail&&(
+            <a href={`mailto:${sc.dirEmail}?subject=Results: ${sc.info.name}`} style={{...btn('#2d3748','5px 12px',11),textDecoration:'none'}}>Email Director</a>
+          )}
+        </div>
+      )}
+
+      {/* ── NAV TABS ── */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:'flex'}}>
+        {TABS.map(t=>(
+          <button key={t.id}
+            onClick={()=>{if((t.id==='scoring'||t.id==='display')&&!sc?.heights?.length)return;setScreen(t.id);}}
+            style={{flex:1,padding:'8px 0',background:'none',border:'none',color:screen===t.id?C.accent:C.muted,fontWeight:screen===t.id?700:400,fontSize:10,cursor:'pointer',borderBottom:`2px solid ${screen===t.id?C.accent:'transparent'}`,fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:2,WebkitTapHighlightColor:'transparent',position:'relative'}}>
+            <span>{t.icon}</span><span>{t.label}</span>
+            {t.id==='scoring'&&sc&&sc.compStatus==='active'&&<span style={{position:'absolute',top:3,right:4,width:6,height:6,borderRadius:'50%',background:'#ff4444'}}/>}
+          </button>
+        ))}
+      </div>
+
+      {/* ── ACTIVE COMP BANNER (shown on Setup) ── */}
+      {screen==='setup'&&sc&&(
+        <div style={{background:`${C.accent}12`,borderBottom:`1px solid ${C.accent}33`,padding:'8px 16px',display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:12,color:C.accent,fontWeight:700,flex:1}}>⚡ Scoring: {sc.info.name||'Unnamed'}</span>
+          <button onClick={()=>setScreen('scoring')} style={btn(C.accent,'4px 10px',11)}>Resume →</button>
+        </div>
+      )}
+
+      {/* ── SCREENS ── */}
+      <main>
+        {screen==='setup'&&(
+          <SetupScreen
+            info={su.info} setInfo={v=>setSu(p=>({...p,info:typeof v==='function'?v(p.info):v}))}
+            rulebook={su.rulebook} setRulebook={v=>updSu({rulebook:v})}
+            athletes={su.athletes} addAthlete={addAthlete} updAthlete={updAthlete} delAthlete={delAthlete} moveAthlete={moveAthlete} reorder={reorder} setOrder={setOrder}
+            editingId={su.editingId} setEditingId={id=>updSu({editingId:id})}
+            startH={su.startH} setStartH={v=>updSu({startH:v})}
+            incStr={su.incStr} setIncStr={v=>updSu({incStr:v})}
+            manualH={su.manualH} setManualH={v=>updSu({manualH:v})}
+            doGenHeights={doGenHeights} heights={su.heights} setHeights={h=>updSu({heights:h})} updateHeight={updateHeight}
+            metric={metric} startComp={startComp} dirEmail={su.dirEmail} setDirEmail={v=>updSu({dirEmail:v})} onImport={()=>setShowImport(true)}
+          />
+        )}
+        {screen==='scoring'&&sc&&(
+          <ScoringScreen
+            athletes={sc.athletes} ranked={ranked} heights={sc.heights} curH={sc.curH} setCurH={h=>updSc({curH:h})} curA={sc.curA} setCurA={a=>updSc({curA:a})}
+            metric={metric} recordMark={recordMark} undoMark={undoMark} live={live}
+            onDeck={onDeck} inHole={inHole} compStatus={sc.compStatus} info={sc.info} rulebook={sc.rulebook}
+            startJumpOff={startJumpOff} onEnd={endCompetition}
+          />
+        )}
+        {screen==='display'&&sc&&(
+          <DisplayScreen
+            athletes={sc.athletes} ranked={ranked} heights={sc.heights} curH={sc.curH} curA={sc.curA}
+            metric={metric} live={live} info={sc.info} onDeck={onDeck} inHole={inHole} compStatus={sc.compStatus}
+          />
+        )}
+        {screen==='rules'&&<RulesTab/>}
+        {screen==='history'&&<HistoryScreen savedComps={savedComps} setSavedComps={setSavedComps} loadSnapshot={loadSnapshot} saveSnapshot={()=>{}}/>}
+      </main>
+
+      {/* ── OVERLAYS ── */}
+      {showEdit&&sc&&(
+        <EditOverlay onClose={()=>setShowEdit(false)}
+          athletes={sc.athletes} addAthlete={addAthleteScoring} updAthlete={updAthleteScoring} delAthlete={delAthleteScoring} moveAthlete={moveAthleteScoring} reorder={reorderScoring} setOrder={setOrderScoring}
+          editingId={sc.editingId} setEditingId={id=>updSc({editingId:id})} rulebook={sc.rulebook}
+          heights={sc.heights} setHeights={h=>updSc({heights:h})} updateHeight={updateHeightScoring} metric={metric}
+          startH={sc.startH||''} setStartH={v=>updSc({startH:v})}
+          incStr={sc.incStr||''} setIncStr={v=>updSc({incStr:v})}
+          manualH={sc.manualH||''} setManualH={v=>updSc({manualH:v})}
+          doGenHeights={doGenHeightsScoring}
+        />
+      )}
+      {showImport&&<ImportDialog onImport={importAthletes} onClose={()=>setShowImport(false)}/>}
+      {showSave&&sc&&<SaveResultsDialog athletes={sc.athletes} heights={sc.heights} ranked={ranked} info={sc.info} metric={metric} onClose={()=>setShowSave(false)}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<VaultDeskApp/>);
+</script>
+</body>
+</html>
