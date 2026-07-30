@@ -199,7 +199,7 @@ const parseHeight=str=>{
 const hasCleared=m=>Array.isArray(m)&&m.includes('O');
 const hasRetired=m=>Array.isArray(m)&&m.includes('R');
 const hasPassed=m=>Array.isArray(m)&&m.includes('P');
-const countMisses=m=>Array.isArray(m)?m.filter(x=>x==='X'||x==='R').length:0;
+const countMisses=m=>Array.isArray(m)?m.filter(x=>x==='X').length:0;
 const TERMINAL=['dns','retired','nh'];
 const isDone=(marks,status)=>TERMINAL.includes(status)||hasCleared(marks)||marks.length>=3||hasRetired(marks)||hasPassed(marks);
 const isNH=marks=>marks.length>=3&&!hasCleared(marks);
