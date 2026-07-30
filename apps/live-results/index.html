@@ -201,8 +201,8 @@ const hasRetired=m=>Array.isArray(m)&&m.includes('R');
 const hasPassed=m=>Array.isArray(m)&&m.includes('P');
 const countMisses=m=>Array.isArray(m)?m.filter(x=>x==='X').length:0;
 const TERMINAL=['dns','retired','nh'];
-const isDone=(marks,status)=>TERMINAL.includes(status)||hasCleared(marks)||marks.length>=3||hasRetired(marks)||hasPassed(marks);
-const isNH=marks=>marks.length>=3&&!hasCleared(marks);
+const isDone=(marks,status)=>TERMINAL.includes(status)||hasCleared(marks)||countMisses(marks)>=3||hasRetired(marks)||hasPassed(marks);
+const isNH=marks=>countMisses(marks)>=3&&!hasCleared(marks);
 
 const highestClearedIdx=(a,n)=>{for(let i=n-1;i>=0;i--)if(hasCleared(a.attempts[i]))return i;return-1};
 const totalMisses=(a,n)=>{let t=0;for(let i=0;i<n;i++)t+=countMisses(a.attempts[i]||[]);return t};
