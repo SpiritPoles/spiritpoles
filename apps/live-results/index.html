@@ -234,6 +234,7 @@ const calcPlacements=(athletes,heights)=>{
   return[...result,...out.map(a=>({...a,placement:null,tied:false})),...dns.map(a=>({...a,placement:null,tied:false}))];
 };
 
+const plLabel=p=>p===1?'1st':p===2?'2nd':p===3?'3rd':`${p}th`;
 // Consecutive misses across all heights: O resets, P preserves, X increments
 const totalConsecutiveMisses=attempts=>{let c=0;for(const m of attempts){if(!m||!m.length)continue;if(hasCleared(m)){c=0;continue;}c+=countMisses(m);}return c;};
 // Athlete is out of competition if terminal status OR 3 consecutive misses (carries across heights when passing)
@@ -1158,6 +1159,9 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
   const curMarks=curAth?(curAth.attempts[curH]||[]):[];
   const alreadyDone=curAth?isDone(curMarks,curAth.status):true;
   const attemptNum=alreadyDone?curMarks.length:curMarks.length+1;
+  const curAthRank=ranked.find(r=>r.id===curAth?.id);
+  const curPlace=curAthRank?.placement??null;
+  const curTied=curAthRank?.tied??false;
 
   const[confirmRestart,setConfirmRestart]=useState(false);
   const[confirmEnd,setConfirmEnd]=useState(false);
@@ -1228,7 +1232,11 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
                   <div style={{fontSize:20,fontWeight:900,color:'#ffffff',lineHeight:1}}>{attemptNum}</div>
                 </div>
               </div>
-              {curAth.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)',marginBottom:6}}>{curAth.affiliation}</div>}
+              {/* Standing + affiliation row */}
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:5}}>
+                {curPlace&&<div style={{display:'inline-flex',alignItems:'center',background:'rgba(251,191,36,.12)',border:'1px solid rgba(251,191,36,.35)',borderRadius:6,padding:'2px 8px',fontSize:10,fontWeight:800,color:'#fbbf24',whiteSpace:'nowrap',flexShrink:0}}>{curTied?'T-':''}{plLabel(curPlace)}</div>}
+                {curAth.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)'}}>{curAth.affiliation}</div>}
+              </div>
               {/* PB/SB + compact jump history chips on same row */}
               <div style={{display:'flex',alignItems:'center',gap:8,overflowX:'auto',WebkitOverflowScrolling:'touch',paddingBottom:2}}>
                 {(curAth.pb||curAth.sb)&&(
@@ -1243,7 +1251,7 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
                       const m=curAth.attempts[i]||[];
                       const isCurH=i===curH;
                       const cleared=hasCleared(m);
-                      const missed3=m.length>=3&&!cleared;
+                      const missed3=countMisses(m)>=3&&!cleared;
                       const markStr=m.join('');
                       return(
                         <div key={i} style={{
@@ -1369,6 +1377,12 @@ function DisplayScreen({sc,primaryMetric,updSc}){
   const curMarks=curAth?(curAth.attempts[curH]||[]):[];
   const alreadyDoneDisplay=curAth?isDone(curMarks,curAth.status):true;
   const attemptNum=alreadyDoneDisplay?curMarks.length:curMarks.length+1;
+  const curAthRankD=ranked.find(r=>r.id===curAth?.id);
+  const curPlaceD=curAthRankD?.placement??null;
+  const curTiedD=curAthRankD?.tied??false;
+  const winners=ranked.filter(r=>r.placement===1);
+  const winnerBestIdx=winners.length?highestClearedIdx(winners[0],heights.length):-1;
+  const winnerBestH=winnerBestIdx>=0?heights[winnerBestIdx]:null;
   const onDeckIdx=isActive&&curA>=0?nextVaulter(athletes,curH,curA):-1;
   const inHoleIdx=onDeckIdx>=0?nextVaulter(athletes,curH,onDeckIdx):-1;
   const rbLabel=RULEBOOKS.find(r=>r.key===rulebook)?.label||rulebook||'';
@@ -1446,7 +1460,11 @@ function DisplayScreen({sc,primaryMetric,updSc}){
                     <div style={{fontSize:20,fontWeight:900,color:'#ffffff',lineHeight:1}}>{attemptNum}</div>
                   </div>
                 </div>
-                {curAth.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)',marginBottom:6}}>{curAth.affiliation}</div>}
+                {/* Standing + affiliation row */}
+                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:5}}>
+                  {curPlaceD&&<div style={{display:'inline-flex',alignItems:'center',background:'rgba(251,191,36,.12)',border:'1px solid rgba(251,191,36,.35)',borderRadius:6,padding:'2px 8px',fontSize:10,fontWeight:800,color:'#fbbf24',whiteSpace:'nowrap',flexShrink:0}}>{curTiedD?'T-':''}{plLabel(curPlaceD)}</div>}
+                  {curAth.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)'}}>{curAth.affiliation}</div>}
+                </div>
                 <div style={{display:'flex',alignItems:'center',gap:8,overflowX:'auto',WebkitOverflowScrolling:'touch',paddingBottom:2}}>
                   {(curAth.pb||curAth.sb)&&(
                     <div style={{display:'flex',gap:10,fontSize:11,flexShrink:0}}>
@@ -1488,7 +1506,46 @@ function DisplayScreen({sc,primaryMetric,updSc}){
         </div>
       )}
 
-      {!isActive&&<div style={{padding:'10px 16px 4px',textAlign:'center',fontSize:14,fontWeight:700,color:C.success}}>Competition Complete</div>}
+      {/* ── WINNER HERO (when competition finished) ── */}
+      {!isActive&&winners.length>0&&(
+        <div style={{background:'linear-gradient(135deg,#0b1829 0%,#0e1e38 55%,#0d1520 100%)',borderBottom:`1px solid rgba(251,191,36,.3)`,padding:'16px 16px 14px'}}>
+          <div style={{fontSize:10,color:'rgba(251,191,36,.8)',fontWeight:700,letterSpacing:.9,textTransform:'uppercase',marginBottom:12}}>
+            🏆 {winners.length>1?'Co-Champions':'Champion'}
+          </div>
+          <div style={{display:'flex',alignItems:'flex-start',gap:0}}>
+            {/* Winning height */}
+            <div style={{textAlign:'center',flexShrink:0,paddingRight:16,minWidth:96}}>
+              {winnerBestH?(
+                <>
+                  <div style={{fontSize:40,fontWeight:900,color:'#fbbf24',letterSpacing:-2,lineHeight:1}}>{fmtH(winnerBestH,primaryMetric)}</div>
+                  <div style={{fontSize:16,color:'rgba(251,191,36,.55)',fontWeight:700,marginTop:5}}>{fmtH(winnerBestH,!primaryMetric)}</div>
+                </>
+              ):<div style={{fontSize:14,color:C.muted,paddingTop:16}}>NH</div>}
+            </div>
+            <div style={{width:1,alignSelf:'stretch',background:'rgba(251,191,36,.3)',flexShrink:0,marginRight:16,minHeight:56}}/>
+            {/* Winner(s) */}
+            <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:10}}>
+              {winners.map(w=>{
+                return(
+                  <div key={w.id}>
+                    <div style={{display:'flex',alignItems:'center',gap:9,minWidth:0,marginBottom:3}}>
+                      <FlagCell athlete={w} size={28}/>
+                      <span style={{fontWeight:900,fontSize:24,color:'#ffffff',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',letterSpacing:-.5,lineHeight:1.1}}>{w.firstName} {w.lastName}</span>
+                    </div>
+                    {w.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)',marginLeft:1}}>{w.affiliation}</div>}
+                    {(w.pb||w.sb)&&(
+                      <div style={{display:'flex',gap:10,fontSize:11,marginLeft:1,marginTop:2}}>
+                        {w.pb&&<span style={{color:'rgba(136,136,170,.75)'}}>PB <span style={{color:'#93c5fd',fontWeight:800}}>{w.pb}</span></span>}
+                        {w.sb&&<span style={{color:'rgba(136,136,170,.75)'}}>SB <span style={{color:C.success,fontWeight:800}}>{w.sb}</span></span>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── RESULTS TABLE (rolling sort when active) ── */}
       <div style={{padding:'12px 14px 0'}}>
