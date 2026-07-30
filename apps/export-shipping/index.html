@@ -1004,13 +1004,27 @@ function renderOrderList() {
       <div class="card" style="padding:14px">
         ${rows}
         ${conflictHtml}
-        ${!isMulti ? `<div class="ol-hint">Enter another SO number above to combine orders into a single shipment.</div>` : ''}
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+          <button class="btn btn-outline btn-sm" onclick="focusAddOrder('${ph}')">&#65291; Add Another Order</button>
+          ${isMulti ? '' : `<span style="font-size:11px;color:var(--ts)">Enter another SO number to combine orders into a single shipment.</span>`}
+        </div>
       </div>`;
   });
 
   // Toggle multi-order-mode class on packing lists to show SO# badges
   document.getElementById('packing-list')?.classList.toggle('multi-order-mode', isMulti);
   document.getElementById('packing-list-p2')?.classList.toggle('multi-order-mode', isMulti);
+}
+
+// Scroll to & focus the SO fetch input so the user can type the next order
+function focusAddOrder(ph) {
+  // Switch to the correct tab if needed
+  if (ph === 'p1') { switchTab(1); } else { switchTab(2); }
+  const inputId = ph === 'p1' ? 'so-input' : 'if-input';
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(() => { inp.value = ''; inp.focus(); }, 200);
 }
 
 // Remove an order by index; repack and re-render
