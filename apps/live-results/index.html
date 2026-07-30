@@ -302,7 +302,7 @@ const LS_ALL='vaultdesk_saved_v14';
 const loadSaved=()=>{try{return JSON.parse(localStorage.getItem(LS_ALL)||'[]');}catch{return[]}};
 const saveAll=comps=>{try{localStorage.setItem(LS_ALL,JSON.stringify(comps.slice(0,20)));}catch{}};
 const saveCurrent=state=>{try{localStorage.setItem(LS_CUR,JSON.stringify(state));}catch{}};
-const deleteComp=id=>saveAll(loadSaved().filter(c=>c.id!==id));
+const deleteComp=id=>saveAll(loadSaved().filter(c=>(c.id||c.compId)!==id));
 
 let _ctr=0;
 const mkAthlete=order=>({id:`a${++_ctr}_${Date.now().toString(36)}`,order,firstName:'',lastName:'',country:'',affiliation:'',pb:'',sb:'',logoUrl:'',attempts:Array.from({length:10},()=>[]),status:'competing'});
