@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.13</title>
+  <title>VaultDesk v1.14</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -1143,6 +1143,7 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
   const alreadyDone=curAth?isDone(curMarks,curAth.status):true;
 
   const[confirmRestart,setConfirmRestart]=useState(false);
+  const[confirmEnd,setConfirmEnd]=useState(false);
 
   const MARKS=[
     {mark:'O',bg:C.success,symbol:'✓',label:'Clear'},
@@ -1270,7 +1271,18 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
       {/* FINALIZE */}
       {isActive&&!meetOver&&(
         <div style={{padding:'10px 14px 0'}}>
-          <button onClick={onEnd} style={{...btn(C.success,'9px 16px',13),width:'100%'}}>End Competition / Finalize</button>
+          {!confirmEnd?(
+            <button onClick={()=>setConfirmEnd(true)} style={{...btn(C.success,'9px 16px',13),width:'100%'}}>End Competition / Finalize</button>
+          ):(
+            <div style={{background:`${C.success}10`,border:`1px solid ${C.success}44`,borderRadius:10,padding:'12px 14px'}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.success,marginBottom:4}}>Thank you — you are about to submit these results for Official Verification.</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Once submitted, scoring will be locked pending review.</div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>{onEnd();setConfirmEnd(false);}} style={{...btn(C.success,'8px 16px',13),flex:1}}>Submit</button>
+                <button onClick={()=>setConfirmEnd(false)} style={{...btn(C.card,'8px 16px',13),border:`1px solid ${C.border}`,flex:1}}>Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
