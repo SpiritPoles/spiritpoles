@@ -1356,29 +1356,139 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
 }
 
 // ─── DISPLAY SCREEN ───────────────────────────────────────────────────────────
-function DisplayScreen({sc,primaryMetric}){
-  if(!sc)return<div style={{padding:30,textAlign:'center',color:C.muted}}>No active competition</div>;
+function DisplayScreen({sc,primaryMetric,updSc}){
+  if(!sc)return<div style={{padding:30,textAlign:'center',color:C.muted}}>No active competition — set one up in the Setup tab.</div>;
   const{athletes,heights,info,curH,curA,compStatus,rulebook}=sc;
   const ranked=calcPlacements(athletes,heights);
   const curHt=heights[curH];
   const isActive=compStatus==='active';
+  const curAth=isActive&&curA>=0?athletes[curA]:null;
+  const curMarks=curAth?(curAth.attempts[curH]||[]):[];
+  const attemptNum=curMarks.length+1;
+  const onDeckIdx=isActive&&curA>=0?nextVaulter(athletes,curH,curA):-1;
+  const inHoleIdx=onDeckIdx>=0?nextVaulter(athletes,curH,onDeckIdx):-1;
+  const rbLabel=RULEBOOKS.find(r=>r.key===rulebook)?.label||rulebook||'';
+  const genderLabel=info.gender==='M'?"Men's":info.gender==='W'?"Women's":info.gender?'Mixed':'';
+
+  const handleLogo=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>updSc({info:{...info,logoUrl:ev.target.result}});r.readAsDataURL(f);};
+
   return(
     <div style={{paddingBottom:30}}>
-      <div style={{background:`linear-gradient(180deg,${C.surface} 0%,${C.bg} 100%)`,padding:'20px 16px',borderBottom:`1px solid ${C.border}`,textAlign:'center'}}>
-        <div style={{fontSize:11,color:C.muted,letterSpacing:2,textTransform:'uppercase',marginBottom:6}}>{info.name||'Competition'}</div>
-        {info.venue&&<div style={{fontSize:12,color:C.muted,marginBottom:6}}>{info.venue}</div>}
-        {info.date&&<div style={{fontSize:11,color:C.muted,marginBottom:10}}>{info.date}</div>}
-        {curHt&&isActive&&(
-          <div>
-            <div style={{fontSize:10,color:C.muted,letterSpacing:1,textTransform:'uppercase',marginBottom:4}}>Current Height</div>
-            <div style={{fontSize:52,fontWeight:900,letterSpacing:-2,color:C.text}}>{fmtH(curHt,primaryMetric)}</div>
-            <div style={{fontSize:22,color:C.muted,marginTop:2,fontWeight:600}}>{fmtH(curHt,!primaryMetric)}</div>
+
+      {/* ── COMPETITION BANNER ── */}
+      <div style={{background:'linear-gradient(135deg,#080f1c 0%,#0c1628 60%,#080f1c 100%)',borderBottom:`1px solid rgba(79,124,255,.22)`,padding:'14px 16px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:14}}>
+
+          {/* Logo slot */}
+          <div style={{flexShrink:0,position:'relative'}}>
+            {info.logoUrl
+              ?<img src={info.logoUrl} alt="logo" style={{width:58,height:58,objectFit:'contain',borderRadius:10,border:`1px solid rgba(79,124,255,.3)`}}/>
+              :<div style={{width:58,height:58,borderRadius:10,border:`1px dashed rgba(79,124,255,.28)`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'rgba(79,124,255,.05)'}}>
+                <span style={{fontSize:22,opacity:.35}}>🏆</span>
+              </div>
+            }
+            <label title="Upload logo" style={{position:'absolute',bottom:-5,right:-5,cursor:'pointer',background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 5px',fontSize:9,color:C.muted,lineHeight:1}}>
+              📷<input type="file" accept="image/*" onChange={handleLogo} style={{display:'none'}}/>
+            </label>
           </div>
-        )}
-        {!isActive&&<div style={{fontSize:14,fontWeight:700,color:C.success,marginTop:6}}>Competition Complete</div>}
+
+          {/* Name + meta */}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:900,fontSize:19,color:'#ffffff',lineHeight:1.1,marginBottom:5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{info.name||'Competition'}</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:'3px 10px',fontSize:11,color:'rgba(136,136,170,.75)'}}>
+              {info.date&&<span>{info.date}</span>}
+              {info.startTime&&<span>· {info.startTime}</span>}
+              {info.venue&&<span>· {info.venue}</span>}
+              {rbLabel&&<span>· {rbLabel}</span>}
+              {genderLabel&&<span>· {genderLabel}</span>}
+            </div>
+          </div>
+
+          {/* Live / status badge */}
+          <div style={{flexShrink:0}}>
+            <div style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:20,background:isActive?`${C.success}1a`:`${C.muted}18`,border:`1px solid ${isActive?C.success:C.muted}44`}}>
+              <span className={isActive?'live-dot':''} style={{width:6,height:6,borderRadius:'50%',background:isActive?C.success:C.muted,display:'inline-block',flexShrink:0}}/>
+              <span style={{fontSize:10,fontWeight:700,letterSpacing:.6,color:isActive?C.success:C.muted}}>{isActive?'LIVE':compStatus==='complete-pending'?'PENDING':'OFFICIAL'}</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div style={{padding:'12px 14px'}}>
-        <ResultsTable athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={isActive?curA:-1} primaryMetric={primaryMetric} isActive={false}/>
+
+      {/* ── HERO (read-only mirror of Score tab) ── */}
+      {isActive&&(
+        <div style={{background:'linear-gradient(135deg,#0b1829 0%,#0e1e38 55%,#0d1520 100%)',borderBottom:`1px solid rgba(79,124,255,.25)`,padding:'16px 16px 14px'}}>
+          <div style={{fontSize:10,color:'rgba(79,124,255,.7)',fontWeight:700,letterSpacing:.9,textTransform:'uppercase',marginBottom:12}}>
+            {curAth?`Now vaulting · Attempt ${attemptNum}${curMarks.length>0?' · '+curMarks.join(''):''}`:isActive?'Waiting…':''}
+          </div>
+          <div style={{display:'flex',alignItems:'flex-start',gap:0}}>
+            {/* Height */}
+            <div style={{textAlign:'center',flexShrink:0,paddingRight:16,minWidth:96}}>
+              {curHt?(<>
+                <div style={{fontSize:40,fontWeight:900,color:'#ffffff',letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
+                <div style={{fontSize:16,color:'rgba(136,136,170,.8)',fontWeight:700,marginTop:5}}>{fmtH(curHt,!primaryMetric)}</div>
+              </>):<div style={{fontSize:14,color:C.muted,paddingTop:16}}>—</div>}
+            </div>
+            <div style={{width:1,alignSelf:'stretch',background:'rgba(79,124,255,.3)',flexShrink:0,marginRight:16,minHeight:56}}/>
+            {/* Athlete */}
+            {curAth?(
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8,marginBottom:6}}>
+                  <div style={{display:'flex',alignItems:'center',gap:9,minWidth:0}}>
+                    <FlagCell athlete={curAth} size={28}/>
+                    <span style={{fontWeight:900,fontSize:24,color:'#ffffff',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',letterSpacing:-.5,lineHeight:1.1}}>{curAth.firstName} {curAth.lastName}</span>
+                  </div>
+                  <div style={{flexShrink:0,background:'rgba(0,0,0,.5)',border:`1px solid rgba(79,124,255,.3)`,borderRadius:8,padding:'4px 10px',textAlign:'center',minWidth:40}}>
+                    <div style={{fontSize:8,color:'rgba(136,136,170,.65)',fontWeight:700,letterSpacing:.5,textTransform:'uppercase',lineHeight:1,marginBottom:2}}>Att.</div>
+                    <div style={{fontSize:20,fontWeight:900,color:'#ffffff',lineHeight:1}}>{attemptNum}</div>
+                  </div>
+                </div>
+                {curAth.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)',marginBottom:6}}>{curAth.affiliation}</div>}
+                <div style={{display:'flex',alignItems:'center',gap:8,overflowX:'auto',WebkitOverflowScrolling:'touch',paddingBottom:2}}>
+                  {(curAth.pb||curAth.sb)&&(
+                    <div style={{display:'flex',gap:10,fontSize:11,flexShrink:0}}>
+                      {curAth.pb&&<span style={{color:'rgba(136,136,170,.75)',whiteSpace:'nowrap'}}>PB <span style={{color:'#93c5fd',fontWeight:800}}>{curAth.pb}</span></span>}
+                      {curAth.sb&&<span style={{color:'rgba(136,136,170,.75)',whiteSpace:'nowrap'}}>SB <span style={{color:C.success,fontWeight:800}}>{curAth.sb}</span></span>}
+                    </div>
+                  )}
+                  {heights.length>0&&(
+                    <div style={{display:'flex',gap:4,flexShrink:0}}>
+                      {heights.map((h,i)=>{
+                        const m=curAth.attempts[i]||[];
+                        const isCurH=i===curH;
+                        const cleared=hasCleared(m);
+                        const missed3=countMisses(m)>=3&&!cleared;
+                        const markStr=m.join('');
+                        return(
+                          <div key={i} style={{textAlign:'center',padding:'3px 6px',borderRadius:6,flexShrink:0,background:isCurH?'rgba(79,124,255,.28)':cleared?'rgba(74,222,128,.13)':missed3?'rgba(248,113,113,.13)':'rgba(255,255,255,.04)',border:isCurH?'1px solid rgba(79,124,255,.6)':cleared?'1px solid rgba(74,222,128,.28)':missed3?'1px solid rgba(248,113,113,.25)':'1px solid rgba(255,255,255,.07)',boxShadow:isCurH?'0 0 8px rgba(79,124,255,.18)':'none'}}>
+                            <div style={{fontSize:8,fontWeight:700,color:isCurH?'rgba(147,197,253,.85)':cleared?'rgba(74,222,128,.7)':missed3?'rgba(248,113,113,.7)':'rgba(136,136,170,.4)',whiteSpace:'nowrap'}}>{fmtH(h,primaryMetric)}</div>
+                            <div style={{fontSize:11,fontWeight:900,color:cleared?'#4ade80':missed3?'#f87171':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.35)':'rgba(136,136,170,.2)'}}>{markStr||(isCurH?'…':'—')}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ):<div style={{flex:1,color:C.muted,fontSize:13,paddingTop:10}}>No active vaulter</div>}
+          </div>
+        </div>
+      )}
+
+      {/* ── ON DECK / ON HOLD ── */}
+      {isActive&&onDeckIdx>=0&&(
+        <div style={{padding:'7px 14px',background:C.surface,borderBottom:`1px solid ${C.border}`}}>
+          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+            {onDeckIdx>=0&&athletes[onDeckIdx]&&<div style={{fontSize:11,color:C.warn,background:`${C.warn}10`,borderRadius:7,padding:'3px 9px',border:`1px solid ${C.warn}30`}}>On deck: {athletes[onDeckIdx].firstName} {athletes[onDeckIdx].lastName}</div>}
+            {inHoleIdx>=0&&athletes[inHoleIdx]&&<div style={{fontSize:11,color:'#f87171',background:'rgba(248,113,113,.1)',borderRadius:7,padding:'3px 9px',border:'1px solid rgba(248,113,113,.28)'}}>On hold: {athletes[inHoleIdx].firstName} {athletes[inHoleIdx].lastName}</div>}
+          </div>
+        </div>
+      )}
+
+      {!isActive&&<div style={{padding:'10px 16px 4px',textAlign:'center',fontSize:14,fontWeight:700,color:C.success}}>Competition Complete</div>}
+
+      {/* ── RESULTS TABLE (rolling sort when active) ── */}
+      <div style={{padding:'12px 14px 0'}}>
+        <ResultsTable athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={isActive?curA:-1} primaryMetric={primaryMetric} isActive={isActive}/>
       </div>
     </div>
   );
@@ -1773,7 +1883,7 @@ function VaultDeskApp(){
           />
         )}
         {screen==='scoring'&&!sc&&<div style={{padding:40,textAlign:'center',color:C.muted}}>No active competition. Set up a competition in the Setup tab.</div>}
-        {screen==='display'&&<DisplayScreen sc={sc} primaryMetric={primaryMetric}/>}
+        {screen==='display'&&<DisplayScreen sc={sc} primaryMetric={primaryMetric} updSc={updSc}/>}
         {screen==='rules'&&<RulesTab/>}
         {screen==='history'&&(
           <HistoryScreen
