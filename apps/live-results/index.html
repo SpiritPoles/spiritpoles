@@ -1159,7 +1159,7 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
       </div>
 
       {/* HERO — hybrid A+C: large height left · divider · athlete info right */}
-      <div style={{background:'linear-gradient(135deg,#0b1829 0%,#0e1e38 50%,#0d1520 100%)',borderBottom:`1px solid rgba(79,124,255,.2)`,padding:'14px'}}>
+      <div style={{background:'linear-gradient(135deg,#0b1829 0%,#0e1e38 50%,#0d1520 100%)',borderBottom:`1px solid rgba(79,124,255,.2)`,padding:'14px',position:'relative'}}>
         <div style={{display:'flex',alignItems:'center',gap:0}}>
           {/* Left: large height */}
           <div style={{textAlign:'center',flexShrink:0,paddingRight:14,minWidth:95}}>
@@ -1190,6 +1190,13 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
             </div>
           ):<div style={{flex:1,color:C.muted,fontSize:13,paddingTop:8}}>No active vaulter</div>}
         </div>
+        {/* Attempt badge — bottom right */}
+        {isActive&&curAth&&(
+          <div style={{position:'absolute',bottom:10,right:12,background:'rgba(0,0,0,.45)',border:`1px solid rgba(79,124,255,.25)`,borderRadius:8,padding:'4px 10px',textAlign:'center',minWidth:44}}>
+            <div style={{fontSize:9,color:'rgba(136,136,170,.7)',fontWeight:700,letterSpacing:.5,textTransform:'uppercase',lineHeight:1,marginBottom:3}}>Att.</div>
+            <div style={{fontSize:22,fontWeight:900,color:C.text,lineHeight:1}}>{attemptNum}</div>
+          </div>
+        )}
       </div>
 
       {/* ROTATION — On Deck / In Hole (below hero) */}
