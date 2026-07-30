@@ -919,7 +919,17 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
   const placementOf=useMemo(()=>{const map={};ranked.forEach(r=>{map[r.id]={pl:r.placement,tied:r.tied};});return map;},[ranked]);
   const displayAthletes=useMemo(()=>{
     if(!isActive)return[...ranked];
-    const getSort=a=>{const marks=a.attempts[curH]||[];const done=isDone(marks,a.status);return[a.status==='dns'?3:a.status==='nh'?2:done?1:0,a.order];};
+    const n=athletes.length;
+    const getSort=a=>{
+      const i=athletes.findIndex(x=>x.id===a.id);
+      const marks=a.attempts[curH]||[];
+      const done=isDone(marks,a.status);
+      if(i===curA)return[0,0];
+      if(a.status==='dns')return[4,i];
+      if(a.status==='nh')return[3,(i-curA+n)%n];
+      if(done)return[2,(i-curA+n)%n];
+      return[1,(i-curA+n)%n];
+    };
     return[...athletes].sort((a,b)=>{const[ag,ao]=getSort(a);const[bg,bo]=getSort(b);if(ag!==bg)return ag-bg;return ao-bo;});
   },[athletes,ranked,curH,isActive]);
   const getCellContent=(ath,hIdx)=>{
@@ -1146,7 +1156,7 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
   const[confirmEnd,setConfirmEnd]=useState(false);
 
   const MARKS=[
-    {mark:'O',bg:C.success,symbol:'✓',label:'Clear'},
+    {mark:'O',bg:C.success,symbol:'O',label:'Make'},
     {mark:'X',bg:C.danger,symbol:'✗',label:'Miss'},
     {mark:'P',bg:'#2563eb',symbol:'P',label:'Pass'},
     {mark:'R',bg:C.warn,symbol:'R',label:'Retire'},
@@ -1187,11 +1197,11 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
         {/* Main row: height left | divider | athlete right */}
         <div style={{display:'flex',alignItems:'flex-start',gap:0}}>
           {/* Left: large height */}
-          <div style={{textAlign:'center',flexShrink:0,paddingRight:16,minWidth:100}}>
+          <div style={{textAlign:'center',flexShrink:0,paddingRight:16,minWidth:96}}>
             {curHt?(
               <>
-                <div style={{fontSize:52,fontWeight:900,color:'#ffffff',letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
-                <div style={{fontSize:11,color:'rgba(136,136,170,.55)',fontWeight:600,marginTop:4}}>{fmtH(curHt,!primaryMetric)}</div>
+                <div style={{fontSize:40,fontWeight:900,color:'#ffffff',letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
+                <div style={{fontSize:16,color:'rgba(136,136,170,.8)',fontWeight:700,marginTop:5}}>{fmtH(curHt,!primaryMetric)}</div>
               </>
             ):<div style={{fontSize:14,color:C.muted,paddingTop:16}}>—</div>}
           </div>
@@ -1211,48 +1221,41 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
                   <div style={{fontSize:20,fontWeight:900,color:'#ffffff',lineHeight:1}}>{attemptNum}</div>
                 </div>
               </div>
-              {curAth.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)',marginBottom:5}}>{curAth.affiliation}</div>}
-              {(curAth.pb||curAth.sb)&&(
-                <div style={{display:'flex',gap:14,fontSize:12}}>
-                  {curAth.pb&&<span style={{color:'rgba(136,136,170,.75)'}}>PB <span style={{color:'#93c5fd',fontWeight:800}}>{curAth.pb}</span></span>}
-                  {curAth.sb&&<span style={{color:'rgba(136,136,170,.75)'}}>SB <span style={{color:C.success,fontWeight:800}}>{curAth.sb}</span></span>}
-                </div>
-              )}
+              {curAth.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)',marginBottom:6}}>{curAth.affiliation}</div>}
+              {/* PB/SB + compact jump history chips on same row */}
+              <div style={{display:'flex',alignItems:'center',gap:8,overflowX:'auto',WebkitOverflowScrolling:'touch',paddingBottom:2}}>
+                {(curAth.pb||curAth.sb)&&(
+                  <div style={{display:'flex',gap:10,fontSize:11,flexShrink:0}}>
+                    {curAth.pb&&<span style={{color:'rgba(136,136,170,.75)',whiteSpace:'nowrap'}}>PB <span style={{color:'#93c5fd',fontWeight:800}}>{curAth.pb}</span></span>}
+                    {curAth.sb&&<span style={{color:'rgba(136,136,170,.75)',whiteSpace:'nowrap'}}>SB <span style={{color:C.success,fontWeight:800}}>{curAth.sb}</span></span>}
+                  </div>
+                )}
+                {heights.length>0&&(
+                  <div style={{display:'flex',gap:4,flexShrink:0}}>
+                    {heights.map((h,i)=>{
+                      const m=curAth.attempts[i]||[];
+                      const isCurH=i===curH;
+                      const cleared=hasCleared(m);
+                      const missed3=m.length>=3&&!cleared;
+                      const markStr=m.join('');
+                      return(
+                        <div key={i} style={{
+                          textAlign:'center',padding:'3px 6px',borderRadius:6,flexShrink:0,
+                          background:isCurH?'rgba(79,124,255,.28)':cleared?'rgba(74,222,128,.13)':missed3?'rgba(248,113,113,.13)':'rgba(255,255,255,.04)',
+                          border:isCurH?'1px solid rgba(79,124,255,.6)':cleared?'1px solid rgba(74,222,128,.28)':missed3?'1px solid rgba(248,113,113,.25)':'1px solid rgba(255,255,255,.07)',
+                          boxShadow:isCurH?'0 0 8px rgba(79,124,255,.18)':'none'
+                        }}>
+                          <div style={{fontSize:8,fontWeight:700,color:isCurH?'rgba(147,197,253,.85)':cleared?'rgba(74,222,128,.7)':missed3?'rgba(248,113,113,.7)':'rgba(136,136,170,.4)',whiteSpace:'nowrap'}}>{fmtH(h,primaryMetric)}</div>
+                          <div style={{fontSize:11,fontWeight:900,color:cleared?'#4ade80':missed3?'#f87171':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.35)':'rgba(136,136,170,.2)'}}>{markStr||(isCurH?'…':'—')}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           ):<div style={{flex:1,color:C.muted,fontSize:13,paddingTop:10}}>No active vaulter</div>}
         </div>
-
-        {/* Jump history strip */}
-        {isActive&&curAth&&heights.length>0&&(
-          <div style={{marginTop:14,paddingTop:12,borderTop:'1px solid rgba(79,124,255,.18)',overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-            <div style={{display:'flex',gap:6,minWidth:'max-content'}}>
-              {heights.map((h,i)=>{
-                const m=curAth.attempts[i]||[];
-                const isCurH=i===curH;
-                const cleared=hasCleared(m);
-                const missed3=m.length>=3&&!cleared;
-                const markStr=m.join('');
-                const future=i>curH&&!markStr;
-                return(
-                  <div key={i} style={{
-                    textAlign:'center',padding:'6px 10px',borderRadius:9,minWidth:52,flexShrink:0,
-                    background:isCurH?'rgba(79,124,255,.28)':cleared?'rgba(74,222,128,.13)':missed3?'rgba(248,113,113,.13)':'rgba(255,255,255,.04)',
-                    border:isCurH?'1px solid rgba(79,124,255,.65)':cleared?'1px solid rgba(74,222,128,.3)':missed3?'1px solid rgba(248,113,113,.28)':'1px solid rgba(255,255,255,.07)',
-                    boxShadow:isCurH?'0 0 10px rgba(79,124,255,.2)':'none'
-                  }}>
-                    <div style={{fontSize:9,fontWeight:700,letterSpacing:.3,marginBottom:4,color:isCurH?'rgba(147,197,253,.9)':cleared?'rgba(74,222,128,.7)':missed3?'rgba(248,113,113,.7)':'rgba(136,136,170,.45)'}}>
-                      {fmtH(h,primaryMetric)}
-                    </div>
-                    <div style={{fontSize:13,fontWeight:900,letterSpacing:.5,
-                      color:cleared?'#4ade80':missed3?'#f87171':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.4)':'rgba(136,136,170,.25)'}}>
-                      {markStr||(isCurH?'…':'—')}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ROTATION — On Deck / In Hole (below hero) */}
