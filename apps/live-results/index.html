@@ -1239,7 +1239,8 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
             ))}
           </div>
           <div style={{display:'flex',gap:8,marginTop:8}}>
-            <button onClick={undoMark} style={{...btn(C.card,'8px 14px',13),border:`1px solid ${C.border}`,flex:1}}>↩ Undo</button>
+            <button onClick={undoMark} style={{...btn(C.card,'8px 14px',12),border:`1px solid ${C.border}`,flex:'0 0 auto',minWidth:90}}>↩ Undo</button>
+            <button onClick={onEditSetup} style={{...btn(C.card,'8px 14px',12),border:`1px solid ${C.border}`,flex:1,color:C.muted}}>✎ Edit Athlete / Height Fields</button>
           </div>
         </div>
       )}
