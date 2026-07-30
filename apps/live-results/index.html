@@ -1125,7 +1125,7 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
 }
 
 // ─── SCORING SCREEN ───────────────────────────────────────────────────────────
-function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primaryMetric,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,startJumpOff,onEnd,onEditSetup}){
+function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primaryMetric,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,startJumpOff,onEnd,onEditSetup,onRestart}){
   const isActive=compStatus==='active';
   const rbCfg=RULEBOOK_CFG[rulebook]||RULEBOOK_CFG.WA;
   const tiedFirst=ranked.filter(r=>r.placement===1&&r.tied);
@@ -1141,6 +1141,8 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
   const curMarks=curAth?(curAth.attempts[curH]||[]):[];
   const attemptNum=curMarks.length+1;
   const alreadyDone=curAth?isDone(curMarks,curAth.status):true;
+
+  const[confirmRestart,setConfirmRestart]=useState(false);
 
   const MARKS=[
     {mark:'O',bg:C.success,symbol:'✓',label:'Clear'},
@@ -1271,6 +1273,27 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
           <button onClick={onEnd} style={{...btn(C.success,'9px 16px',13),width:'100%'}}>End Competition / Finalize</button>
         </div>
       )}
+
+      {/* CLEAR & RESTART */}
+      <div style={{padding:'8px 14px 20px'}}>
+        {!confirmRestart?(
+          <button onClick={()=>setConfirmRestart(true)}
+            style={{...btn(C.card,'7px 14px',12),border:`1px solid ${C.border}`,width:'100%',color:C.muted}}>
+            ↺ Clear &amp; Restart Competition
+          </button>
+        ):(
+          <div style={{background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.3)',borderRadius:10,padding:'12px 14px'}}>
+            <div style={{fontSize:13,fontWeight:700,color:'#f87171',marginBottom:4}}>Clear all scores and restart?</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:10}}>All attempt marks will be erased. Athletes and heights are kept.</div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>{onRestart();setConfirmRestart(false);}}
+                style={{...btn('#dc2626','8px 16px',13),flex:1}}>Yes, clear &amp; restart</button>
+              <button onClick={()=>setConfirmRestart(false)}
+                style={{...btn(C.card,'8px 16px',13),border:`1px solid ${C.border}`,flex:1}}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1597,6 +1620,11 @@ function VaultDeskApp(){
   },[]);
 
   const endCompetition=useCallback(()=>updSc({compStatus:'complete-pending'}),[]);
+  const restartComp=useCallback(()=>{
+    const c=scRef.current;if(!c)return;
+    const resetAthletes=c.athletes.map(a=>({...a,attempts:Array.from({length:10},()=>[]),status:'competing'}));
+    updSc({athletes:resetAthletes,curH:0,curA:firstEligible(resetAthletes,0),compStatus:'active'});
+  },[]);
   const verifyOfficial=useCallback(()=>{
     const c=scRef.current;if(!c)return;
     const snap={...c,compStatus:'official',savedAt:new Date().toISOString()};
@@ -1684,7 +1712,7 @@ function VaultDeskApp(){
             live={live} onDeck={onDeck} inHole={inHole}
             compStatus={sc.compStatus} info={sc.info} rulebook={sc.rulebook}
             startJumpOff={startJumpOff} onEnd={endCompetition}
-            onEditSetup={()=>setShowEdit(true)}
+            onEditSetup={()=>setShowEdit(true)} onRestart={restartComp}
           />
         )}
         {screen==='scoring'&&!sc&&<div style={{padding:40,textAlign:'center',color:C.muted}}>No active competition. Set up a competition in the Setup tab.</div>}
