@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.15</title>
+  <title>VaultDesk v1.16</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -234,8 +234,10 @@ const calcPlacements=(athletes,heights)=>{
   return[...result,...out.map(a=>({...a,placement:null,tied:false})),...dns.map(a=>({...a,placement:null,tied:false}))];
 };
 
-// An athlete is out of the competition if terminal status OR got 3 misses (no clear) at ANY height
-const isEliminatedFromComp=a=>TERMINAL.includes(a.status)||a.attempts.some(isNH);
+// Consecutive misses across all heights: O resets, P preserves, X increments
+const totalConsecutiveMisses=attempts=>{let c=0;for(const m of attempts){if(!m||!m.length)continue;if(hasCleared(m)){c=0;continue;}c+=countMisses(m);}return c;};
+// Athlete is out of competition if terminal status OR 3 consecutive misses (carries across heights when passing)
+const isEliminatedFromComp=a=>TERMINAL.includes(a.status)||totalConsecutiveMisses(a.attempts)>=3;
 const nextVaulter=(athletes,hIdx,fromIdx)=>{const n=athletes.length;for(let s=1;s<=n;s++){const idx=(fromIdx+s)%n;const a=athletes[idx];if(!isEliminatedFromComp(a)&&!isDone(a.attempts[hIdx]||[],a.status))return idx;}return-1};
 const firstEligible=(athletes,hIdx)=>{for(let i=0;i<athletes.length;i++){const a=athletes[i];if(!isEliminatedFromComp(a)&&!isDone(a.attempts[hIdx]||[],a.status))return i;}return-1};
 
@@ -942,8 +944,9 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
     if(!m.length)return{text:'',color:C.muted,bg:'transparent'};
     const text=m.join('');
     if(hasCleared(m))return{text,color:'#4ade80',bg:C.cleared};
-    if(m.length>=3&&!hasCleared(m))return{text,color:'#f87171',bg:C.missed};
-    return{text,color:hasPassed(m)?'#60a5fa':C.muted,bg:'transparent'};
+    if(countMisses(m)>=3&&!hasCleared(m))return{text,color:'#f87171',bg:C.missed};
+    if(hasPassed(m)&&!hasCleared(m))return{text,color:'#d97706',bg:'rgba(217,119,6,.15)'};
+    return{text,color:C.muted,bg:'transparent'};
   };
   const bestResult=ath=>{const idx=highestClearedIdx(ath,n);return idx>=0?heights[idx]:null};
   return(
@@ -1153,8 +1156,8 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
   },[athletes,heights,curH,isActive]);
   const curHt=heights[curH];
   const curMarks=curAth?(curAth.attempts[curH]||[]):[];
-  const attemptNum=curMarks.length+1;
   const alreadyDone=curAth?isDone(curMarks,curAth.status):true;
+  const attemptNum=alreadyDone?curMarks.length:curMarks.length+1;
 
   const[confirmRestart,setConfirmRestart]=useState(false);
   const[confirmEnd,setConfirmEnd]=useState(false);
@@ -1364,7 +1367,8 @@ function DisplayScreen({sc,primaryMetric,updSc}){
   const isActive=compStatus==='active';
   const curAth=isActive&&curA>=0?athletes[curA]:null;
   const curMarks=curAth?(curAth.attempts[curH]||[]):[];
-  const attemptNum=curMarks.length+1;
+  const alreadyDoneDisplay=curAth?isDone(curMarks,curAth.status):true;
+  const attemptNum=alreadyDoneDisplay?curMarks.length:curMarks.length+1;
   const onDeckIdx=isActive&&curA>=0?nextVaulter(athletes,curH,curA):-1;
   const inHoleIdx=onDeckIdx>=0?nextVaulter(athletes,curH,onDeckIdx):-1;
   const rbLabel=RULEBOOKS.find(r=>r.key===rulebook)?.label||rulebook||'';
@@ -1751,8 +1755,8 @@ function VaultDeskApp(){
       const newAtt=[...a.attempts];newAtt[curH]=newMarks;
       let status=a.status;
       if(mark==='R')status='retired';
-      // NH only if 3 misses at this height AND zero clears across all heights
-      if(isNH(newMarks)&&!newAtt.some(hasCleared))status='nh';
+      // NH if 3 consecutive misses (including carry-over from passes) AND never cleared any height
+      if(!newAtt.some(hasCleared)&&totalConsecutiveMisses(newAtt)>=3)status='nh';
       return{...a,attempts:newAtt,status};
     });
     updSc({athletes:newAthletes});
