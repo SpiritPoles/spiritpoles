@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.14</title>
+  <title>VaultDesk v1.15</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -234,8 +234,10 @@ const calcPlacements=(athletes,heights)=>{
   return[...result,...out.map(a=>({...a,placement:null,tied:false})),...dns.map(a=>({...a,placement:null,tied:false}))];
 };
 
-const nextVaulter=(athletes,hIdx,fromIdx)=>{const n=athletes.length;for(let s=1;s<=n;s++){const idx=(fromIdx+s)%n;if(!isDone(athletes[idx].attempts[hIdx]||[],athletes[idx].status))return idx;}return-1};
-const firstEligible=(athletes,hIdx)=>{for(let i=0;i<athletes.length;i++)if(!isDone(athletes[i].attempts[hIdx]||[],athletes[i].status))return i;return-1};
+// An athlete is out of the competition if terminal status OR got 3 misses (no clear) at ANY height
+const isEliminatedFromComp=a=>TERMINAL.includes(a.status)||a.attempts.some(isNH);
+const nextVaulter=(athletes,hIdx,fromIdx)=>{const n=athletes.length;for(let s=1;s<=n;s++){const idx=(fromIdx+s)%n;const a=athletes[idx];if(!isEliminatedFromComp(a)&&!isDone(a.attempts[hIdx]||[],a.status))return idx;}return-1};
+const firstEligible=(athletes,hIdx)=>{for(let i=0;i<athletes.length;i++){const a=athletes[i];if(!isEliminatedFromComp(a)&&!isDone(a.attempts[hIdx]||[],a.status))return i;}return-1};
 
 // genHeights — maxH=6 by default (expandable to 10 in editor)
 const genHeights=(startStr,incStr,maxH=6)=>{
@@ -922,13 +924,15 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
     const n=athletes.length;
     const getSort=a=>{
       const i=athletes.findIndex(x=>x.id===a.id);
-      const marks=a.attempts[curH]||[];
-      const done=isDone(marks,a.status);
       if(i===curA)return[0,0];
       if(a.status==='dns')return[4,i];
+      // Eliminated: 3 misses at any height (may still have 'competing' status if had prior clears)
+      const out=isEliminatedFromComp(a)||isDone(a.attempts[curH]||[],a.status);
+      if(!out)return[1,(i-curA+n)%n];
       if(a.status==='nh')return[3,(i-curA+n)%n];
-      if(done)return[2,(i-curA+n)%n];
-      return[1,(i-curA+n)%n];
+      // Placed athletes: sort ascending by placement (1st near top, last near NH)
+      const plInfo=placementOf[a.id]||{pl:null};
+      return[2,plInfo.pl||999];
     };
     return[...athletes].sort((a,b)=>{const[ag,ao]=getSort(a);const[bg,bo]=getSort(b);if(ag!==bg)return ag-bg;return ao-bo;});
   },[athletes,ranked,curH,isActive]);
