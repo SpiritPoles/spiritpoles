@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.12b</title>
+  <title>VaultDesk v1.13</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -363,11 +363,13 @@ function CountryInput({value,onChange,compact=false}){
 }
 
 // ─── IMPORT DIALOG ───────────────────────────────────────────────────────────
-function ImportDialog({onImport,onClose}){
+function ImportDialog({onImport,onClose,existingAthletes=[]}){
   const[dragOver,setDragOver]=useState(false);
   const[preview,setPreview]=useState([]);
   const[error,setError]=useState('');
   const[raw,setRaw]=useState('');
+  const nameKey=a=>`${(a.firstName||'').trim()} ${(a.lastName||'').trim()}`.trim().toLowerCase();
+  const existingKeys=useMemo(()=>new Set(existingAthletes.filter(a=>nameKey(a)).map(nameKey)),[existingAthletes]);
   const processText=text=>{setRaw(text);const rows=parseAthleteCSV(text);if(rows.length>0){setPreview(rows);setError('');}else setError('Could not parse. Make sure columns include First Name, Last Name, Country (IOC code or full name).');};
   const handleDrop=e=>{e.preventDefault();setDragOver(false);const file=e.dataTransfer.files[0];if(file)file.text().then(processText);};
   const handleFile=e=>{const file=e.target.files[0];if(file)file.text().then(processText);};
@@ -405,18 +407,27 @@ function ImportDialog({onImport,onClose}){
           <div>
             <div style={{fontSize:12,fontWeight:700,color:C.success,marginBottom:8}}>Found {preview.length} athlete{preview.length!==1?'s':''}:</div>
             <div style={{background:C.card,borderRadius:8,padding:'8px 0',marginBottom:14,maxHeight:180,overflowY:'auto'}}>
-              {preview.map((a,i)=>(
-                <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 12px',fontSize:13,borderBottom:i<preview.length-1?`1px solid ${C.border}`:'none'}}>
-                  <FlagCell athlete={a} size={18}/>
-                  <span style={{fontWeight:600}}>{a.firstName} {a.lastName}</span>
-                  {a.country&&<span style={{color:C.muted,fontSize:11}}>{a.country}</span>}
-                  {a.affiliation&&<span style={{color:C.muted,fontSize:11}}>{a.affiliation}</span>}
-                  {a.pb&&<span style={{color:C.accent,fontSize:11}}>PB {a.pb}</span>}
-                  {a.sb&&<span style={{color:C.success,fontSize:11}}>SB {a.sb}</span>}
-                </div>
-              ))}
+              {preview.map((a,i)=>{
+                const isDupe=existingKeys.has(nameKey(a));
+                return(
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 12px',fontSize:13,borderBottom:i<preview.length-1?`1px solid ${C.border}`:'none',opacity:isDupe?.45:1}}>
+                    <FlagCell athlete={a} size={18}/>
+                    <span style={{fontWeight:600}}>{a.firstName} {a.lastName}</span>
+                    {a.country&&<span style={{color:C.muted,fontSize:11}}>{a.country}</span>}
+                    {a.affiliation&&<span style={{color:C.muted,fontSize:11}}>{a.affiliation}</span>}
+                    {a.pb&&<span style={{color:C.accent,fontSize:11}}>PB {a.pb}</span>}
+                    {a.sb&&<span style={{color:C.success,fontSize:11}}>SB {a.sb}</span>}
+                    {isDupe&&<span style={{fontSize:10,color:C.warn,background:`${C.warn}18`,borderRadius:4,padding:'1px 6px',flexShrink:0,marginLeft:'auto',border:`1px solid ${C.warn}33`}}>duplicate</span>}
+                  </div>
+                );
+              })}
             </div>
-            <button onClick={()=>onImport(preview)} style={{...btn(C.success,'10px 20px',14),width:'100%'}}>Import {preview.length} Athletes</button>
+            {(()=>{const fresh=preview.filter(a=>!existingKeys.has(nameKey(a)));const dc=preview.length-fresh.length;return(
+              <button onClick={()=>onImport(fresh)} disabled={!fresh.length}
+                style={{...btn(fresh.length?C.success:'#374151','10px 20px',14),width:'100%',opacity:fresh.length?1:.5}}>
+                {fresh.length?`Import ${fresh.length} Athlete${fresh.length!==1?'s':''}${ dc?` · ${dc} duplicate${dc!==1?'s':''} skipped`:''}`:'All duplicates — nothing new to import'}
+              </button>
+            );})()}
           </div>
         )}
       </div>
@@ -904,7 +915,7 @@ function SaveResultsDialog({athletes,heights,ranked,info,primaryMetric,onClose})
 // ─── RESULTS TABLE ────────────────────────────────────────────────────────────
 function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,setCurH,compact=false,isActive=true}){
   const n=heights.length;
-  if(!n)return null;
+  if(!n)return<div style={{padding:'16px',textAlign:'center',color:C.muted,fontSize:13,background:C.surface,borderRadius:10,border:`1px solid ${C.border}`}}>No heights defined — results will appear here once heights are added.</div>;
   const placementOf=useMemo(()=>{const map={};ranked.forEach(r=>{map[r.id]={pl:r.placement,tied:r.tied};});return map;},[ranked]);
   const displayAthletes=useMemo(()=>{
     if(!isActive)return[...ranked];
@@ -1004,7 +1015,9 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
 function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updAthlete,delAthlete,moveAthlete,reorder,setOrder,editingId,setEditingId,startH,setStartH,incStr,setIncStr,manualH,setManualH,doGenHeights,heights,setHeights,updateHeight,primaryMetric,startComp,dirEmail,setDirEmail,onImport}){
   const ci=(k,v)=>setInfo(p=>({...p,[k]:v}));
   const rbCfg=RULEBOOK_CFG[rulebook]||RULEBOOK_CFG.WA;
-  const ready=athletes.length>0&&heights.length>0;
+  const namedAthletes=athletes.filter(a=>(a.firstName||'').trim()||(a.lastName||'').trim());
+  const blankCount=athletes.length-namedAthletes.length;
+  const ready=namedAthletes.length>0&&heights.length>0;
   const hasIncomingComp=false; // placeholder for banner if needed
   return(
     <div style={{padding:14,maxWidth:640,margin:'0 auto',paddingBottom:40}}>
@@ -1101,6 +1114,8 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
         {!athletes.length&&<div style={{textAlign:'center',padding:20,color:C.muted,fontSize:14}}>No athletes — tap + Add</div>}
       </div>
 
+      {blankCount>0&&namedAthletes.length>0&&<div style={{fontSize:12,color:C.warn,marginBottom:8,textAlign:'center'}}>{blankCount} blank row{blankCount!==1?'s':''} will be skipped at start.</div>}
+      {athletes.length>0&&namedAthletes.length===0&&<div style={{fontSize:12,color:C.danger,marginBottom:8,textAlign:'center'}}>Fill in athlete names before starting.</div>}
       <button onClick={startComp}
         style={{...btn(ready?C.success:'#2a2a2a'),width:'100%',padding:15,fontSize:16,borderRadius:14,opacity:ready?1:.45}}>
         {ready?'Start Competition →':'Add athletes and heights to begin'}
@@ -1204,7 +1219,7 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
         <div style={{padding:'7px 14px',background:C.surface,borderBottom:`1px solid ${C.border}`}}>
           <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
             {onDeck!==null&&athletes[onDeck]&&<div style={{fontSize:11,color:C.warn,background:`${C.warn}10`,borderRadius:7,padding:'3px 9px',border:`1px solid ${C.warn}30`}}>On deck: {athletes[onDeck].firstName} {athletes[onDeck].lastName}</div>}
-            {inHole!==null&&athletes[inHole]&&<div style={{fontSize:11,color:C.muted,background:C.card,borderRadius:7,padding:'3px 9px',border:`1px solid ${C.border}`}}>In hole: {athletes[inHole].firstName} {athletes[inHole].lastName}</div>}
+            {inHole!==null&&athletes[inHole]&&<div style={{fontSize:11,color:'#f87171',background:'rgba(248,113,113,.1)',borderRadius:7,padding:'3px 9px',border:'1px solid rgba(248,113,113,.28)'}}>On hold: {athletes[inHole].firstName} {athletes[inHole].lastName}</div>}
           </div>
         </div>
       )}
@@ -1239,8 +1254,8 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
             ))}
           </div>
           <div style={{display:'flex',gap:8,marginTop:8}}>
-            <button onClick={undoMark} style={{...btn(C.card,'8px 14px',12),border:`1px solid ${C.border}`,flex:'0 0 auto',minWidth:90}}>↩ Undo</button>
-            <button onClick={onEditSetup} style={{...btn(C.card,'8px 14px',12),border:`1px solid ${C.border}`,flex:1,color:C.muted}}>✎ Edit Athlete / Height Fields</button>
+            <button onClick={undoMark} style={{...btn(C.card,'8px 14px',13),border:`1px solid ${C.border}`,flex:1}}>↩ Undo</button>
+            <button onClick={onEditSetup} style={{...btn(C.card,'8px 12px',11),border:`1px solid ${C.border}`,flex:'0 0 auto',color:C.muted,whiteSpace:'nowrap'}}>✎ Edit Fields</button>
           </div>
         </div>
       )}
@@ -1253,7 +1268,7 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
       {/* FINALIZE */}
       {isActive&&!meetOver&&(
         <div style={{padding:'10px 14px 0'}}>
-          <button onClick={onEnd} style={{...btn(C.card,'9px 16px',13),border:`1px solid ${C.border}`,width:'100%'}}>End Competition / Finalize</button>
+          <button onClick={onEnd} style={{...btn(C.success,'9px 16px',13),width:'100%'}}>End Competition / Finalize</button>
         </div>
       )}
     </div>
@@ -1522,9 +1537,12 @@ function VaultDeskApp(){
   // Start competition
   const startComp=useCallback(()=>{
     const s=suRef.current;
+    const validAthletes=s.athletes.filter(a=>(a.firstName||'').trim()||(a.lastName||'').trim());
+    if(!validAthletes.length||!s.heights.length)return;
+    const orderedAthletes=validAthletes.map((a,i)=>({...a,order:i+1}));
     const newSc={
-      ...s,compStatus:'active',metric:primaryMetric,
-      curH:0,curA:firstEligible(s.athletes,0),
+      ...s,athletes:orderedAthletes,compStatus:'active',metric:primaryMetric,
+      curH:0,curA:firstEligible(orderedAthletes,0),
       compId:s.compId||`c_${Date.now().toString(36)}`,
     };
     setSc(newSc);updSu(mkSu());setScreen('scoring');
@@ -1685,7 +1703,7 @@ function VaultDeskApp(){
 
       {/* MODALS */}
       {showEdit&&sc&&<EditOverlay sc={sc} updSc={updSc} onClose={()=>setShowEdit(false)}/>}
-      {showImport&&<ImportDialog onImport={onImport} onClose={()=>setShowImport(false)}/>}
+      {showImport&&<ImportDialog onImport={onImport} onClose={()=>setShowImport(false)} existingAthletes={su.athletes}/>}
       {showSave&&sc&&<SaveResultsDialog athletes={sc.athletes} heights={sc.heights} ranked={sc_ranked} info={sc.info} primaryMetric={primaryMetric} onClose={()=>setShowSave(false)}/>}
     </div>
   );
