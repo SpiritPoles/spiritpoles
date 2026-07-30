@@ -191,6 +191,24 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
 /* Log */
 .log{font-size:12px;font-family:monospace;color:var(--ts);background:var(--tgb);border-radius:8px;padding:14px 16px;max-height:220px;overflow-y:auto;margin-top:14px;display:none;line-height:1.65}
 
+/* Order list panel */
+.order-list-panel{display:none;margin-bottom:18px}
+.ol-row{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--tgb);border:1px solid var(--tgbr);border-radius:8px;margin-bottom:6px;flex-wrap:wrap}
+.ol-row:last-child{margin-bottom:0}
+.ol-so-chip{font-size:11px;font-weight:800;color:#fff;background:var(--pink);border-radius:4px;padding:2px 8px;white-space:nowrap;flex-shrink:0}
+.ol-if-chip{font-size:10px;font-weight:700;color:var(--green);background:rgba(76,175,80,0.15);border:1px solid rgba(76,175,80,0.3);border-radius:4px;padding:2px 7px;white-space:nowrap;flex-shrink:0}
+.ol-customer{font-size:12px;font-weight:700;color:var(--tp);flex:1;min-width:80px}
+.ol-poles{font-size:11px;color:var(--ts);white-space:nowrap}
+.ol-value{font-size:11px;font-weight:700;color:var(--ts);white-space:nowrap}
+.ol-hint{font-size:11px;color:var(--ts);margin-top:8px;padding:0 2px}
+.ol-remove{padding:3px 9px !important;font-size:10px !important}
+
+/* SO# badge inside model column — shown in multi-order mode */
+.pr-model-wrap{display:flex;flex-direction:column;gap:1px}
+.pr-so-badge{display:none;font-size:8px;font-weight:800;color:var(--pink);background:rgba(232,18,125,0.12);border-radius:3px;padding:1px 5px;text-align:center;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.multi-order-mode .pr-so-badge{display:block}
+.ol-conflict{font-size:11px;font-weight:700;color:#e65100;background:rgba(230,81,0,0.1);border:1px solid rgba(230,81,0,0.3);border-radius:6px;padding:6px 12px;margin-top:8px}
+
 /* Action row */
 .action-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:20px}
 
@@ -244,6 +262,9 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       </div>
       <div class="note">Fields below will auto-populate. You can edit anything before sending.</div>
     </div>
+
+    <!-- Order list panel (Phase 1) — shared loadedOrders state -->
+    <div class="order-list-panel" id="order-list-panel-p1"></div>
 
     <!-- Shipment Details -->
     <div class="sl">Shipment Details</div>
@@ -352,6 +373,9 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       <div class="note">Enter the SO number — auto-resolves to the linked Item Fulfillment and loads fulfilled poles &amp; serial numbers.</div>
       <div id="if-picker" style="display:none;margin-top:8px;padding:8px 10px;background:var(--surface-2,#f5f5f5);border:1px solid var(--tgbr);border-radius:6px;font-size:8.5pt"></div>
     </div>
+
+    <!-- Order list panel (Phase 2) — shared loadedOrders state -->
+    <div class="order-list-panel" id="order-list-panel-p2"></div>
 
     <!-- Shipment Details (Phase 2) -->
     <div class="sl">Shipment Details</div>
@@ -526,6 +550,12 @@ let msalApp         = null;    // initialized lazily in initMsal()
 let currentAccount  = null;
 let msalReady       = false;   // true once initialize() has resolved
 
+// ── Multi-order state ─────────────────────────────────────────────────────────
+// Each entry: { so_number, if_number, customer, ship_address, declared_value,
+//              port_of_destination, shipping_carrier, ship_email,
+//              p1_poles[], p2_poles[], p1_acc[], p2_acc[], p2_xbar[] }
+let loadedOrders = [];
+
 const SHIPPER = {
   company: 'UCS Spirit / New Nevada Plastics',
   address: '2180 Meridian Blvd, Minden NV 89423',
@@ -671,50 +701,77 @@ async function fetchSO() {
     const data = await resp.json();
     if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
 
-    // Populate Phase 1 fields
-    setVal('so',             data.so_number || raw);
-    setVal('consignee',      data.customer || '');
-    setVal('consignee-full', data.ship_address || '');
-    // Auto-size address textarea to content
-    const addrEl = document.getElementById('consignee-full');
-    if (addrEl) autoResize(addrEl);
-    if (data.declared_value) setVal('goods-value', `$${data.declared_value.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`);
-    if (data.port_of_destination) setVal('port-of-dest', data.port_of_destination);
-    if (data.shipping_carrier)    setVal('shipping-carrier', data.shipping_carrier);
+    const soKey = data.so_number || ('SO' + num);
 
-    // Build packing view from individual poles; collect accessories
-    const poleData = [];
-    const p1AccItems = []; // local collection — passed to buildAccessoriesPanel
+    // Reject duplicates
+    if (loadedOrders.find(o => o.so_number === soKey)) {
+      setFetchStatus('p1', `⚠️ ${soKey} is already loaded`, 'err');
+      return;
+    }
+
+    // Classify lines into p1 poles and accessories
+    const p1_poles = [];
+    const p1_acc   = [];
     for (const line of (data.lines || [])) {
       const kind = classifyItem(line.item_code || '', line.item_name || '');
       if (kind === 'pole') {
-        const model = parseModel(line.item_code || line.item_name || '');
-        // Build clean display code: "490/82" style (no SP/UF/CF prefix)
+        const model    = parseModel(line.item_code || line.item_name || '');
         const dispName = String(line.item_name || '');
         const dispCode = dispName.includes('|')
           ? dispName.split('|')[0].trim()
           : (line.item_code || '').replace(/^[A-Za-z]+/, '') || String(model);
-        poleData.push({
-          model:  dispCode,
-          flex:   line.flex_memo || '',
-          note:   line.note     || '',
-          serial: line.serial   || '',
-        });
+        p1_poles.push({ model: dispCode, flex: line.flex_memo || '', note: line.note || '', serial: line.serial || '' });
       } else {
-        // Crossbars and accessories — collect for Phase 1 accessories panel
-        const qty = line.qty || 1;
-        p1AccItems.push({ item_code: line.item_code || '', item_name: line.item_name || line.item_code || '', qty });
+        p1_acc.push({ item_code: line.item_code || '', item_name: line.item_name || line.item_code || '', qty: line.qty || 1 });
       }
     }
-    buildPackingView(poleData);
-    // Build Phase 1 accessories panel (sets p1Accessories global, shows/hides acc-card-p1, sets tile)
-    buildAccessoriesPanel(p1AccItems, '1');
-    // Refresh dropdowns after piece containers are rendered
-    setTimeout(() => refreshAccessoryPanel('1'), 50);
 
-    const totalAccItems = p1AccItems.length; // distinct item types for status line
-    const accPart = totalAccItems ? `, ${totalAccItems} accessor${totalAccItems === 1 ? 'y' : 'ies'}` : '';
-    setFetchStatus('p1', `✓ Loaded ${data.so_number} — ${data.customer}${poleData.length ? ` (${poleData.length} poles${accPart})` : ' — no poles found'}`, 'ok');
+    const isFirst = loadedOrders.length === 0;
+
+    // Consignee conflict check (warn but don't block)
+    if (!isFirst && data.customer && data.customer !== loadedOrders[0].customer) {
+      setFetchStatus('p1', `⚠️ Consignee mismatch: "${data.customer}" vs "${loadedOrders[0].customer}" — verify before shipping`, 'err');
+    }
+
+    loadedOrders.push({
+      so_number:           soKey,
+      if_number:           '',
+      customer:            data.customer            || '',
+      ship_address:        data.ship_address        || '',
+      declared_value:      data.declared_value      || 0,
+      port_of_destination: data.port_of_destination || '',
+      shipping_carrier:    data.shipping_carrier    || '',
+      ship_email:          data.ship_email          || '',
+      p1_poles,
+      p2_poles: [],
+      p1_acc,
+      p2_acc:   [],
+      p2_xbar:  [],
+    });
+
+    // Populate Phase 1 header fields from the first order only
+    if (isFirst) {
+      setVal('consignee',      data.customer     || '');
+      setVal('consignee-full', data.ship_address || '');
+      const addrEl = document.getElementById('consignee-full');
+      if (addrEl) autoResize(addrEl);
+      if (data.port_of_destination) setVal('port-of-dest', data.port_of_destination);
+      if (data.shipping_carrier)    setVal('shipping-carrier', data.shipping_carrier);
+    }
+    // SO number field shows all loaded SOs
+    setVal('so', loadedOrders.map(o => o.so_number).join(', '));
+
+    // Auto-sum declared value from all orders
+    updateDeclaredValue();
+
+    // Rebuild packing from pooled poles
+    repackAll('p1');
+    renderOrderList();
+
+    const accPart = p1_acc.length ? `, ${p1_acc.length} accessor${p1_acc.length === 1 ? 'y' : 'ies'}` : '';
+    if (isFirst || !document.getElementById('fetch-so-status').classList.contains('err')) {
+      setFetchStatus('p1', `✓ Added ${soKey} — ${data.customer}${p1_poles.length ? ` (${p1_poles.length} poles${accPart})` : ' — no poles found'}`, 'ok');
+    }
   } catch (err) {
     setFetchStatus('p1', `Error: ${err.message}`, 'err');
   } finally {
@@ -790,138 +847,109 @@ async function selectIF(tranid) {
 
 // Shared field-population logic used by both fetchIF() and selectIF()
 function populateIFData(data) {
+  // Always populate Phase 2 header fields from this IF
   setVal('if-num',            data.if_number    || '');
-  setVal('p2-so',             data.so_number    || '');
   setVal('p2-ship-date',      data.date         || '');
   setVal('p2-consignee',      data.customer     || '');
   setVal('p2-consignee-full', data.ship_address || '');
   const addrEl = document.getElementById('p2-consignee-full');
   if (addrEl) autoResize(addrEl);
 
-  // Auto-populate country from the last non-empty line of the ship address
   if (data.ship_address) {
     const addrLines = data.ship_address.split('\n').map(l => l.trim()).filter(Boolean);
     const lastLine  = addrLines[addrLines.length - 1] || '';
     if (lastLine) setVal('p2-country', lastLine);
   }
-
-  // Auto-populate consignee email from NS shipping email field
   if (data.ship_email) setVal('p2-cons-email', data.ship_email);
-
-  // Auto-populate named place / port from NS IF custom field
   if (data.named_place) setVal('p2-named-place', data.named_place);
 
   // ── Classify lines: poles / crossbars / accessories ──────────────────────
-  const poleData    = [];
-  const xbarLines   = { hj: [], pv: [] }; // { hj: [{qty, serials}], pv: [...] }
-  const accData     = [];
+  const poleData  = [];
+  const xbarLines = { hj: [], pv: [] };
+  const accData   = [];
 
   for (const line of (data.lines || [])) {
     const kind = classifyItem(line.item_code, line.item_name);
     if (kind === 'pole') {
-      const model   = parseModel(line.item_code);
+      const model    = parseModel(line.item_code);
       const dispCode = (line.item_code || '').replace(/^[A-Za-z]+/, '') || String(model);
       const qty      = line.qty || 1;
       for (let i = 0; i < qty; i++) {
         poleData.push({ model: dispCode, flex: line.flex_memo || '',
                         note: line.note || '', serial: (line.serials || [])[i] || '' });
       }
-    } else if (kind === 'crossbar-hj') {
-      xbarLines.hj.push(line);
-    } else if (kind === 'crossbar-pv') {
-      xbarLines.pv.push(line);
+    } else if (kind === 'crossbar-hj') { xbarLines.hj.push(line);
+    } else if (kind === 'crossbar-pv') { xbarLines.pv.push(line);
     } else {
-      // accessory
-      accData.push({
-        item_code: line.item_code || '',
-        item_name: line.item_name || line.item_code || '',
-        qty:       line.qty || 1,
-        unitWtLbs: 0, // NS doesn't reliably have weights; leave 0 (user can adjust)
-      });
+      accData.push({ item_code: line.item_code || '', item_name: line.item_name || line.item_code || '',
+                     qty: line.qty || 1, unitWtLbs: 0 });
     }
   }
 
   // ── Crossbar packing ──────────────────────────────────────────────────────
-  // Rules (per Reference Sheet):
-  //   ≤3  → pack with poles as accessories
-  //   4–5  → 1 X-Bar Tube piece
-  //   6–14 → multiple X-Bar Tube pieces (max 5 per tube)
-  //   ≥15  → X-Bar Box (HJ or PV depending on type)
+  const xbarPieces = []; // becomes separate piece containers
   function handleCrossbarType(lines, cbKey) {
-    const info = CROSSBAR_INFO[cbKey]; // { label, lenIn, wtLbs, pieceType }
+    const info  = CROSSBAR_INFO[cbKey];
     const total = lines.reduce((s, l) => s + (l.qty || 1), 0);
     if (total === 0) return;
-
     if (total <= 3) {
-      // Pack with poles as accessories
       for (const l of lines) {
-        accData.push({
-          item_code:  l.item_code,
-          item_name:  `${info.label} (${info.lenIn}" — packs with poles)`,
-          qty:        l.qty || 1,
-          unitWtLbs:  info.wtLbs,
-          isCrossbar: true,
-        });
+        accData.push({ item_code: l.item_code, item_name: `${info.label} (${info.lenIn}" — packs with poles)`,
+                       qty: l.qty || 1, unitWtLbs: info.wtLbs, isCrossbar: true });
       }
     } else if (total <= 14) {
-      // 4–14: X-Bar Tube pieces, max 5 per tube
       let remaining = total;
       while (remaining > 0) {
         const tubeQty = Math.min(5, remaining);
-        accData.push({
-          item_code:     lines[0]?.item_code || cbKey,
-          item_name:     `${info.label} (${info.lenIn}")`,
-          qty:           tubeQty,
-          unitWtLbs:     info.wtLbs,
-          isCrossbar:    true,
-          xbarPieceType: 'x-bar-tube',
-          xbarLenIn:     info.lenIn,
-        });
+        xbarPieces.push({ xbarPieceType: 'x-bar-tube', xbarLenIn: info.lenIn });
         remaining -= tubeQty;
       }
     } else {
-      // 15+ → X-Bar Box
-      accData.push({
-        item_code:     lines[0]?.item_code || cbKey,
-        item_name:     `${info.label} (${info.lenIn}")`,
-        qty:           total,
-        unitWtLbs:     info.wtLbs,
-        isCrossbar:    true,
-        xbarPieceType: info.pieceType,
-        xbarLenIn:     info.lenIn,
-      });
+      xbarPieces.push({ xbarPieceType: info.pieceType, xbarLenIn: info.lenIn });
     }
   }
   handleCrossbarType(xbarLines.hj, 'hj');
   handleCrossbarType(xbarLines.pv, 'pv');
 
-  // ── Build pole packing view ───────────────────────────────────────────────
-  buildPackingView(poleData, 'packing-list-p2');
-  setVal('p2-schedB-qty', String(poleData.length));
-
-  // ── Auto-create crossbar tube/box pieces (4–14 → X-Bar Tubes, ≥15 → X-Bar Box) ──
-  const xbarBoxItems = accData.filter(a => a.xbarPieceType);
-  if (xbarBoxItems.length) {
-    const p2List = document.getElementById('packing-list-p2');
-    xbarBoxItems.forEach(xb => {
-      const pieceNum = p2List.querySelectorAll('.piece-container').length + 1;
-      const c = createPieceContainer(pieceNum, xb.xbarPieceType, []);
-      p2List.appendChild(c);
-      calcPieceDims(c);
+  // ── Find or create loadedOrders entry ────────────────────────────────────
+  const soKey      = data.so_number || '';
+  const existingIdx = loadedOrders.findIndex(o => o.so_number === soKey);
+  if (existingIdx >= 0) {
+    loadedOrders[existingIdx].if_number = data.if_number || '';
+    loadedOrders[existingIdx].p2_poles  = poleData;
+    loadedOrders[existingIdx].p2_acc    = accData;
+    loadedOrders[existingIdx].p2_xbar   = xbarPieces;
+    if (data.declared_value) loadedOrders[existingIdx].declared_value = data.declared_value;
+  } else {
+    // IF loaded without a prior Phase 1 fetch for this SO
+    loadedOrders.push({
+      so_number:           soKey,
+      if_number:           data.if_number || '',
+      customer:            data.customer  || '',
+      ship_address:        data.ship_address || '',
+      declared_value:      data.declared_value || 0,
+      port_of_destination: '',
+      shipping_carrier:    '',
+      ship_email:          data.ship_email || '',
+      p1_poles: [], p2_poles: poleData,
+      p1_acc:   [], p2_acc:   accData, p2_xbar: xbarPieces,
     });
-    renumberPieces('packing-list-p2');
-    updatePackingTotals('packing-list-p2');
   }
 
-  // ── Accessories panel ─────────────────────────────────────────────────────
-  buildAccessoriesPanel(accData, '2');
-  // After building pieces, refresh accessory dropdown options
-  setTimeout(() => refreshAccessoryPanel('2'), 50);
+  // Update p2-so field to show all linked SOs
+  setVal('p2-so', loadedOrders.map(o => o.so_number).filter(Boolean).join(', '));
 
-  const totalPoles = poleData.length;
-  const totalAccTypes = accData.length; // distinct non-pole item types
+  // Auto-sum declared value
+  updateDeclaredValue();
+
+  // ── Rebuild Phase 2 packing from all pooled p2 poles ─────────────────────
+  repackAll('p2');
+  renderOrderList();
+
+  const totalPoles    = poleData.length;
+  const totalAccTypes = accData.length;
   const accPart2 = totalAccTypes ? `, ${totalAccTypes} accessor${totalAccTypes === 1 ? 'y' : 'ies'}` : '';
-  setFetchStatus('p2', `✓ Loaded ${data.so_number} — ${data.customer} · ${totalPoles} poles${accPart2}`, 'ok');
+  setFetchStatus('p2', `✓ Loaded ${soKey}${data.if_number ? ' / ' + data.if_number : ''} — ${data.customer} · ${totalPoles} poles${accPart2}`, 'ok');
 }
 
 function setFetchStatus(phase, msg, cls) {
@@ -929,6 +957,130 @@ function setFetchStatus(phase, msg, cls) {
   const el = document.getElementById(id);
   el.textContent = msg;
   el.className   = `fetch-status ${cls || ''}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MULTI-ORDER MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Render order list panels in both phases from shared loadedOrders[]
+function renderOrderList() {
+  const isMulti = loadedOrders.length > 1;
+
+  ['p1','p2'].forEach(ph => {
+    const panel = document.getElementById(`order-list-panel-${ph}`);
+    if (!panel) return;
+    if (!loadedOrders.length) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
+    panel.style.display = '';
+
+    const rows = loadedOrders.map((ord, i) => {
+      const poleCount = ph === 'p1'
+        ? (ord.p1_poles || []).length
+        : ((ord.p2_poles && ord.p2_poles.length) ? ord.p2_poles.length : (ord.p1_poles || []).length);
+      const valFmt = ord.declared_value
+        ? ' · $' + Number(ord.declared_value).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
+        : '';
+      return `
+        <div class="ol-row">
+          <span class="ol-so-chip">${htmlEsc(ord.so_number)}</span>
+          ${ord.if_number ? `<span class="ol-if-chip">${htmlEsc(ord.if_number)}</span>` : ''}
+          <span class="ol-customer">${htmlEsc(ord.customer)}</span>
+          <span class="ol-poles">${poleCount} pole${poleCount !== 1 ? 's' : ''}</span>
+          ${valFmt ? `<span class="ol-value">${valFmt}</span>` : ''}
+          <button class="btn btn-outline btn-sm ol-remove" onclick="removeOrder(${i})">✕ Remove</button>
+        </div>`;
+    }).join('');
+
+    const conflictHtml = (() => {
+      if (!isMulti) return '';
+      const consignees = [...new Set(loadedOrders.map(o => o.customer).filter(Boolean))];
+      return consignees.length > 1
+        ? `<div class="ol-conflict">⚠️ Multiple consignees detected: ${consignees.map(c => `"${htmlEsc(c)}"`).join(', ')} — confirm before shipping.</div>`
+        : '';
+    })();
+
+    panel.innerHTML = `
+      <div class="sl" style="margin-bottom:8px">Loaded Orders (${loadedOrders.length})</div>
+      <div class="card" style="padding:14px">
+        ${rows}
+        ${conflictHtml}
+        ${!isMulti ? `<div class="ol-hint">Enter another SO number above to combine orders into a single shipment.</div>` : ''}
+      </div>`;
+  });
+
+  // Toggle multi-order-mode class on packing lists to show SO# badges
+  document.getElementById('packing-list')?.classList.toggle('multi-order-mode', isMulti);
+  document.getElementById('packing-list-p2')?.classList.toggle('multi-order-mode', isMulti);
+}
+
+// Remove an order by index; repack and re-render
+function removeOrder(idx) {
+  const ord = loadedOrders[idx];
+  if (!ord) return;
+  if (!confirm(`Remove ${ord.so_number} from this shipment?`)) return;
+  loadedOrders.splice(idx, 1);
+  // Rebuild SO fields
+  setVal('so',    loadedOrders.map(o => o.so_number).join(', '));
+  setVal('p2-so', loadedOrders.map(o => o.so_number).join(', '));
+  updateDeclaredValue();
+  repackAll('p1');
+  repackAll('p2');
+  renderOrderList();
+}
+
+// Auto-sum declared value from all orders
+function updateDeclaredValue() {
+  if (!loadedOrders.length) return;
+  const total = loadedOrders.reduce((s, o) => s + (Number(o.declared_value) || 0), 0);
+  const fmt   = '$' + total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  setVal('goods-value',    fmt);
+  setVal('p2-goods-value', fmt);
+}
+
+// Return pooled poles from all orders for a given phase
+function getPooledPoles(phase) {
+  if (phase === 'p1') {
+    return loadedOrders.flatMap(ord =>
+      (ord.p1_poles || []).map(p => ({ ...p, so_number: ord.so_number }))
+    );
+  }
+  return loadedOrders.flatMap(ord => {
+    const poles = (ord.p2_poles && ord.p2_poles.length) ? ord.p2_poles : (ord.p1_poles || []);
+    return poles.map(p => ({ ...p, so_number: ord.so_number }));
+  });
+}
+
+// Rebuild the packing view for one phase from all pooled orders
+function repackAll(phase) {
+  const listId = phase === 'p1' ? 'packing-list' : 'packing-list-p2';
+  const ph     = phase === 'p1' ? '1' : '2';
+  const poles  = getPooledPoles(phase);
+
+  buildPackingView(poles, listId);
+
+  // For Phase 2: also add crossbar tube/box piece containers from all orders
+  if (phase === 'p2') {
+    const allXbar = loadedOrders.flatMap(ord => ord.p2_xbar || []);
+    if (allXbar.length) {
+      const listEl = document.getElementById(listId);
+      allXbar.forEach(xb => {
+        const pieceNum = listEl.querySelectorAll('.piece-container').length + 1;
+        const c = createPieceContainer(pieceNum, xb.xbarPieceType, []);
+        listEl.appendChild(c);
+        calcPieceDims(c);
+      });
+      renumberPieces(listId);
+      updatePackingTotals(listId);
+    }
+    setVal('p2-schedB-qty', String(poles.length));
+  }
+
+  // Rebuild accessories panel from all orders
+  const accAll = phase === 'p1'
+    ? loadedOrders.flatMap(ord => ord.p1_acc || [])
+    : loadedOrders.flatMap(ord => ord.p2_acc || []);
+  buildAccessoriesPanel(accAll, ph);
+  setTimeout(() => refreshAccessoryPanel(ph), 50);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1100,10 +1252,11 @@ function cascadeOverflowFrom(startContainer) {
     calcPieceDims(cur);
 
     const overflow = rows.slice(pt.max).map(row => ({
-      model:  (row.querySelector('.pr-model')?.value  || '').trim(),
-      flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
-      note:   (row.querySelector('.pr-note')?.value   || '').trim(),
-      serial: (row.querySelector('.pr-serial')?.value || '').trim(),
+      model:     (row.querySelector('.pr-model')?.value  || '').trim(),
+      flex:      (row.querySelector('.pr-flex')?.value   || '').trim(),
+      note:      (row.querySelector('.pr-note')?.value   || '').trim(),
+      serial:    (row.querySelector('.pr-serial')?.value || '').trim(),
+      so_number: row.getAttribute('data-so') || '',
     })); // keep all rows — filtering by model here silently loses partially-filled rows
 
     const next = cur.nextElementSibling;
@@ -1182,10 +1335,11 @@ function applyTypeToAll(btn) {
       c.querySelectorAll('.pole-row-p1').forEach(row => {
         const m = (row.querySelector('.pr-model')?.value  || '').trim();
         if (m) poles.push({
-          model:  m,
-          flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
-          note:   (row.querySelector('.pr-note')?.value   || '').trim(),
-          serial: (row.querySelector('.pr-serial')?.value || '').trim(),
+          model:     m,
+          flex:      (row.querySelector('.pr-flex')?.value   || '').trim(),
+          note:      (row.querySelector('.pr-note')?.value   || '').trim(),
+          serial:    (row.querySelector('.pr-serial')?.value || '').trim(),
+          so_number: row.getAttribute('data-so') || '',
         });
       });
     });
@@ -1750,16 +1904,20 @@ function updatePackingTotals(listId = 'packing-list') {
 
 // Add a single pole row to an existing piece container
 function addPoleRowToContainer(container, pole = {}) {
-  const { model = '', flex = '', note = '', serial = '' } = pole;
+  const { model = '', flex = '', note = '', serial = '', so_number = '' } = pole;
   const polesDiv = container.querySelector('.piece-poles');
   const lineNum  = (polesDiv?.querySelectorAll('.pole-row-p1').length || 0) + 1;
   const row = document.createElement('div');
   row.className = 'pole-row-p1';
   row.draggable = true;
+  if (so_number) row.setAttribute('data-so', so_number);
   row.innerHTML = `
     <span class="pr-line-num">${lineNum}.</span>
-    <input class="pr-model" type="text" value="${htmlEsc(String(model))}" placeholder="Model"
-      oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list')">
+    <div class="pr-model-wrap">
+      <span class="pr-so-badge">${htmlEsc(so_number)}</span>
+      <input class="pr-model" type="text" value="${htmlEsc(String(model))}" placeholder="Model"
+        oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list')">
+    </div>
     <input class="pr-flex"   type="text" value="${htmlEsc(flex)}"   placeholder="Flex">
     <input class="pr-note"   type="text" value="${htmlEsc(note)}"   placeholder="Note">
     <input class="pr-serial" type="text" value="${htmlEsc(serial)}" placeholder="Serial">
@@ -1873,10 +2031,11 @@ function recalcPacking(listId = 'packing-list') {
     c.querySelectorAll('.pole-row-p1').forEach(row => {
       const m = (row.querySelector('.pr-model')?.value || '').trim();
       if (m) poles.push({
-        model:  m,
-        flex:   (row.querySelector('.pr-flex')?.value   || '').trim(),
-        note:   (row.querySelector('.pr-note')?.value   || '').trim(),
-        serial: (row.querySelector('.pr-serial')?.value || '').trim(),
+        model:     m,
+        flex:      (row.querySelector('.pr-flex')?.value   || '').trim(),
+        note:      (row.querySelector('.pr-note')?.value   || '').trim(),
+        serial:    (row.querySelector('.pr-serial')?.value || '').trim(),
+        so_number: row.getAttribute('data-so') || '',
       });
     });
   });
@@ -2030,7 +2189,9 @@ function downloadPackingListPDF() {
   const containers = [...document.querySelectorAll('#packing-list .piece-container')];
   if (!containers.length) { setActionErr('p1', 'Add poles before downloading.'); return; }
 
-  const soNum        = v('so')               || 'XXXXX';
+  const soNum        = loadedOrders.length > 1
+    ? loadedOrders.map(o => o.so_number).join(', ')
+    : (v('so') || 'XXXXX');
   const cons         = v('consignee')        || '';
   const consFull     = v('consignee-full')   || cons;
   const shipDate     = v('ship-date')        || '';
@@ -2301,7 +2462,7 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
         <img src="data:image/png;base64,${LH_B64}" class="lh-img" alt="UCS Spirit">
         <div class="doc-right">
           <div><span class="doc-title">INTERNAL PACKING LIST</span><span class="draft-tag">DRAFT</span></div>
-          <div class="doc-so">Sales Order:&nbsp;${htmlEsc(soNum)}</div>
+          <div class="doc-so">${loadedOrders.length > 1 ? 'Sales Orders' : 'Sales Order'}:&nbsp;${htmlEsc(soNum)}</div>
         </div>
       </div>
       <div class="info-bar">
@@ -2362,8 +2523,12 @@ function downloadPackingListP2() {
   const containers = [...document.querySelectorAll('#packing-list-p2 .piece-container')];
   if (!containers.length) { setActionErr('p2', 'Add poles before downloading.'); return; }
 
-  const ifNum    = v('if-num')            || 'XXXXX';
-  const soNum    = v('p2-so')             || '';
+  const ifNum    = loadedOrders.length > 1
+    ? loadedOrders.map(o => o.if_number).filter(Boolean).join(', ') || (v('if-num') || 'XXXXX')
+    : (v('if-num') || 'XXXXX');
+  const soNum    = loadedOrders.length > 1
+    ? loadedOrders.map(o => o.so_number).filter(Boolean).join(', ') || (v('p2-so') || '')
+    : (v('p2-so') || '');
   const cons     = v('p2-consignee')      || '';
   const consFull = v('p2-consignee-full') || cons;
   const shipDate = v('p2-ship-date')      || '';
@@ -2500,7 +2665,11 @@ function downloadPackingListP2() {
   const totKgs    = Math.round(totalLbs * 0.453592 * 10) / 10;
   const totCuFt   = Math.round(totalCuFt * 100) / 100;
   const totPcs    = pieceCount;
-  const refLine   = soNum ? `SO:&nbsp;${htmlEsc(soNum)}` : htmlEsc(ifNum);
+  const soLabel   = loadedOrders.length > 1 ? 'Sales Orders' : 'SO';
+  const ifLabel   = loadedOrders.length > 1 ? 'IFs' : 'IF';
+  const refLine   = soNum
+    ? `${soLabel}:&nbsp;${htmlEsc(soNum)}${ifNum ? '&nbsp;&nbsp;|&nbsp;&nbsp;' + ifLabel + ':&nbsp;' + htmlEsc(ifNum) : ''}`
+    : htmlEsc(ifNum);
   const totalAccQty = p2Accessories.filter(a => a.assignedTo !== 'not-shipping').reduce((s,a) => s+a.qty, 0);
   const p2AccNotes  = (document.getElementById('p2-acc-notes')?.value || '').trim();
   const accNotesBlock = p2AccNotes
@@ -3207,7 +3376,10 @@ ${dimRows}
 // EMAIL BUILDER
 // ─────────────────────────────────────────────────────────────────────────────
 function buildEmail(ff, pieces) {
-  const so       = v('so')             || 'XXXXX';
+  const soList   = loadedOrders.length > 1
+    ? loadedOrders.map(o => o.so_number).join(', ')
+    : (v('so') || 'XXXXX');
+  const so       = soList;
   const cons     = v('consignee')      || '(consignee)';
   const consFull = v('consignee-full') || cons;
   const method   = v('method');
@@ -3307,9 +3479,24 @@ function buildShippingDocsEmail(ffName) {
   const poles    = document.getElementById('t-poles-p2')?.textContent?.trim()  || '—';
   const weightKg = document.getElementById('t-weight-p2')?.textContent?.trim() || '—';
 
-  const ref = [soNum, ifNum].filter(Boolean).join(' / ') || '(order ref)';
+  // Build multi-order reference
+  const allSOs = loadedOrders.length > 1
+    ? loadedOrders.map(o => o.so_number).filter(Boolean)
+    : [soNum].filter(Boolean);
+  const allIFs = loadedOrders.length > 1
+    ? loadedOrders.map(o => o.if_number).filter(Boolean)
+    : [ifNum].filter(Boolean);
+  const ref = [...allSOs, ...allIFs].filter(Boolean).join(', ') || '(order ref)';
 
-  const subject = `Shipping Docs – ${ref} – ${cons}${shipDate ? ' | ' + fmtDate : ''}`;
+  const subject = `Shipping Docs – ${allSOs.join(', ') || ref} – ${cons}${shipDate ? ' | ' + fmtDate : ''}`;
+
+  // Build per-IF and per-SO checklist lines
+  const ifChecklines = allIFs.length
+    ? allIFs.map(n => `        ${n} (print from NetSuite)`).join('\n')
+    : `        (none loaded yet)`;
+  const soChecklines = allSOs.length
+    ? allSOs.map(n => `        ${n} (print from NetSuite)`).join('\n')
+    : `        (none loaded yet)`;
 
   const body = `Hello ${ffName || 'Team'},
 
@@ -3320,8 +3507,10 @@ DOCUMENTS ATTACHED:
   [ ] Shipper's Letter of Instruction (generated from UCS Spirit app)
 
 ADDITIONAL NS DOCUMENTS TO ATTACH BEFORE SENDING:
-  [ ] Packing Slip / Item Fulfillment${ifNum ? ' – ' + ifNum : ''} (print from NetSuite)
-  [ ] Commercial Invoice / Sales Order${soNum ? ' – ' + soNum : ''} (print from NetSuite)
+  [ ] Packing Slip / Item Fulfillment (print from NetSuite):
+${ifChecklines}
+  [ ] Commercial Invoice / Sales Order (print from NetSuite):
+${soChecklines}
 
 ───────────────────────────────────────
   SHIPMENT DETAILS${ref ? ' – ' + ref : ''}
