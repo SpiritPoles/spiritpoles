@@ -1388,6 +1388,7 @@ function DisplayScreen({sc,primaryMetric,updSc}){
   const rbLabel=RULEBOOKS.find(r=>r.key===rulebook)?.label||rulebook||'';
   const genderLabel=info.gender==='M'?"Men's":info.gender==='W'?"Women's":info.gender?'Mixed':'';
 
+  const [dispSubTab,setDispSubTab]=useState('live');
   const handleLogo=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>updSc({info:{...info,logoUrl:ev.target.result}});r.readAsDataURL(f);};
 
   return(
@@ -1432,6 +1433,13 @@ function DisplayScreen({sc,primaryMetric,updSc}){
         </div>
       </div>
 
+      {/* ── DISPLAY SUB-TABS ── */}
+      <div style={{display:'flex',gap:2,background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'6px 10px'}}>
+        <button onClick={()=>setDispSubTab('live')} style={{...btn(dispSubTab==='live'?C.accent:C.card,'5px 0',12),flex:1,borderRadius:7,border:dispSubTab==='live'?`1px solid ${C.accent}55`:`1px solid ${C.border}`}}>Live View</button>
+        <button onClick={()=>setDispSubTab('leaderboard')} style={{...btn(dispSubTab==='leaderboard'?C.accent:C.card,'5px 0',12),flex:1,borderRadius:7,border:dispSubTab==='leaderboard'?`1px solid ${C.accent}55`:`1px solid ${C.border}`}}>Leaderboard</button>
+      </div>
+
+      {dispSubTab==='live'&&<>
       {/* ── HERO (read-only mirror of Score tab) ── */}
       {isActive&&(
         <div style={{background:'linear-gradient(135deg,#0b1829 0%,#0e1e38 55%,#0d1520 100%)',borderBottom:`1px solid rgba(79,124,255,.25)`,padding:'16px 16px 14px'}}>
@@ -1551,6 +1559,81 @@ function DisplayScreen({sc,primaryMetric,updSc}){
       <div style={{padding:'12px 14px 0'}}>
         <ResultsTable athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={isActive?curA:-1} primaryMetric={primaryMetric} isActive={isActive}/>
       </div>
+      </>}
+
+      {/* ── LEADERBOARD VIEW ── */}
+      {dispSubTab==='leaderboard'&&(
+        <div style={{padding:'10px 12px 30px'}}>
+          {ranked.length===0&&<div style={{padding:40,textAlign:'center',color:C.muted,fontSize:13}}>No results yet — competition hasn't started.</div>}
+          {ranked.map(ath=>{
+            const isCV=ath.id===curAth?.id;
+            const bestIdx=highestClearedIdx(ath,heights.length);
+            const bestH=bestIdx>=0?heights[bestIdx]:null;
+            const pl=ath.placement;
+            const tied=ath.tied;
+            const medal=pl===1?'🥇':pl===2?'🥈':pl===3?'🥉':null;
+            const plStr=pl?(tied?`T-${plLabel(pl)}`:plLabel(pl)):ath.status==='dns'?'DNS':'NH';
+            const plColor=pl===1?'#fbbf24':pl===2?'#9ca3af':pl===3?'#f97316':C.muted;
+            const chipHeights=heights.map((h,i)=>({h,i,m:ath.attempts[i]||[]})).filter(({m,i})=>m.length>0||(isCV&&i===curH));
+            return(
+              <div key={ath.id} style={{
+                background:isCV?'rgba(79,124,255,.1)':C.card,
+                border:`1px solid ${isCV?'rgba(79,124,255,.45)':C.border}`,
+                borderRadius:10,padding:'9px 11px',marginBottom:6,
+                boxShadow:isCV?'0 0 14px rgba(79,124,255,.12)':'none'
+              }}>
+                <div style={{display:'flex',alignItems:'center',gap:9}}>
+                  {/* Place / medal */}
+                  <div style={{flexShrink:0,minWidth:34,textAlign:'center'}}>
+                    {medal
+                      ?<span style={{fontSize:20,lineHeight:1}}>{medal}</span>
+                      :<span style={{fontSize:12,fontWeight:800,color:plColor}}>{plStr}</span>
+                    }
+                  </div>
+                  <FlagCell athlete={ath} size={22}/>
+                  {/* Name + affiliation */}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:'flex',alignItems:'center',gap:5,minWidth:0}}>
+                      <span style={{fontWeight:800,fontSize:14,color:isCV?'#ffffff':C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ath.firstName} {ath.lastName}</span>
+                      {isCV&&<span style={{fontSize:8,fontWeight:700,color:C.accent,background:`${C.accent}22`,borderRadius:4,padding:'1px 5px',flexShrink:0,letterSpacing:.5}}>NOW</span>}
+                    </div>
+                    {ath.affiliation&&<div style={{fontSize:10,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ath.affiliation}</div>}
+                  </div>
+                  {/* Best height */}
+                  <div style={{flexShrink:0,textAlign:'right'}}>
+                    {bestH?(
+                      <>
+                        <div style={{fontSize:15,fontWeight:900,color:C.success,letterSpacing:-.5}}>{fmtH(bestH,primaryMetric)}</div>
+                        <div style={{fontSize:9,color:C.muted}}>{fmtH(bestH,!primaryMetric)}</div>
+                      </>
+                    ):<span style={{fontSize:11,color:C.muted}}>{ath.status==='dns'?'DNS':'NH'}</span>}
+                  </div>
+                </div>
+                {/* Height chips — only attempted heights + current vaulter's current height */}
+                {chipHeights.length>0&&(
+                  <div style={{display:'flex',gap:3,marginTop:7,overflowX:'auto',paddingBottom:1}}>
+                    {chipHeights.map(({h,i,m})=>{
+                      const cleared=hasCleared(m);
+                      const miss3=countMisses(m)>=3&&!cleared;
+                      const pas=hasPassed(m)&&!cleared;
+                      const isCurH=isCV&&i===curH;
+                      const markStr=m.join('');
+                      return(
+                        <div key={i} style={{textAlign:'center',padding:'2px 5px',borderRadius:5,flexShrink:0,
+                          background:isCurH?'rgba(79,124,255,.22)':cleared?'rgba(74,222,128,.12)':miss3?'rgba(248,113,113,.12)':pas?'rgba(217,119,6,.12)':'rgba(255,255,255,.04)',
+                          border:isCurH?'1px solid rgba(79,124,255,.5)':cleared?'1px solid rgba(74,222,128,.25)':miss3?'1px solid rgba(248,113,113,.22)':pas?'1px solid rgba(217,119,6,.25)':'1px solid rgba(255,255,255,.07)'}}>
+                          <div style={{fontSize:7,fontWeight:700,whiteSpace:'nowrap',color:isCurH?'rgba(147,197,253,.8)':cleared?'rgba(74,222,128,.7)':miss3?'rgba(248,113,113,.7)':pas?'#d97706':C.muted}}>{fmtH(h,primaryMetric)}</div>
+                          <div style={{fontSize:10,fontWeight:900,color:cleared?'#4ade80':miss3?'#f87171':pas?'#d97706':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.3)':'rgba(136,136,170,.2)'}}>{markStr||(isCurH?'…':'—')}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
