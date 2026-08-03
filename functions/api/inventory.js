@@ -109,16 +109,20 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
-// Replaces SS2471 — item-level on-hand / committed / available (all locations combined)
+// Replaces SS2471 — item-level on-hand / committed / available aggregated across all locations.
+// item.quantityonhand is NULL in SuiteQL analytics context; inventoryBalance has the real numbers.
+// LEFT JOIN so items with zero inventory still appear (for out-of-stock display).
 const Q_ITEMS = `
   SELECT
     i.itemid      AS name,
     i.displayname AS displayname,
-    NVL(i.quantityonhand,    0) AS onhand,
-    NVL(i.quantitycommitted, 0) AS committed,
-    NVL(i.quantityavailable, 0) AS available
+    NVL(SUM(ib.quantityonhand),    0) AS onhand,
+    NVL(SUM(ib.quantitycommitted), 0) AS committed,
+    NVL(SUM(ib.quantityavailable), 0) AS available
   FROM item i
+  LEFT JOIN inventoryBalance ib ON ib.item = i.id
   WHERE i.isinactive = 'F'
+  GROUP BY i.id, i.itemid, i.displayname
   ORDER BY i.itemid
 `;
 
@@ -211,8 +215,11 @@ function buildPayload(itemRows, flexRows, orderRows) {
     };
   }
 
-  // flexes (SS2827) — attach to parent model
+  // flexes (SS2827) — attach to parent model + derive on-hand from lot quantities
   // lot number format: "37.0|370|24-06-03|9:49" — flex is first segment
+  // lotonhand from inventoryNumber is reliable; item.quantityonhand can be 0 in SuiteQL.
+  // We accumulate lot on-hand sums here, then override models[].onHand below.
+  const lotOnHandSum = {};  // modelName → sum of lot quantityonhand
   for (const row of flexRows) {
     const modelName = (row.modelname || '').trim();
     if (!models[modelName]) continue;
@@ -221,6 +228,13 @@ function buildPayload(itemRows, flexRows, orderRows) {
     if (flex === null) continue;
     const avail = toInt(row.lotavailable) > 0;
     models[modelName].flexes.push({ f: Math.round(flex * 10) / 10, a: avail });
+    lotOnHandSum[modelName] = (lotOnHandSum[modelName] || 0) + toInt(row.lotonhand);
+  }
+
+  // Override onHand for flex-tracked models with the sum of lot quantities.
+  // Non-flex models (kids poles, etc.) keep the inventoryBalance value from Q_ITEMS.
+  for (const [name, sum] of Object.entries(lotOnHandSum)) {
+    if (models[name]) models[name].onHand = sum;
   }
 
   // sort flexes smallest → largest within each model

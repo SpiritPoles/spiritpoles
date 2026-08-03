@@ -358,7 +358,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       <div class="totals">
         <div class="total-box"><div class="total-val" id="t-pieces">—</div><div class="total-lbl">Pieces</div></div>
         <div class="total-box"><div class="total-val" id="t-poles">—</div><div class="total-lbl">Poles</div></div>
-        <div class="total-box"><div class="total-val" id="t-weight">—</div><div class="total-lbl">Total kg</div></div>
+        <div class="total-box"><div class="total-val" id="t-weight">—</div><div class="total-lbl">Total kg</div><div id="t-lbs" style="font-size:11px;font-weight:700;color:var(--ts);margin-top:3px"></div></div>
         <div class="total-box" id="t-acc-box" style="display:none;grid-column:2"><div class="total-val" id="t-acc">—</div><div class="total-lbl">Accessories</div></div>
       </div>
       <div id="packing-breakdown"></div>
@@ -563,7 +563,7 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       <div class="totals">
         <div class="total-box"><div class="total-val" id="t-pieces-p2">—</div><div class="total-lbl">Pieces</div></div>
         <div class="total-box"><div class="total-val" id="t-poles-p2">—</div><div class="total-lbl">Poles</div></div>
-        <div class="total-box"><div class="total-val" id="t-weight-p2">—</div><div class="total-lbl">Total kg</div></div>
+        <div class="total-box"><div class="total-val" id="t-weight-p2">—</div><div class="total-lbl">Total kg</div><div id="t-lbs-p2" style="font-size:11px;font-weight:700;color:var(--ts);margin-top:3px"></div></div>
         <div class="total-box" id="t-acc-box-p2" style="display:none;grid-column:2"><div class="total-val" id="t-acc-p2">—</div><div class="total-lbl">Accessories</div></div>
       </div>
       <div id="packing-breakdown-p2"></div>
@@ -2016,9 +2016,11 @@ function updatePackingTotals(listId = 'packing-list') {
   const tPieces = document.getElementById(`t-pieces${sfx}`);
   const tPoles  = document.getElementById(`t-poles${sfx}`);
   const tWeight = document.getElementById(`t-weight${sfx}`);
+  const tLbs = document.getElementById(`t-lbs${sfx}`);
   if (tPieces) tPieces.textContent = n          || '—';
   if (tPoles)  tPoles.textContent  = totalPoles  || '—';
   if (tWeight) tWeight.textContent = (n || totalPoles) ? totalKg + ' kg' : '—';
+  if (tLbs)    tLbs.textContent    = (n || totalPoles) ? totalLbs + ' lbs' : '';
 
   // Accessories count box (both phases) — show total qty of active (non-not-shipping) items
   {
