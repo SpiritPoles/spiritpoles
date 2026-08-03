@@ -1711,6 +1711,10 @@ function _updateAccessorySmallBoxImpl(ph) {
       boxContainer.dataset.accBox = String(n);
       list.appendChild(boxContainer);
       renumberPieces(listId);
+      // Remove stale dimsRow — its event listeners hold a closure over the old
+      // (now-detached) boxContainer. It will be recreated below with the fresh ref.
+      const staleDims = document.getElementById(`sb-dims-inline-p${ph}-${n}`);
+      if (staleDims) staleDims.remove();
     }
 
     const totalWt = boxItems.reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
