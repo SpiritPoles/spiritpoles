@@ -1681,6 +1681,13 @@ function unSplitAccessory(idx, ph = '2') {
 
 // Creates / updates Small Box piece containers for accessory items (one per box slot)
 function updateAccessorySmallBox(ph = '2') {
+  // Reentrance guard — renumberPieces → refreshAccessoryPanel → render() → this fn
+  // would cause infinite recursion without it.
+  if (updateAccessorySmallBox._lock) return;
+  updateAccessorySmallBox._lock = true;
+  try { _updateAccessorySmallBoxImpl(ph); } finally { updateAccessorySmallBox._lock = false; }
+}
+function _updateAccessorySmallBoxImpl(ph) {
   const listId   = ph === '1' ? 'packing-list' : 'packing-list-p2';
   const accArr   = ph === '1' ? p1Accessories : p2Accessories;
   const boxCount = ph === '1' ? p1AccBoxCount : p2AccBoxCount;
