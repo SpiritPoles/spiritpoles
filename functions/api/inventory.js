@@ -109,19 +109,23 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
-// Replaces SS2471 — item list with display names.
-// Note: item.quantityonhand / quantitycommitted / quantityavailable return 0 in SuiteQL analytics
-// context for this account. On-hand counts for flex poles are overridden below using lot quantities
-// from Q_FLEXES (inventoryNumber), which are reliable. Non-flex items (kids poles) show 0 on hand.
+// Replaces SS2471 — item on-hand aggregated across all locations from inventoryBalance.
+// item.quantityonhand returns 0 in SuiteQL analytics context; inventoryBalance has the real numbers.
+// Drive from inventoryBalance (small table) → JOIN item, filter onhand>0 to keep the result tiny.
+// Items with zero stock simply won't appear here; buildPayload defaults missing models to 0.
+// Lot-tracked flex poles are further overridden below using per-lot quantities from Q_FLEXES.
 const Q_ITEMS = `
   SELECT
-    i.itemid      AS name,
-    i.displayname AS displayname,
-    0             AS onhand,
-    0             AS committed,
-    0             AS available
-  FROM item i
+    i.itemid                  AS name,
+    MAX(i.displayname)        AS displayname,
+    SUM(ib.quantityonhand)    AS onhand,
+    SUM(ib.quantitycommitted) AS committed,
+    SUM(ib.quantityavailable) AS available
+  FROM inventoryBalance ib
+  JOIN item i ON i.id = ib.item
   WHERE i.isinactive = 'F'
+    AND ib.quantityonhand > 0
+  GROUP BY ib.item, i.itemid
   ORDER BY i.itemid
 `;
 
@@ -242,34 +246,35 @@ function buildPayload(itemRows, flexRows, orderRows) {
   }
 
   // orders (SS2491) — group by item name
+  // Also create stub model entries for back-ordered items not in Q_ITEMS (zero stock).
   const orders = {};
   for (const row of orderRows) {
     const name    = (row.name || '').trim();
     if (!name || !/^\d+S?\//.test(name)) continue;     // poles only
     const openQty = Math.round(parseFloat(row.openqty) || 0);
     if (openQty <= 0) continue;
-    const boQty = toInt(row.backordered);
     const soNum = (row.sonumber || '').trim() || null;
 
     if (!orders[name]) {
       orders[name] = {
         openQty:     0,
-        boQty:       0,
-        committed:   0,   // not from Q_ORDERS — comes from Q_ITEMS (reliable)
-        available:   0,   // dashboard calculates: modelOnHand - openQty
-        onHand:      0,   // not from Q_ORDERS — comes from Q_ITEMS (reliable)
+        committed:   0,
+        available:   0,
+        onHand:      0,
         display:     row.displayname || name,
         description: row.description || '',
         soLines:     [],
       };
     }
     orders[name].openQty += openQty;
-    orders[name].soLines.push({
-      soNum,
-      qty:  openQty,
-      flex: null,    // flex memo not in standard SuiteQL transactionLine
-      bo:   false,
-    });
+    orders[name].soLines.push({ soNum, qty: openQty, flex: null, bo: false });
+
+    // If this ordered item has no inventory entry (true back-order with 0 stock),
+    // create a stub model so it appears in the Back Ordered tab.
+    if (!models[name]) {
+      const { length, weight } = parseDisplay(row.displayname || '');
+      models[name] = { length, weight, onHand: 0, available: 0, committed: 0, flexes: [] };
+    }
   }
 
   return {

@@ -2400,11 +2400,13 @@ function downloadPackingListPDF() {
     const typeKey   = c.querySelector('.piece-type-sel')?.value || 'large-tube';
     const pt        = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
     const isSmBox   = !!pt.configDims;
+    const isMultiOrder = loadedOrders.length > 1;
     const poles     = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
       model:  row.querySelector('.pr-model')?.value  || '',
       flex:   row.querySelector('.pr-flex')?.value   || '',
       note:   row.querySelector('.pr-note')?.value   || '',
       serial: row.querySelector('.pr-serial')?.value || '',
+      so:     row.querySelector('.pr-so-chip')?.textContent?.trim() || '',
     })).filter(p => p.model);
 
     // Accessories assigned to THIS pole piece (index among non-acc-box containers)
@@ -2469,15 +2471,20 @@ function downloadPackingListPDF() {
         ? `<span class="mono">${htmlEsc(pole.serial)}</span>`
         : '';
       const flexDisplay = pole.flex ? `<strong>${htmlEsc(pole.flex)}</strong>` : '';
+      const soCell = isMultiOrder
+        ? `<td style="font-size:7.5pt;font-weight:800;color:#c2185b;white-space:nowrap">${htmlEsc(pole.so)}</td>`
+        : '';
       poleRows += `<tr>
           <td class="tc n">${j + 1}</td>
           <td class="mdl">${htmlEsc(pole.model)}</td>
           <td class="tc">${flexDisplay}</td>
           <td class="nte">${htmlEsc(pole.note)}</td>
           <td>${serialDisplay}</td>
+          ${soCell}
         </tr>`;
     });
 
+    const soHeaderCell = isMultiOrder ? `<th style="width:70px">SO #</th>` : '';
     const contentTable = isSmBox
       ? `<table class="pole-tbl"><thead><tr>
            <th>Item</th><th style="width:60px;text-align:center">Qty</th>
@@ -2493,6 +2500,7 @@ function downloadPackingListPDF() {
            <th style="width:70px">Flex Memo</th>
            <th style="width:160px">Special Line Item Notes</th>
            <th style="width:235px">Serial #</th>
+           ${soHeaderCell}
          </tr></thead>
          <tbody>${poleRows}${accRowsHtml}</tbody>
          </table>`;
@@ -2767,11 +2775,13 @@ function downloadPackingListP2() {
     const typeKey   = c.querySelector('.piece-type-sel')?.value || 'large-tube';
     const pt        = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
     const isSmBox   = !!pt.configDims;
+    const isMultiOrder = loadedOrders.length > 1;
     const poles     = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
       model:  row.querySelector('.pr-model')?.value  || '',
       flex:   row.querySelector('.pr-flex')?.value   || '',
       note:   row.querySelector('.pr-note')?.value   || '',
       serial: row.querySelector('.pr-serial')?.value || '',
+      so:     row.querySelector('.pr-so-chip')?.textContent?.trim() || '',
     })).filter(p => p.model);
 
     // Accessories assigned to THIS pole piece (index among non-acc-box containers)
@@ -2837,15 +2847,20 @@ function downloadPackingListP2() {
         ? `<span class="mono">${htmlEsc(pole.serial)}</span>`
         : `<span class="serial-blank"></span>`;
       const flexDisplay = pole.flex ? `<strong>${htmlEsc(pole.flex)}</strong>` : '';
+      const soCell = isMultiOrder
+        ? `<td style="font-size:7.5pt;font-weight:800;color:#c2185b;white-space:nowrap">${htmlEsc(pole.so)}</td>`
+        : '';
       poleRows += `<tr>
           <td class="tc n">${j + 1}</td>
           <td class="mdl">${htmlEsc(pole.model)}</td>
           <td class="tc">${flexDisplay}</td>
           <td class="nte">${htmlEsc(pole.note)}</td>
           <td>${serialDisplay}</td>
+          ${soCell}
         </tr>`;
     });
 
+    const soHeaderCell = isMultiOrder ? `<th style="width:70px">SO #</th>` : '';
     // For Small Box pieces — show contents list instead of pole table
     const contentTable = isSmBox
       ? `<table class="pole-tbl"><thead><tr>
@@ -2862,6 +2877,7 @@ function downloadPackingListP2() {
            <th style="width:70px">Flex Memo</th>
            <th style="width:160px">Special Line Item Notes</th>
            <th style="width:235px">Serial #</th>
+           ${soHeaderCell}
          </tr></thead>
          <tbody>${poleRows}${accRowsHtml}</tbody>
          </table>`;
