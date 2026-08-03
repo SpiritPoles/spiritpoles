@@ -284,27 +284,22 @@ export async function onRequestGet({ env }) {
     );
   }
 
+  // Run sequentially so the error message names which query failed
+  let itemRows, flexRows, orderRows;
   try {
-    // All three queries run in parallel — they are independent
-    const [itemRows, flexRows, orderRows] = await Promise.all([
-      suiteQLAll(Q_ITEMS,  env),
-      suiteQLAll(Q_FLEXES, env),
-      suiteQLAll(Q_ORDERS, env),
-    ]);
+    try { itemRows  = await suiteQLAll(Q_ITEMS,  env); }
+    catch (e) { throw new Error('Q_ITEMS: ' + e.message); }
+    try { flexRows  = await suiteQLAll(Q_FLEXES, env); }
+    catch (e) { throw new Error('Q_FLEXES: ' + e.message); }
+    try { orderRows = await suiteQLAll(Q_ORDERS, env); }
+    catch (e) { throw new Error('Q_ORDERS: ' + e.message); }
 
     const payload = buildPayload(itemRows, flexRows, orderRows);
-
-    return new Response(JSON.stringify(payload), {
-      status:  200,
-      headers: CORS,
-    });
+    return new Response(JSON.stringify(payload), { status: 200, headers: CORS });
 
   } catch (err) {
     console.error('[inventory] error:', err.message);
-    return new Response(
-      JSON.stringify({ error: err.message }),
-      { status: 502, headers: CORS }
-    );
+    return new Response(JSON.stringify({ error: err.message }), { status: 502, headers: CORS });
   }
 }
 

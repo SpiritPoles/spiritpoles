@@ -327,9 +327,9 @@ async function fetchInventory(isManual = false) {
 
   try {
     const resp = await fetch(INVENTORY_API, { cache: 'no-store' });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
+    // Always parse the body — even error responses contain a JSON {error} message
+    const data = await resp.json().catch(() => ({ error: `HTTP ${resp.status} (unparseable response)` }));
+    if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
 
     // Cache in localStorage
     try {
