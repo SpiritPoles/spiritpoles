@@ -138,25 +138,18 @@ const Q_FLEXES = `
   ORDER BY i.itemid, inv.inventorynumber
 `;
 
-// Replaces SS2491 — open sales order lines with accurate pending quantity.
-// NetSuite has no direct quantityfulfilled column on transactionLine.
-// Pending qty = ordered qty minus qty fulfilled via linked ItemShip transactions,
-// calculated by joining through PreviousTransactionLineLink.
-// Line filters (isfullyshipped, isclosed, fulfillable) are confirmed SuiteQL columns.
-// GROUP BY t.id, tl.id → one row per SO line; HAVING drops fully-fulfilled lines.
+// Replaces SS2491 — open SO lines. Only fields needed: item, SO number, open qty.
+// quantityonhand / quantityavailable / quantitycommitted are NOT_EXPOSED on transactionLine.
+// On-hand comes from Q_ITEMS; dashboard calculates availability itself as onHand - openQty.
 const Q_ORDERS = `
   SELECT
-    MAX(i.itemid)                                                              AS name,
-    MAX(i.displayname)                                                         AS displayname,
-    MAX(i.description)                                                         AS description,
-    MAX(t.tranid)                                                              AS sonumber,
+    MAX(i.itemid)       AS name,
+    MAX(i.displayname)  AS displayname,
+    MAX(i.description)  AS description,
+    MAX(t.tranid)       AS sonumber,
     ABS(NVL(MAX(tl.quantity), 0))
       - NVL(SUM(CASE WHEN f.id IS NOT NULL THEN ABS(NVL(fl.quantity, 0)) ELSE 0 END), 0)
-                                                                               AS openqty,
-    NVL(MAX(tl.quantitybackordered), 0) AS backordered,
-    NVL(MAX(tl.quantitycommitted),   0) AS committed,
-    NVL(MAX(tl.quantityonhand),      0) AS onhand,
-    NVL(MAX(tl.quantityavailable),   0) AS available
+                        AS openqty
   FROM transaction t
   JOIN transactionLine tl
     ON tl.transaction = t.id
@@ -171,7 +164,7 @@ const Q_ORDERS = `
   LEFT JOIN transactionLine fl
     ON fl.transaction = f.id
     AND fl.id         = ptll.NextLine
-  WHERE t.type           = 'SalesOrd'
+  WHERE t.type            = 'SalesOrd'
     AND tl.isfullyshipped = 'F'
     AND tl.isclosed       = 'F'
     AND tl.fulfillable    = 'T'
@@ -182,6 +175,7 @@ const Q_ORDERS = `
     - NVL(SUM(CASE WHEN f.id IS NOT NULL THEN ABS(NVL(fl.quantity, 0)) ELSE 0 END), 0) > 0
   ORDER BY MAX(i.itemid), MAX(t.tranid)
 `;
+
 
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
@@ -248,21 +242,20 @@ function buildPayload(itemRows, flexRows, orderRows) {
       orders[name] = {
         openQty:     0,
         boQty:       0,
-        committed:   toInt(row.committed),
-        available:   toInt(row.available),
-        onHand:      toInt(row.onhand),
+        committed:   0,   // not from Q_ORDERS — comes from Q_ITEMS (reliable)
+        available:   0,   // dashboard calculates: modelOnHand - openQty
+        onHand:      0,   // not from Q_ORDERS — comes from Q_ITEMS (reliable)
         display:     row.displayname || name,
         description: row.description || '',
         soLines:     [],
       };
     }
     orders[name].openQty += openQty;
-    orders[name].boQty   += boQty;
     orders[name].soLines.push({
       soNum,
       qty:  openQty,
-      flex: null,    // flex memo not exposed via standard SuiteQL transactionLine
-      bo:   boQty > 0,
+      flex: null,    // flex memo not in standard SuiteQL transactionLine
+      bo:   false,
     });
   }
 
