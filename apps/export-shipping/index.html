@@ -205,11 +205,16 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
 
 /* SO# chip column — first child of .pole-row-p1, hidden until multi-order mode */
 /* display:none removes from grid layout; display:block re-engages the extra column */
-.pr-so-chip{display:none;font-size:9px;font-weight:800;color:var(--pink);background:rgba(232,18,125,0.1);border:1px solid rgba(232,18,125,0.25);border-radius:4px;padding:3px 5px;text-align:center;align-self:start;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.multi-order-mode .pole-row-p1{grid-template-columns:64px 18px 90px 74px 104px 1fr 24px}
-.multi-order-mode .piece-col-hdr{grid-template-columns:64px 18px 90px 74px 104px 1fr 24px}
+.pr-so-chip{display:none;font-size:9px;font-weight:800;color:var(--ts);background:rgba(232,18,125,0.1);border:1px solid rgba(232,18,125,0.25);border-radius:4px;padding:3px 5px;text-align:center;align-self:start;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.multi-order-mode .pole-row-p1{grid-template-columns:18px 90px 74px 104px 1fr 60px 24px}
+.multi-order-mode .piece-col-hdr{grid-template-columns:18px 90px 74px 104px 1fr 60px 24px}
 .multi-order-mode .pr-so-chip{display:block}
-.ol-conflict{font-size:11px;font-weight:700;color:#e65100;background:rgba(230,81,0,0.1);border:1px solid rgba(230,81,0,0.3);border-radius:6px;padding:6px 12px;margin-top:8px}
+.ol-conflict{font-size:11px;font-weight:700;color:#e65100;background:rgba(230,81,0,0.1);border:1px solid rgba(230,81,0,0.3);border-radius:6px;padding:10px 12px;margin-top:8px}
+.ol-consignee-opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ol-consignee-btn{font-size:11px;font-weight:700;padding:6px 11px;border:1px solid rgba(230,81,0,0.4);border-radius:6px;background:transparent;color:var(--tp);cursor:pointer;text-align:left;line-height:1.4;transition:background .15s,border-color .15s}
+.ol-consignee-btn:hover{background:rgba(230,81,0,0.12)}
+.ol-consignee-btn.active{border-color:var(--green);background:rgba(76,175,80,0.12);color:var(--green)}
+.ol-consignee-so{display:block;font-size:9px;font-weight:800;letter-spacing:.05em;opacity:.65;margin-bottom:1px}
 
 /* Action row */
 .action-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:20px}
@@ -995,10 +1000,23 @@ function renderOrderList() {
 
     const conflictHtml = (() => {
       if (!isMulti) return '';
-      const consignees = [...new Set(loadedOrders.map(o => o.customer).filter(Boolean))];
-      return consignees.length > 1
-        ? `<div class="ol-conflict">⚠️ Multiple consignees detected: ${consignees.map(c => `"${htmlEsc(c)}"`).join(', ')} — confirm before shipping.</div>`
-        : '';
+      const uniqueCustomers = [...new Set(loadedOrders.map(o => o.customer).filter(Boolean))];
+      if (uniqueCustomers.length <= 1) return '';
+      const currentConsignee = v('consignee') || '';
+      // Build one button per unique customer; show the SO# it came from
+      const seen = new Set();
+      const opts = loadedOrders.map((ord, i) => {
+        if (!ord.customer || seen.has(ord.customer)) return '';
+        seen.add(ord.customer);
+        const isActive = ord.customer === currentConsignee;
+        return `<button class="ol-consignee-btn${isActive ? ' active' : ''}" onclick="applyConsignee(${i})">
+          <span class="ol-consignee-so">${htmlEsc(ord.so_number)}</span>${htmlEsc(ord.customer)}
+        </button>`;
+      }).join('');
+      return `<div class="ol-conflict">
+        ⚠️ Multiple consignees — select the correct one for this shipment:
+        <div class="ol-consignee-opts">${opts}</div>
+      </div>`;
     })();
 
     panel.innerHTML = `
@@ -1042,6 +1060,18 @@ function removeOrder(idx) {
   repackAll('p1');
   repackAll('p2');
   renderOrderList();
+}
+
+// Apply a specific order's consignee details to the shipment header fields
+function applyConsignee(idx) {
+  const ord = loadedOrders[idx];
+  if (!ord) return;
+  setVal('consignee',      ord.customer     || '');
+  setVal('consignee-full', ord.ship_address || '');
+  // Auto-resize the textarea if it exists
+  const ta = document.getElementById('consignee-full');
+  if (ta && typeof autoResize === 'function') autoResize(ta);
+  renderOrderList(); // re-render so active button updates
 }
 
 // Auto-sum declared value from all orders
@@ -1928,13 +1958,13 @@ function addPoleRowToContainer(container, pole = {}) {
   row.draggable = true;
   if (so_number) row.setAttribute('data-so', so_number);
   row.innerHTML = `
-    <span class="pr-so-chip">${htmlEsc(so_number)}</span>
     <span class="pr-line-num">${lineNum}.</span>
     <input class="pr-model" type="text" value="${htmlEsc(String(model))}" placeholder="Model"
       oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list')">
     <input class="pr-flex"   type="text" value="${htmlEsc(flex)}"   placeholder="Flex">
     <input class="pr-note"   type="text" value="${htmlEsc(note)}"   placeholder="Note">
     <input class="pr-serial" type="text" value="${htmlEsc(serial)}" placeholder="Serial">
+    <span class="pr-so-chip">${htmlEsc(so_number)}</span>
     <button class="pole-del" onclick="delPoleRow(this)" title="Remove">&#x2715;</button>`;
   // Drag-and-drop handlers
   row.addEventListener('dragstart', onPoleRowDragStart);
@@ -1994,7 +2024,7 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
       <input class="sb-wt"  type="number" placeholder="lbs" style="width:58px" oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list-p2')">
     </div>
     <div class="piece-col-hdr" style="${isSmallBox ? 'display:none' : ''}">
-      <span class="pr-so-chip">Order</span><span>#</span><span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span></span>
+      <span>#</span><span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span class="pr-so-chip">Order</span><span></span>
     </div>
     <div class="piece-poles" style="${isSmallBox ? 'display:none' : ''}"></div>
     <div class="piece-foot" style="${isSmallBox ? 'display:none' : ''}">
