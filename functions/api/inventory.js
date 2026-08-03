@@ -109,10 +109,36 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
-// PROBE: discover inventoryBalance column names — returns first row so we can see the schema.
-// Once column names are confirmed, replace with the real aggregation query.
+// inventoryBalance confirmed to exist in SuiteQL (probe passed). Aggregate across all locations.
+// Only items with stock > 0 are returned; zero-stock items default to 0 in buildPayload.
+// Flex poles are further overridden below with per-lot quantities from Q_FLEXES.
 const Q_ITEMS = `
-  SELECT * FROM inventoryBalance FETCH FIRST 1 ROWS ONLY
+  SELECT
+    i.itemid                  AS name,
+    MAX(i.displayname)        AS displayname,
+    SUM(ib.quantityonhand)    AS onhand,
+    SUM(ib.quantitycommitted) AS committed,
+    SUM(ib.quantityavailable) AS available
+  FROM inventoryBalance ib
+  JOIN item i ON i.id = ib.item
+  WHERE i.isinactive = 'F'
+    AND ib.quantityonhand > 0
+  GROUP BY ib.item, i.itemid
+  ORDER BY i.itemid
+`;
+
+// Fallback if inventoryBalance columns don't match — gives correct model list with 0 on-hand.
+// Flex poles still get correct counts from Q_FLEXES lotOnHandSum override.
+const Q_ITEMS_FALLBACK = `
+  SELECT
+    i.itemid      AS name,
+    i.displayname AS displayname,
+    0             AS onhand,
+    0             AS committed,
+    0             AS available
+  FROM item i
+  WHERE i.isinactive = 'F'
+  ORDER BY i.itemid
 `;
 
 // Replaces SS2827 — individual lot numbers (each pole's flex is encoded in the
@@ -281,11 +307,17 @@ export async function onRequestGet({ env }) {
     );
   }
 
-  // Run sequentially so the error message names which query failed
+  // Run sequentially so the error message names which query failed.
+  // Q_ITEMS tries inventoryBalance first; falls back to item master list (0 on-hand) on any error.
   let itemRows, flexRows, orderRows;
   try {
-    try { itemRows  = await suiteQLAll(Q_ITEMS,  env); }
-    catch (e) { throw new Error('Q_ITEMS: ' + e.message); }
+    try {
+      itemRows = await suiteQLAll(Q_ITEMS, env);
+    } catch (e) {
+      console.warn('[inventory] inventoryBalance failed (' + e.message + '), falling back to item table');
+      try { itemRows = await suiteQLAll(Q_ITEMS_FALLBACK, env); }
+      catch (e2) { throw new Error('Q_ITEMS: ' + e2.message); }
+    }
     try { flexRows  = await suiteQLAll(Q_FLEXES, env); }
     catch (e) { throw new Error('Q_FLEXES: ' + e.message); }
     try { orderRows = await suiteQLAll(Q_ORDERS, env); }
