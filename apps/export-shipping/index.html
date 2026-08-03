@@ -203,10 +203,12 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
 .ol-hint{font-size:11px;color:var(--ts);margin-top:8px;padding:0 2px}
 .ol-remove{padding:3px 9px !important;font-size:10px !important}
 
-/* SO# badge inside model column — shown in multi-order mode */
-.pr-model-wrap{display:flex;flex-direction:column;gap:1px}
-.pr-so-badge{display:none;font-size:8px;font-weight:800;color:var(--pink);background:rgba(232,18,125,0.12);border-radius:3px;padding:1px 5px;text-align:center;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.multi-order-mode .pr-so-badge{display:block}
+/* SO# chip column — first child of .pole-row-p1, hidden until multi-order mode */
+/* display:none removes from grid layout; display:block re-engages the extra column */
+.pr-so-chip{display:none;font-size:9px;font-weight:800;color:var(--pink);background:rgba(232,18,125,0.1);border:1px solid rgba(232,18,125,0.25);border-radius:4px;padding:3px 5px;text-align:center;align-self:start;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.multi-order-mode .pole-row-p1{grid-template-columns:64px 18px 90px 74px 104px 1fr 24px}
+.multi-order-mode .piece-col-hdr{grid-template-columns:64px 18px 90px 74px 104px 1fr 24px}
+.multi-order-mode .pr-so-chip{display:block}
 .ol-conflict{font-size:11px;font-weight:700;color:#e65100;background:rgba(230,81,0,0.1);border:1px solid rgba(230,81,0,0.3);border-radius:6px;padding:6px 12px;margin-top:8px}
 
 /* Action row */
@@ -971,7 +973,7 @@ function renderOrderList() {
     const panel = document.getElementById(`order-list-panel-${ph}`);
     if (!panel) return;
     if (!loadedOrders.length) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
-    panel.style.display = '';
+    panel.style.display = 'block';
 
     const rows = loadedOrders.map((ord, i) => {
       const poleCount = ph === 'p1'
@@ -1926,12 +1928,10 @@ function addPoleRowToContainer(container, pole = {}) {
   row.draggable = true;
   if (so_number) row.setAttribute('data-so', so_number);
   row.innerHTML = `
+    <span class="pr-so-chip">${htmlEsc(so_number)}</span>
     <span class="pr-line-num">${lineNum}.</span>
-    <div class="pr-model-wrap">
-      <span class="pr-so-badge">${htmlEsc(so_number)}</span>
-      <input class="pr-model" type="text" value="${htmlEsc(String(model))}" placeholder="Model"
-        oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list')">
-    </div>
+    <input class="pr-model" type="text" value="${htmlEsc(String(model))}" placeholder="Model"
+      oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list')">
     <input class="pr-flex"   type="text" value="${htmlEsc(flex)}"   placeholder="Flex">
     <input class="pr-note"   type="text" value="${htmlEsc(note)}"   placeholder="Note">
     <input class="pr-serial" type="text" value="${htmlEsc(serial)}" placeholder="Serial">
@@ -1994,7 +1994,7 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
       <input class="sb-wt"  type="number" placeholder="lbs" style="width:58px" oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list-p2')">
     </div>
     <div class="piece-col-hdr" style="${isSmallBox ? 'display:none' : ''}">
-      <span>#</span><span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span></span>
+      <span class="pr-so-chip">Order</span><span>#</span><span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span></span>
     </div>
     <div class="piece-poles" style="${isSmallBox ? 'display:none' : ''}"></div>
     <div class="piece-foot" style="${isSmallBox ? 'display:none' : ''}">
