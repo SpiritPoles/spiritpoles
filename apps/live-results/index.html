@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.16</title>
+  <title>VaultDesk v1.17</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{--bg:#0f0f14;--surface:#1a1a24;--card:#22222e;--border:#2e2e3d;--accent:#4f7cff;--success:#22c55e;--danger:#ef4444;--warn:#f59e0b;--text:#f0f0f0;--muted:#8888aa}
@@ -31,6 +33,108 @@
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useMemo,useCallback,useEffect,useRef}=React;
+
+// ─── SUPABASE ─────────────────────────────────────────────────────────────────
+const SUPABASE_URL='https://oicczjlbmxxoylkbuxzy.supabase.co';
+const SUPABASE_KEY='sb_publishable_jf648alt67vbmJRYviMR7g_IH0fSk1O';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+// URL routing: #/score/SLUG/TOKEN → scorer mode, #/display/SLUG → display mode
+const parseRoute=()=>{
+  const h=window.location.hash;
+  const sm=h.match(/^#\/score\/([^/]+)\/([^/]+)$/);if(sm)return{mode:'scorer',slug:sm[1],token:sm[2]};
+  const dm=h.match(/^#\/display\/([^/]+)$/);if(dm)return{mode:'display',slug:dm[1]};
+  return{mode:'admin'};
+};
+const ROUTE=parseRoute();
+
+// Publish a competition to Supabase (called from startComp)
+const publishCompetition=async(su,sc)=>{
+  let{data:{session}}=await sb.auth.getSession();
+  if(!session){const r=await sb.auth.signInAnonymously();session=r.data?.session;}
+  const userId=session?.user?.id;
+  const slug=sc.compId||`c_${Date.now().toString(36)}`;
+  const{data:comp,error:compErr}=await sb.from('competitions').upsert({
+    slug,owner_id:userId,name:su.info?.name||'',date:su.info?.date||null,
+    venue:su.info?.venue||'',gender:su.info?.gender||null,rulebook:su.rulebook||'WA',
+    status:'active',cur_height_idx:0,cur_athlete_idx:sc.curA??-1,
+    inc_str:su.incStr||'',start_h:su.startH||'',
+  },{onConflict:'slug'}).select().single();
+  if(compErr)throw compErr;
+  const compId=comp.id;const scorerToken=comp.scorer_token;
+  // Heights
+  await sb.from('heights').delete().eq('comp_id',compId);
+  const{data:heights,error:hErr}=await sb.from('heights')
+    .insert(sc.heights.map((h,i)=>({comp_id:compId,height_cm:h,sort_order:i}))).select();
+  if(hErr)throw hErr;
+  // Athletes
+  await sb.from('athletes').delete().eq('comp_id',compId);
+  const{data:athletes,error:aErr}=await sb.from('athletes').insert(sc.athletes.map((a,i)=>({
+    comp_id:compId,athlete_key:a.id,first_name:a.firstName||'',last_name:a.lastName||'',
+    affiliation:a.affiliation||'',country:a.country||'',bib:a.bib||'',pb:a.pb||'',sb:a.sb||'',
+    status:a.status||'competing',sort_order:i,
+  }))).select();
+  if(aErr)throw aErr;
+  const athIds={};athletes.forEach(r=>{athIds[r.athlete_key]=r.id;});
+  const heightIds={};heights.forEach(r=>{heightIds[r.sort_order]=r.id;});
+  return{supabaseCompId:compId,scorerToken,athIds,heightIds};
+};
+
+// Sync a mark to Supabase via SECURITY DEFINER RPC
+const syncMark=async(sc,athLocalId,hIdx,marks)=>{
+  if(!sc?.supabaseCompId||!sc?.scorerToken)return;
+  const athId=sc.athIds?.[athLocalId];const hId=sc.heightIds?.[hIdx];
+  if(!athId||!hId)return;
+  const{error}=await sb.rpc('record_mark',{
+    p_comp_id:sc.supabaseCompId,p_athlete_id:athId,p_height_id:hId,
+    p_marks:marks,p_scorer_token:sc.scorerToken,
+  });
+  if(error)throw error;
+};
+
+// Sync competition state (curH, curA, status) via SECURITY DEFINER RPC
+const syncState=async(sc,curH,curA,status)=>{
+  if(!sc?.supabaseCompId||!sc?.scorerToken)return;
+  const{error}=await sb.rpc('advance_competition_state',{
+    p_comp_id:sc.supabaseCompId,p_cur_height_idx:curH??0,
+    p_cur_athlete_idx:curA??-1,p_status:status||'active',
+    p_scorer_token:sc.scorerToken,
+  });
+  if(error)throw error;
+};
+
+// Load competition from Supabase by slug
+const loadCompFromSupabase=async(slug)=>{
+  const{data:comp,error}=await sb.from('competitions').select().eq('slug',slug).single();
+  if(error||!comp)throw new Error('Competition not found: '+slug);
+  const[{data:hRows},{data:aRows},{data:attRows}]=await Promise.all([
+    sb.from('heights').select().eq('comp_id',comp.id).order('sort_order'),
+    sb.from('athletes').select().eq('comp_id',comp.id).order('sort_order'),
+    sb.from('attempts').select().eq('comp_id',comp.id),
+  ]);
+  const heightCms=(hRows||[]).map(h=>h.height_cm);
+  const heightIds={};(hRows||[]).forEach(h=>{heightIds[h.sort_order]=h.id;});
+  const athIds={};
+  const localAthletes=(aRows||[]).map(a=>{
+    athIds[a.athlete_key]=a.id;
+    const athAttempts=Array.from({length:heightCms.length},()=>[]);
+    (attRows||[]).filter(att=>att.athlete_id===a.id).forEach(att=>{
+      const hRow=(hRows||[]).find(h=>h.id===att.height_id);
+      if(hRow)athAttempts[hRow.sort_order]=att.marks||[];
+    });
+    return{id:a.athlete_key,firstName:a.first_name,lastName:a.last_name,
+      affiliation:a.affiliation||'',country:a.country||'',bib:a.bib||'',
+      pb:a.pb||'',sb:a.sb||'',status:a.status||'competing',
+      order:a.sort_order+1,attempts:athAttempts};
+  });
+  return{sc:{
+    info:{name:comp.name||'',date:comp.date||'',venue:comp.venue||'',gender:comp.gender||''},
+    rulebook:comp.rulebook||'WA',heights:heightCms,athletes:localAthletes,
+    curH:comp.cur_height_idx||0,curA:comp.cur_athlete_idx??-1,
+    compStatus:comp.status||'active',compId:comp.slug,
+    supabaseCompId:comp.id,scorerToken:comp.scorer_token,athIds,heightIds,
+  }};
+};
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const RULEBOOKS=[{key:'WA',label:'World Athletics / USATF'},{key:'NCAA',label:'NCAA'},{key:'NFHS',label:'NFHS (High School)'}];
@@ -912,6 +1016,48 @@ function SaveResultsDialog({athletes,heights,ranked,info,primaryMetric,onClose})
           :<button onClick={doSave} disabled={saving} style={{...btn(C.success,'12px 20px',15),width:'100%',marginBottom:12,opacity:saving?.6:1}}>{saving?'Saving...':'Download Results CSV'}</button>
         }
         <button onClick={onClose} style={{...btn(C.card,'10px 20px',14),width:'100%',border:`1px solid ${C.border}`}}>{saved?'Close':'Cancel'}</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── SHARE PANEL ─────────────────────────────────────────────────────────────
+function SharePanel({sc,onClose}){
+  const slug=sc?.compId;const token=sc?.scorerToken;
+  if(!slug||!token)return null;
+  const base=window.location.origin+window.location.pathname;
+  const scoreUrl=`${base}#/score/${slug}/${token}`;
+  const dispUrl=`${base}#/display/${slug}`;
+  const[copied,setCopied]=useState('');
+  const copy=async(text,key)=>{
+    try{await navigator.clipboard.writeText(text);}
+    catch(_){const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}
+    setCopied(key);setTimeout(()=>setCopied(''),2500);
+  };
+  const scoreQR=useRef(null);const dispQR=useRef(null);
+  useEffect(()=>{
+    const opts={width:150,height:150,colorDark:'#e0e0f0',colorLight:'#1a1a24'};
+    if(window.QRCode&&scoreQR.current){scoreQR.current.innerHTML='';try{new window.QRCode(scoreQR.current,{...opts,text:scoreUrl});}catch(_){}}
+    if(window.QRCode&&dispQR.current){dispQR.current.innerHTML='';try{new window.QRCode(dispQR.current,{...opts,text:dispUrl});}catch(_){}}
+  },[scoreUrl,dispUrl]);
+  const urlCard=(label,color,url,key,qrRef)=>(
+    <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:'12px 14px',marginBottom:12}}>
+      <div style={{fontSize:10,fontWeight:800,color,letterSpacing:.8,textTransform:'uppercase',marginBottom:8}}>{label}</div>
+      <div ref={qrRef} style={{display:'flex',justifyContent:'center',marginBottom:10}}/>
+      <div style={{fontSize:10,color:C.muted,wordBreak:'break-all',lineHeight:1.5,marginBottom:8,background:C.surface,borderRadius:6,padding:'6px 8px'}}>{url}</div>
+      <button onClick={()=>copy(url,key)} style={{...btn(copied===key?C.success:C.accent,'7px 14px',12),width:'100%'}}>
+        {copied===key?'✓ Copied!':key==='score'?'Copy Scorer Link':'Copy Display Link'}
+      </button>
+    </div>
+  );
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.88)',zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:16,padding:20,width:'100%',maxWidth:420,border:`1px solid ${C.border}`,maxHeight:'90vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontWeight:800,fontSize:16,marginBottom:4}}>Share Competition</div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{sc.info?.name||'Competition'} · live sync enabled</div>
+        {urlCard('📊 Scorer URL · Private — share with scorer only',C.warn,scoreUrl,'score',scoreQR)}
+        {urlCard('📺 Display URL · Public — post to website or screen',C.accent,dispUrl,'disp',dispQR)}
+        <button onClick={onClose} style={{...btn(C.card,'10px 20px',14),width:'100%',border:`1px solid ${C.border}`}}>Done</button>
       </div>
     </div>
   );
@@ -1831,13 +1977,45 @@ function VaultDeskApp(){
   const[showEdit,setShowEdit]=useState(false);
   const[showImport,setShowImport]=useState(false);
   const[showSave,setShowSave]=useState(false);
+  const[showShare,setShowShare]=useState(false);
   const[savedComps,setSavedComps]=useState(loadSaved);
+  const[sbLoading,setSbLoading]=useState(ROUTE.mode!=='admin');
+  const[sbError,setSbError]=useState(null);
   const suRef=useRef(su);const scRef=useRef(sc);
   useEffect(()=>{suRef.current=su;},[su]);
   useEffect(()=>{scRef.current=sc;},[sc]);
 
   // Auto-set primaryMetric when rulebook changes
   useEffect(()=>{setPrimaryMetric(su.rulebook!=='NFHS');},[su.rulebook]);
+
+  // Scorer / Display: load competition from Supabase on mount
+  useEffect(()=>{
+    if(ROUTE.mode==='admin')return;
+    (async()=>{
+      try{
+        const{sc:loaded}=await loadCompFromSupabase(ROUTE.slug);
+        if(ROUTE.mode==='scorer'&&ROUTE.token)loaded.scorerToken=ROUTE.token;
+        setSc(loaded);
+        setScreen(ROUTE.mode==='scorer'?'scoring':'display');
+      }catch(e){setSbError(e.message||'Failed to load competition');}
+      finally{setSbLoading(false);}
+    })();
+  },[]);
+
+  // Display: subscribe to realtime updates
+  useEffect(()=>{
+    if(ROUTE.mode!=='display'||!sc?.supabaseCompId)return;
+    const compId=sc.supabaseCompId;
+    const reload=async()=>{
+      try{const{sc:f}=await loadCompFromSupabase(ROUTE.slug);setSc(f);}
+      catch(e){console.warn('Realtime reload failed:',e);}
+    };
+    const ch=sb.channel(`comp:${compId}`)
+      .on('postgres_changes',{event:'*',schema:'public',table:'attempts',filter:`comp_id=eq.${compId}`},reload)
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'competitions',filter:`id=eq.${compId}`},reload)
+      .subscribe();
+    return()=>{sb.removeChannel(ch);};
+  },[sc?.supabaseCompId]);
 
   const updSu=useCallback(patch=>setSu(p=>({...p,...patch})),[]);
   const updSc=useCallback(patch=>setSc(p=>p?{...p,...patch}:p),[]);
@@ -1868,8 +2046,8 @@ function VaultDeskApp(){
   const setOrder=useCallback((id,n)=>updSu({athletes:suRef.current.athletes.map(a=>a.id===id?{...a,order:n}:a)}),[]);
   const setEditingId=useCallback(id=>updSu({editingId:id}),[]);
 
-  // Start competition
-  const startComp=useCallback(()=>{
+  // Start competition — publishes to Supabase, falls back to offline if network fails
+  const startComp=useCallback(async()=>{
     const s=suRef.current;
     const validAthletes=s.athletes.filter(a=>(a.firstName||'').trim()||(a.lastName||'').trim());
     if(!validAthletes.length||!s.heights.length)return;
@@ -1879,7 +2057,12 @@ function VaultDeskApp(){
       curH:0,curA:firstEligible(orderedAthletes,0),
       compId:s.compId||`c_${Date.now().toString(36)}`,
     };
-    setSc(newSc);updSu(mkSu());setScreen('scoring');
+    let finalSc=newSc;
+    try{
+      const ids=await publishCompetition(s,newSc);
+      finalSc={...newSc,...ids};
+    }catch(e){console.warn('Supabase publish failed (offline mode):',e);}
+    setSc(finalSc);updSu(mkSu());setScreen('scoring');
   },[primaryMetric]);
 
   // Mark recording
@@ -1900,6 +2083,8 @@ function VaultDeskApp(){
       return{...a,attempts:newAtt,status};
     });
     updSc({athletes:newAthletes});
+    // Sync mark to Supabase (fire-and-forget — local state is source of truth)
+    syncMark(c,ath.id,curH,newMarks).catch(e=>console.warn('syncMark failed:',e));
     // Always advance rotation after any mark (X included) — nextVaulter skips done athletes
     const nA=nextVaulter(newAthletes,curH,curA);
     if(nA!==-1){updSc({curA:nA});return;}
@@ -1963,17 +2148,39 @@ function VaultDeskApp(){
     {id:'history',label:'History',icon:'🕐'},
   ];
 
+  // Supabase loading / error screens for scorer + display modes
+  if(sbLoading)return(
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'100vh',gap:16,color:C.muted,fontSize:14}}>
+      <span className="live-dot" style={{width:10,height:10,borderRadius:'50%',background:C.accent,display:'inline-block'}}/>
+      Loading competition…
+    </div>
+  );
+  if(sbError)return(
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'100vh',gap:16,padding:24,textAlign:'center'}}>
+      <div style={{fontSize:32}}>⚠️</div>
+      <div style={{fontWeight:800,fontSize:16}}>Unable to load competition</div>
+      <div style={{fontSize:13,color:C.muted,maxWidth:320}}>{sbError}</div>
+      <button onClick={()=>window.location.hash=''}
+        style={{...btn(C.accent,'10px 20px',14),marginTop:8}}>← Back to VaultDesk</button>
+    </div>
+  );
+
   return(
     <div style={{maxWidth:700,margin:'0 auto',minHeight:'100vh',display:'flex',flexDirection:'column'}}>
       {/* HEADER */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'10px 14px',display:'flex',alignItems:'center',gap:10,position:'sticky',top:0,zIndex:100}}>
         <div style={{fontWeight:900,fontSize:17,letterSpacing:-.5,flex:1}}>
           <span style={{color:C.accent}}>Vault</span>Desk
+          {ROUTE.mode!=='admin'&&<span style={{fontSize:10,color:C.muted,fontWeight:500,marginLeft:8,letterSpacing:.6,textTransform:'uppercase'}}>{ROUTE.mode==='scorer'?'· Scorer':'· Display'}</span>}
         </div>
         {sc&&sc.compStatus==='complete-pending'&&<button onClick={verifyOfficial} style={btn(C.success,'6px 12px',12)}>Verify Official</button>}
+        {sc?.supabaseCompId&&ROUTE.mode==='admin'&&(
+          <button onClick={()=>setShowShare(true)} style={{...btn(C.card,'6px 12px',12),border:`1px solid ${C.border}`}}>🔗 Share</button>
+        )}
       </div>
 
-      {/* TOP NAV */}
+      {/* TOP NAV — hidden in scorer/display mode (single-purpose views) */}
+      {ROUTE.mode==='admin'&&(
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:'flex'}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setScreen(t.id)}
@@ -1983,6 +2190,7 @@ function VaultDeskApp(){
           </button>
         ))}
       </div>
+      )}
 
       {/* ACTIVE COMP BANNER (in setup, if a comp is scoring) */}
       {screen==='setup'&&sc&&sc.compStatus==='active'&&(
@@ -2044,6 +2252,7 @@ function VaultDeskApp(){
       {showEdit&&sc&&<EditOverlay sc={sc} updSc={updSc} onClose={()=>setShowEdit(false)}/>}
       {showImport&&<ImportDialog onImport={onImport} onClose={()=>setShowImport(false)} existingAthletes={su.athletes}/>}
       {showSave&&sc&&<SaveResultsDialog athletes={sc.athletes} heights={sc.heights} ranked={sc_ranked} info={sc.info} primaryMetric={primaryMetric} onClose={()=>setShowSave(false)}/>}
+      {showShare&&sc&&<SharePanel sc={sc} onClose={()=>setShowShare(false)}/>}
     </div>
   );
 }
