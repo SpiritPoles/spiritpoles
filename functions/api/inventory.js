@@ -114,9 +114,9 @@ const Q_ITEMS = `
   SELECT
     i.itemid      AS name,
     i.displayname AS displayname,
-    NVL(CAST(i.quantityonhand    AS INTEGER), 0) AS onhand,
-    NVL(CAST(i.quantitycommitted AS INTEGER), 0) AS committed,
-    NVL(CAST(i.quantityavailable AS INTEGER), 0) AS available
+    NVL(i.quantityonhand,    0) AS onhand,
+    NVL(i.quantitycommitted, 0) AS committed,
+    NVL(i.quantityavailable, 0) AS available
   FROM item i
   WHERE i.isinactive = 'F'
   ORDER BY i.itemid
@@ -129,8 +129,8 @@ const Q_FLEXES = `
     i.itemid            AS modelname,
     i.displayname       AS displayname,
     inv.inventorynumber AS lotnumber,
-    NVL(CAST(inv.quantityonhand    AS INTEGER), 0) AS lotonhand,
-    NVL(CAST(inv.quantityavailable AS INTEGER), 0) AS lotavailable
+    NVL(inv.quantityonhand,    0) AS lotonhand,
+    NVL(inv.quantityavailable, 0) AS lotavailable
   FROM inventoryNumber inv
   JOIN item i ON i.id = inv.item
   WHERE inv.quantityonhand > 0
@@ -153,10 +153,10 @@ const Q_ORDERS = `
     ABS(NVL(MAX(tl.quantity), 0))
       - NVL(SUM(CASE WHEN f.id IS NOT NULL THEN ABS(NVL(fl.quantity, 0)) ELSE 0 END), 0)
                                                                                AS openqty,
-    NVL(MAX(CAST(tl.quantitybackordered AS INTEGER)), 0)                      AS backordered,
-    NVL(MAX(CAST(tl.quantitycommitted   AS INTEGER)), 0)                      AS committed,
-    NVL(MAX(CAST(tl.quantityonhand      AS INTEGER)), 0)                      AS onhand,
-    NVL(MAX(CAST(tl.quantityavailable   AS INTEGER)), 0)                      AS available
+    NVL(MAX(tl.quantitybackordered), 0) AS backordered,
+    NVL(MAX(tl.quantitycommitted),   0) AS committed,
+    NVL(MAX(tl.quantityonhand),      0) AS onhand,
+    NVL(MAX(tl.quantityavailable),   0) AS available
   FROM transaction t
   JOIN transactionLine tl
     ON tl.transaction = t.id
