@@ -157,43 +157,28 @@ const Q_FLEXES = `
   ORDER BY i.itemid, inv.inventorynumber
 `;
 
-// Replaces SS2491 — open SO lines. Only fields needed: item, SO number, open qty.
-// quantityonhand / quantityavailable / quantitycommitted are NOT_EXPOSED on transactionLine.
-// On-hand comes from Q_ITEMS; dashboard calculates availability itself as onHand - openQty.
+// Replaces SS2491 — open SO lines (item, SO number, open qty).
+// Replaces the PreviousTransactionLineLink join (which caused 16k+ row explosion) with the
+// direct quantityshiprecv column on transactionLine (quantity already shipped on this line).
+// openqty = ordered - shipped. Line-level filters exclude fully-shipped/closed lines.
 const Q_ORDERS = `
   SELECT
-    MAX(i.itemid)       AS name,
-    MAX(i.displayname)  AS displayname,
-    MAX(i.description)  AS description,
-    MAX(t.tranid)       AS sonumber,
-    ABS(NVL(MAX(tl.quantity), 0))
-      - NVL(SUM(CASE WHEN f.id IS NOT NULL THEN ABS(NVL(fl.quantity, 0)) ELSE 0 END), 0)
-                        AS openqty
+    i.itemid                                                        AS name,
+    i.displayname                                                   AS displayname,
+    i.description                                                   AS description,
+    t.tranid                                                        AS sonumber,
+    ABS(NVL(tl.quantity, 0)) - NVL(tl.quantityshiprecv, 0)         AS openqty
   FROM transaction t
-  JOIN transactionLine tl
-    ON tl.transaction = t.id
-  JOIN item i
-    ON i.id = tl.item
-  LEFT JOIN PreviousTransactionLineLink ptll
-    ON ptll.PreviousDoc  = t.id
-    AND ptll.PreviousLine = tl.id
-  LEFT JOIN transaction f
-    ON f.id   = ptll.NextDoc
-    AND f.type = 'ItemShip'
-  LEFT JOIN transactionLine fl
-    ON fl.transaction = f.id
-    AND fl.id         = ptll.NextLine
+  JOIN transactionLine tl ON tl.transaction = t.id
+  JOIN item i              ON i.id = tl.item
   WHERE t.type            = 'SalesOrd'
-    AND t.trandate        >= SYSDATE - 548
     AND tl.isfullyshipped = 'F'
     AND tl.isclosed       = 'F'
     AND tl.fulfillable    = 'T'
     AND tl.item           IS NOT NULL
     AND i.isinactive      = 'F'
-  GROUP BY t.id, tl.id
-  HAVING ABS(NVL(MAX(tl.quantity), 0))
-    - NVL(SUM(CASE WHEN f.id IS NOT NULL THEN ABS(NVL(fl.quantity, 0)) ELSE 0 END), 0) > 0
-  ORDER BY MAX(i.itemid), MAX(t.tranid)
+    AND ABS(NVL(tl.quantity, 0)) - NVL(tl.quantityshiprecv, 0) > 0
+  ORDER BY i.itemid, t.tranid
 `;
 
 
