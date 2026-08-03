@@ -97,9 +97,16 @@ async function suiteQLAll(q, env) {
   const rows  = [];
   let offset  = 0;
   const limit = 1000;
-  for (let page = 0; page < 20; page++) {   // safety cap
-    const result = await suiteQLPage(q, env, offset, limit);
-    const items  = result.items || [];
+  for (let page = 0; page < 50; page++) {   // safety cap
+    let result;
+    try {
+      result = await suiteQLPage(q, env, offset, limit);
+    } catch (e) {
+      if (offset === 0) throw e;             // first page failure is fatal
+      console.warn(`suiteQLAll stopping early at offset=${offset}: ${e.message}`);
+      break;                                 // mid-pagination failure — use rows collected so far
+    }
+    const items = result.items || [];
     rows.push(...items);
     if (!result.hasMore || items.length === 0) break;
     offset += limit;
@@ -177,6 +184,7 @@ const Q_ORDERS = `
     AND tl.fulfillable    = 'T'
     AND tl.item           IS NOT NULL
     AND i.isinactive      = 'F'
+    AND i.itemid          LIKE '%/%'
     AND ABS(NVL(tl.quantity, 0)) - NVL(tl.quantityshiprecv, 0) > 0
   ORDER BY i.itemid, t.tranid
 `;
