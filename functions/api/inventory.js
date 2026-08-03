@@ -109,24 +109,10 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
-// Replaces SS2471 — item on-hand from inventoryItemLocation (aggregated across all locations).
-// item.quantityonhand returns 0 in SuiteQL analytics; inventoryBalance table name appears wrong.
-// inventoryItemLocation is the standard SuiteQL table for per-location inventory quantities.
-// Drive from the inventory table → JOIN item to avoid large intermediate result sets.
-// Items with zero stock won't appear; buildPayload stubs them at 0. Flex poles overridden by Q_FLEXES.
+// PROBE: discover inventoryBalance column names — returns first row so we can see the schema.
+// Once column names are confirmed, replace with the real aggregation query.
 const Q_ITEMS = `
-  SELECT
-    i.itemid                      AS name,
-    MAX(i.displayname)            AS displayname,
-    SUM(il.quantityonhand)        AS onhand,
-    SUM(il.quantitycommitted)     AS committed,
-    SUM(il.quantityavailable)     AS available
-  FROM inventoryItemLocation il
-  JOIN item i ON i.id = il.item
-  WHERE i.isinactive = 'F'
-    AND il.quantityonhand > 0
-  GROUP BY il.item, i.itemid
-  ORDER BY i.itemid
+  SELECT * FROM inventoryBalance FETCH FIRST 1 ROWS ONLY
 `;
 
 // Replaces SS2827 — individual lot numbers (each pole's flex is encoded in the
