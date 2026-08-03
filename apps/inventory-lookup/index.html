@@ -338,6 +338,11 @@ async function fetchInventory(isManual = false) {
 
     renderFromData(data);
     setRefreshStatus(data.refreshedAt);
+    if (data.warning) {
+      const el = document.getElementById('refreshStatus');
+      el.textContent += '  ⚠ ' + data.warning;
+      el.style.color = '#b45309';
+    }
 
   } catch (err) {
     console.error('[UCS] fetch error:', err);

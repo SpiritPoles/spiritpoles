@@ -117,7 +117,7 @@ async function suiteQLAll(q, env) {
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
 // inventoryBalance confirmed to exist in SuiteQL (probe passed). Aggregate across all locations.
-// Only items with stock > 0 are returned; zero-stock items default to 0 in buildPayload.
+// Join key tried: inventoryitem (FK to item.id). Fallback to item table (0 counts) on any error.
 // Flex poles are further overridden below with per-lot quantities from Q_FLEXES.
 const Q_ITEMS = `
   SELECT
@@ -127,10 +127,10 @@ const Q_ITEMS = `
     SUM(ib.quantitycommitted) AS committed,
     SUM(ib.quantityavailable) AS available
   FROM inventoryBalance ib
-  JOIN item i ON i.id = ib.item
+  JOIN item i ON i.id = ib.inventoryitem
   WHERE i.isinactive = 'F'
     AND ib.quantityonhand > 0
-  GROUP BY ib.item, i.itemid
+  GROUP BY i.id, i.itemid
   ORDER BY i.itemid
 `;
 
@@ -304,11 +304,13 @@ export async function onRequestGet({ env }) {
   // Run sequentially so the error message names which query failed.
   // Q_ITEMS tries inventoryBalance first; falls back to item master list (0 on-hand) on any error.
   let itemRows, flexRows, orderRows;
+  let itemsWarning = null;
   try {
     try {
       itemRows = await suiteQLAll(Q_ITEMS, env);
     } catch (e) {
-      console.warn('[inventory] inventoryBalance failed (' + e.message + '), falling back to item table');
+      itemsWarning = 'inventoryBalance fallback: ' + e.message.substring(0, 300);
+      console.warn('[inventory]', itemsWarning);
       try { itemRows = await suiteQLAll(Q_ITEMS_FALLBACK, env); }
       catch (e2) { throw new Error('Q_ITEMS: ' + e2.message); }
     }
@@ -318,6 +320,7 @@ export async function onRequestGet({ env }) {
     catch (e) { throw new Error('Q_ORDERS: ' + e.message); }
 
     const payload = buildPayload(itemRows, flexRows, orderRows);
+    if (itemsWarning) payload.warning = itemsWarning;
     return new Response(JSON.stringify(payload), { status: 200, headers: CORS });
 
   } catch (err) {
