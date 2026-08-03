@@ -1,0 +1,299 @@
+// functions/api/inventory.js
+// Cloudflare Pages Function — on-demand UCS Spirit inventory snapshot from NetSuite (TBA OAuth 1.0a)
+// Replaces the Claude scheduled task 'spiritpoles-inventory-refresh'.
+// Mirrors the payload shape expected by apps/inventory-lookup/index.html:
+//   { models, orders, catalog: {}, refreshedAt }
+
+const CORS = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Cache-Control': 'no-store',
+};
+
+// ── OAuth 1.0a helpers ────────────────────────────────────────────────────────
+
+function pct(str) {
+  return encodeURIComponent(String(str))
+    .replace(/!/g, '%21').replace(/'/g, '%27')
+    .replace(/\(/g, '%28').replace(/\)/g, '%29')
+    .replace(/\*/g, '%2A');
+}
+
+async function oauthHeader(method, baseUrl, env, extraParams = {}) {
+  const ts    = Math.floor(Date.now() / 1000).toString();
+  const nonce = crypto.randomUUID().replace(/-/g, '');
+
+  const p = {
+    ...extraParams,
+    oauth_consumer_key:     env.NS_CONSUMER_KEY,
+    oauth_nonce:            nonce,
+    oauth_signature_method: 'HMAC-SHA256',
+    oauth_timestamp:        ts,
+    oauth_token:            env.NS_TOKEN_ID,
+    oauth_version:          '1.0',
+  };
+
+  const normalized = Object.entries(p)
+    .sort(([a], [b]) => (pct(a) < pct(b) ? -1 : 1))
+    .map(([k, v]) => `${pct(k)}=${pct(v)}`)
+    .join('&');
+
+  const base   = `${method.toUpperCase()}&${pct(baseUrl)}&${pct(normalized)}`;
+  const sigKey = `${pct(env.NS_CONSUMER_SECRET)}&${pct(env.NS_TOKEN_SECRET)}`;
+
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(sigKey),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const raw = await crypto.subtle.sign('HMAC', key, enc.encode(base));
+  const sig = btoa(String.fromCharCode(...new Uint8Array(raw)));
+
+  return [
+    `OAuth realm="${env.NS_ACCOUNT_ID}"`,
+    `oauth_consumer_key="${env.NS_CONSUMER_KEY}"`,
+    `oauth_token="${env.NS_TOKEN_ID}"`,
+    `oauth_signature_method="HMAC-SHA256"`,
+    `oauth_timestamp="${ts}"`,
+    `oauth_nonce="${nonce}"`,
+    `oauth_version="1.0"`,
+    `oauth_signature="${sig}"`,
+  ].join(', ');
+}
+
+// ── SuiteQL (paginated) ───────────────────────────────────────────────────────
+
+async function suiteQLPage(q, env, offset, limit, retries = 3) {
+  const base = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
+  const url  = `${base}?limit=${limit}&offset=${offset}`;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const auth = await oauthHeader('POST', base, env, {
+      limit:  String(limit),
+      offset: String(offset),
+    });
+    const resp = await fetch(url, {
+      method:  'POST',
+      headers: {
+        'Authorization': auth,
+        'Content-Type':  'application/json',
+        'prefer':        'transient',
+      },
+      body: JSON.stringify({ q }),
+    });
+
+    if (resp.ok) return resp.json();
+
+    const txt = await resp.text();
+    if (resp.status === 401 && attempt < retries) {
+      await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      continue;
+    }
+    throw new Error(`SuiteQL ${resp.status} (offset=${offset}): ${txt.substring(0, 500)}`);
+  }
+}
+
+async function suiteQLAll(q, env) {
+  const rows  = [];
+  let offset  = 0;
+  const limit = 1000;
+  for (let page = 0; page < 20; page++) {   // safety cap
+    const result = await suiteQLPage(q, env, offset, limit);
+    const items  = result.items || [];
+    rows.push(...items);
+    if (!result.hasMore || items.length === 0) break;
+    offset += limit;
+  }
+  return rows;
+}
+
+// ── SuiteQL queries ───────────────────────────────────────────────────────────
+
+// Replaces SS2471 — item-level on-hand / committed / available (all locations combined)
+const Q_ITEMS = `
+  SELECT
+    i.itemid      AS name,
+    i.displayname AS displayname,
+    NVL(CAST(i.quantityonhand    AS INTEGER), 0) AS onhand,
+    NVL(CAST(i.quantitycommitted AS INTEGER), 0) AS committed,
+    NVL(CAST(i.quantityavailable AS INTEGER), 0) AS available
+  FROM item i
+  WHERE i.isinactive = 'F'
+  ORDER BY i.itemid
+`;
+
+// Replaces SS2827 — individual lot numbers (each pole's flex is encoded in the
+// lot number string: "flex|model|date|time"  e.g. "37.0|370|24-06-03|9:49")
+const Q_FLEXES = `
+  SELECT
+    i.itemid            AS modelname,
+    i.displayname       AS displayname,
+    inv.inventorynumber AS lotnumber,
+    NVL(CAST(inv.quantityonhand    AS INTEGER), 0) AS lotonhand,
+    NVL(CAST(inv.quantityavailable AS INTEGER), 0) AS lotavailable
+  FROM inventoryNumber inv
+  JOIN item i ON i.id = inv.item
+  WHERE inv.quantityonhand > 0
+    AND i.isinactive = 'F'
+  ORDER BY i.itemid, inv.inventorynumber
+`;
+
+// Replaces SS2491 — open sales order lines (qty ordered minus qty fulfilled > 0)
+// NOTE: column name for qty fulfilled varies by NS account version.
+// Primary attempt: quantityfulfilled. If this query errors, try quantityshiprecv.
+const Q_ORDERS = `
+  SELECT
+    i.itemid      AS name,
+    i.displayname AS displayname,
+    i.description AS description,
+    t.tranid      AS sonumber,
+    (tl.quantity - NVL(CAST(tl.quantityfulfilled AS FLOAT), 0)) AS openqty,
+    NVL(CAST(tl.quantitybackordered AS INTEGER), 0) AS backordered,
+    NVL(CAST(tl.quantitycommitted   AS INTEGER), 0) AS committed,
+    NVL(CAST(tl.quantityonhand      AS INTEGER), 0) AS onhand,
+    NVL(CAST(tl.quantityavailable   AS INTEGER), 0) AS available
+  FROM transactionLine tl
+  JOIN transaction t ON t.id = tl.transaction
+  JOIN item i ON i.id = tl.item
+  WHERE t.recordtype = 'salesorder'
+    AND t.status IN ('SalesOrd:A', 'SalesOrd:B', 'SalesOrd:D')
+    AND tl.itemtype = 'InvtPart'
+    AND (tl.quantity - NVL(CAST(tl.quantityfulfilled AS FLOAT), 0)) > 0
+    AND i.isinactive = 'F'
+  ORDER BY i.itemid, t.tranid
+`;
+
+// ── Aggregation ───────────────────────────────────────────────────────────────
+
+function parseDisplay(displayname) {
+  // "370/40 | 12'1\" - 90lb"  →  { length: "12'1\"", weight: "90lb" }
+  if (!displayname || !displayname.includes(' | ')) return { length: '', weight: '' };
+  const rest    = displayname.split(' | ')[1] || '';
+  const dashIdx = rest.lastIndexOf(' - ');
+  if (dashIdx >= 0) {
+    return { length: rest.slice(0, dashIdx).trim(), weight: rest.slice(dashIdx + 3).trim() };
+  }
+  return { length: rest.trim(), weight: '' };
+}
+
+function toInt(v)   { const n = parseInt(v,  10); return isNaN(n) ? 0    : n; }
+function toFloat(v) { const n = parseFloat(v);    return isNaN(n) ? null : n; }
+
+function buildPayload(itemRows, flexRows, orderRows) {
+
+  // models (SS2471)
+  const models = {};
+  for (const row of itemRows) {
+    const name = (row.name || '').trim();
+    if (!name || !name.includes('/')) continue;
+    const { length, weight } = parseDisplay(row.displayname || '');
+    models[name] = {
+      length,
+      weight,
+      onHand:    toInt(row.onhand),
+      available: toInt(row.available),
+      committed: toInt(row.committed),
+      flexes:    [],
+    };
+  }
+
+  // flexes (SS2827) — attach to parent model
+  // lot number format: "37.0|370|24-06-03|9:49" — flex is first segment
+  for (const row of flexRows) {
+    const modelName = (row.modelname || '').trim();
+    if (!models[modelName]) continue;
+    const lot   = (row.lotnumber || '').trim();
+    const flex  = toFloat(lot.split('|')[0]);
+    if (flex === null) continue;
+    const avail = toInt(row.lotavailable) > 0;
+    models[modelName].flexes.push({ f: Math.round(flex * 10) / 10, a: avail });
+  }
+
+  // sort flexes smallest → largest within each model
+  for (const m of Object.values(models)) {
+    m.flexes.sort((a, b) => a.f - b.f);
+  }
+
+  // orders (SS2491) — group by item name
+  const orders = {};
+  for (const row of orderRows) {
+    const name    = (row.name || '').trim();
+    if (!name || !/^\d+S?\//.test(name)) continue;     // poles only
+    const openQty = Math.round(parseFloat(row.openqty) || 0);
+    if (openQty <= 0) continue;
+    const boQty = toInt(row.backordered);
+    const soNum = (row.sonumber || '').trim() || null;
+
+    if (!orders[name]) {
+      orders[name] = {
+        openQty:     0,
+        boQty:       0,
+        committed:   toInt(row.committed),
+        available:   toInt(row.available),
+        onHand:      toInt(row.onhand),
+        display:     row.displayname || name,
+        description: row.description || '',
+        soLines:     [],
+      };
+    }
+    orders[name].openQty += openQty;
+    orders[name].boQty   += boQty;
+    orders[name].soLines.push({
+      soNum,
+      qty:  openQty,
+      flex: null,    // flex memo not exposed via standard SuiteQL transactionLine
+      bo:   boQty > 0,
+    });
+  }
+
+  return {
+    models,
+    orders,
+    catalog:     {},   // dashboard renders from models; catalog zero-fill omitted for simplicity
+    refreshedAt: new Date().toISOString(),
+  };
+}
+
+// ── Handler ───────────────────────────────────────────────────────────────────
+
+export async function onRequestGet({ env }) {
+  if (!env.NS_ACCOUNT_ID || !env.NS_CONSUMER_KEY || !env.NS_TOKEN_ID) {
+    return new Response(
+      JSON.stringify({ error: 'NetSuite credentials not configured in CF Pages environment.' }),
+      { status: 500, headers: CORS }
+    );
+  }
+
+  try {
+    // All three queries run in parallel — they are independent
+    const [itemRows, flexRows, orderRows] = await Promise.all([
+      suiteQLAll(Q_ITEMS,  env),
+      suiteQLAll(Q_FLEXES, env),
+      suiteQLAll(Q_ORDERS, env),
+    ]);
+
+    const payload = buildPayload(itemRows, flexRows, orderRows);
+
+    return new Response(JSON.stringify(payload), {
+      status:  200,
+      headers: CORS,
+    });
+
+  } catch (err) {
+    console.error('[inventory] error:', err.message);
+    return new Response(
+      JSON.stringify({ error: err.message }),
+      { status: 502, headers: CORS }
+    );
+  }
+}
+
+export async function onRequestOptions() {
+  return new Response(null, {
+    headers: {
+      'Access-Control-Allow-Origin':  '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    },
+  });
+}
