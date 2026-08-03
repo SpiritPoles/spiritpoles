@@ -2681,6 +2681,24 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
         <div class="tot-cell"><span class="tot-num">${totLbs}</span><span class="tot-lbl">lbs.</span></div>
       </div>
 
+      ${p1Pallet ? (() => {
+        const innerDesc = [
+          `${totPcs} piece${totPcs !== 1 ? 's' : ''}`,
+          totalPoles ? `${totalPoles} pole${totalPoles !== 1 ? 's' : ''}` : '',
+          totAccQty  ? `${totAccQty} acc.` : ''
+        ].filter(Boolean).join(' / ');
+        const dimsStr = (p1Pallet.L && p1Pallet.W && p1Pallet.H)
+          ? `${p1Pallet.L}&quot; &times; ${p1Pallet.W}&quot; &times; ${p1Pallet.H}&quot;`
+          : '<em style="color:#c00">dims not entered</em>';
+        const wtStr = p1Pallet.wt ? `${p1Pallet.wt} ${p1Pallet.unit}` : '—';
+        return `<div style="margin:6px 0 14px;padding:9px 14px;border:2px solid #2e7d32;border-radius:4px;background:#f1f8e9;display:flex;align-items:center;gap:16px;flex-wrap:wrap;break-inside:avoid">
+          <span style="font-size:10.5pt;font-weight:900;color:#1b5e20;white-space:nowrap">&#x1F6D2; ${htmlEsc(p1Pallet.type).toUpperCase()}</span>
+          <span style="font-size:9pt;color:#333">Contains:&nbsp;<strong>${innerDesc}</strong></span>
+          <span style="font-size:9pt;white-space:nowrap">Outer&nbsp;Dims:&nbsp;<strong>${dimsStr}</strong></span>
+          <span style="font-size:9pt;white-space:nowrap">Weight:&nbsp;<strong>${wtStr}</strong></span>
+        </div>`;
+      })() : ''}
+
       <div class="bottom-sec">
         <div class="made-usa">ALL PRODUCTS MADE IN THE USA<br>SCHEDULE B: 9506.91.0000<br>${htmlEsc(fmtDate)}</div>
       </div>
@@ -2998,6 +3016,24 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
         <div class="tot-cell"><span class="tot-num">${totLbs}</span><span class="tot-lbl">lbs.</span></div>
       </div>
 
+      ${p2Pallet ? (() => {
+        const innerDesc = [
+          `${totPcs} piece${totPcs !== 1 ? 's' : ''}`,
+          totalPoles ? `${totalPoles} pole${totalPoles !== 1 ? 's' : ''}` : '',
+          totalAccQty ? `${totalAccQty} acc.` : ''
+        ].filter(Boolean).join(' / ');
+        const dimsStr = (p2Pallet.L && p2Pallet.W && p2Pallet.H)
+          ? `${p2Pallet.L}&quot; &times; ${p2Pallet.W}&quot; &times; ${p2Pallet.H}&quot;`
+          : '<em style="color:#c00">dims not entered</em>';
+        const wtStr = p2Pallet.wt ? `${p2Pallet.wt} ${p2Pallet.unit}` : '—';
+        return `<div style="margin:6px 0 14px;padding:9px 14px;border:2px solid #2e7d32;border-radius:4px;background:#f1f8e9;display:flex;align-items:center;gap:16px;flex-wrap:wrap;break-inside:avoid">
+          <span style="font-size:10.5pt;font-weight:900;color:#1b5e20;white-space:nowrap">&#x1F6D2; ${htmlEsc(p2Pallet.type).toUpperCase()}</span>
+          <span style="font-size:9pt;color:#333">Contains:&nbsp;<strong>${innerDesc}</strong></span>
+          <span style="font-size:9pt;white-space:nowrap">Outer&nbsp;Dims:&nbsp;<strong>${dimsStr}</strong></span>
+          <span style="font-size:9pt;white-space:nowrap">Weight:&nbsp;<strong>${wtStr}</strong></span>
+        </div>`;
+      })() : ''}
+
       <div class="bottom-sec">
         <div class="made-usa">ALL PRODUCTS MADE IN THE USA<br>SCHEDULE B: 9506.91.0000<br>${htmlEsc(fmtDate)}</div>
         <img src="data:image/png;base64,${SEAL_B64}" class="seal-img" alt="">
@@ -3135,7 +3171,9 @@ function downloadSLI() {
   const chkTibN  = tib          === 'No'        ? '&#9745;' : '&#9744;';
   const tibNote  = tib !== 'No' ? ` <span style="font-size:6pt">(${htmlEsc(tib)})</span>` : '';
 
-  const instructions = `FRAGILE! Handle with Care! ${totalPoles} vaulting pole${totalPoles > 1 ? 's' : ''} packed in ${totalPieces} piece${totalPieces > 1 ? 's' : ''}. Do not stack heavy items on top of containers.`;
+  const instructions = p2Pallet
+    ? `FRAGILE! Handle with Care! ${totalPoles} vaulting pole${totalPoles > 1 ? 's' : ''} packed in ${totalPieces} piece${totalPieces > 1 ? 's' : ''}, consolidated on 1 ${p2Pallet.type}${(p2Pallet.L && p2Pallet.W && p2Pallet.H) ? ' (' + p2Pallet.L + '" × ' + p2Pallet.W + '" × ' + p2Pallet.H + '")' : ''}${p2Pallet.wt ? ', ' + p2Pallet.wt + ' ' + p2Pallet.unit : ''}. Do not stack heavy items on top of pallet.`
+    : `FRAGILE! Handle with Care! ${totalPoles} vaulting pole${totalPoles > 1 ? 's' : ''} packed in ${totalPieces} piece${totalPieces > 1 ? 's' : ''}. Do not stack heavy items on top of containers.`;
 
   // Consignee contact line (for Box 10)
   const consContactLine = [consEmail ? `Email: ${consEmail}` : '', consPhone ? `Ph: ${consPhone}` : '']
@@ -3478,8 +3516,15 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: #000; b
 </thead>
 <tbody>
 ${dimRows}
+${p2Pallet ? `<tr style="background:#f1f8e9;font-weight:700;border-top:2px solid #2e7d32">
+  <td colspan="2" style="text-align:left;color:#1b5e20">&#x1F6D2; ${htmlEsc(p2Pallet.type)} (outer)</td>
+  <td>${p2Pallet.L ? p2Pallet.L + '"' : '—'}</td>
+  <td>${(p2Pallet.W && p2Pallet.H) ? p2Pallet.W + '" &times; ' + p2Pallet.H + '"' : '—'}</td>
+  <td style="color:#1b5e20">${p2Pallet.wt ? p2Pallet.wt + ' ' + p2Pallet.unit : '—'}</td>
+  <td>1</td>
+</tr>` : ''}
 <tr class="tot">
-  <td colspan="2" style="text-align:left;font-size:7pt">TOTALS</td>
+  <td colspan="2" style="text-align:left;font-size:7pt">TOTALS${p2Pallet ? ' (inner pieces)' : ''}</td>
   <td colspan="2">&nbsp;</td>
   <td>${totalKgs}&nbsp;kg&nbsp;/&nbsp;${Math.round(totalLbs*10)/10}&nbsp;lbs</td>
   <td>${totalPoles}</td>
@@ -3714,7 +3759,8 @@ Declared Value (USD): ${goodsVal || '—'}
 
 Pieces:       ${pieces}
 Poles:        ${poles}
-Total Weight: ${weightKg} kg
+Total Weight: ${weightKg} kg${p2Pallet ? `
+Packaging:    Palletized — 1 ${p2Pallet.type}${(p2Pallet.L && p2Pallet.W && p2Pallet.H) ? '\nOuter Dims:   ' + p2Pallet.L + '" × ' + p2Pallet.W + '" × ' + p2Pallet.H + '"' : ''}${p2Pallet.wt ? '\nPallet Wt:    ' + p2Pallet.wt + ' ' + p2Pallet.unit : ''}` : ''}
 
 Ship Date:    ${fmtDate}
 
