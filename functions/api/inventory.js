@@ -109,20 +109,19 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
-// Replaces SS2471 — item-level on-hand / committed / available aggregated across all locations.
-// item.quantityonhand is NULL in SuiteQL analytics context; inventoryBalance has the real numbers.
-// LEFT JOIN so items with zero inventory still appear (for out-of-stock display).
+// Replaces SS2471 — item list with display names.
+// Note: item.quantityonhand / quantitycommitted / quantityavailable return 0 in SuiteQL analytics
+// context for this account. On-hand counts for flex poles are overridden below using lot quantities
+// from Q_FLEXES (inventoryNumber), which are reliable. Non-flex items (kids poles) show 0 on hand.
 const Q_ITEMS = `
   SELECT
     i.itemid      AS name,
     i.displayname AS displayname,
-    NVL(SUM(ib.quantityonhand),    0) AS onhand,
-    NVL(SUM(ib.quantitycommitted), 0) AS committed,
-    NVL(SUM(ib.quantityavailable), 0) AS available
+    0             AS onhand,
+    0             AS committed,
+    0             AS available
   FROM item i
-  LEFT JOIN inventoryBalance ib ON ib.item = i.id
   WHERE i.isinactive = 'F'
-  GROUP BY i.id, i.itemid, i.displayname
   ORDER BY i.itemid
 `;
 
