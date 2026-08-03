@@ -329,7 +329,31 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       <div class="divider"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <div class="card-title" style="margin-bottom:0">Packing Summary</div>
-        <button class="btn btn-outline btn-sm" onclick="recalcSummary()" title="Re-tally totals without re-sorting pieces">&#8635; RE-CALC SUMMARY</button>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-outline btn-sm" id="palletize-btn-p1" onclick="togglePalletize('1')" style="color:var(--green);border-color:rgba(76,175,80,0.5)">&#x1F6D2; Palletize / Crate</button>
+          <button class="btn btn-outline btn-sm" onclick="recalcSummary()" title="Re-tally totals without re-sorting pieces">&#8635; RE-CALC SUMMARY</button>
+        </div>
+      </div>
+      <div id="pallet-form-p1" style="display:none;margin-bottom:12px;padding:10px 14px;background:rgba(76,175,80,0.07);border:1.5px solid rgba(76,175,80,0.4);border-radius:8px">
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--green);margin-bottom:8px">&#x1F6D2; Palletized / Crated Shipment — Enter Outer Dims</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <select id="pallet-type-p1" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp)" onchange="updatePalletData('1')">
+            <option value="Pallet">Pallet</option>
+            <option value="Crate">Crate</option>
+          </select>
+          <span style="font-size:10px;font-weight:700;color:var(--ts)">Dims (in):</span>
+          <input type="number" id="pallet-L-p1" placeholder="L" style="width:54px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111" oninput="updatePalletData('1')">
+          <span style="color:var(--ts)">×</span>
+          <input type="number" id="pallet-W-p1" placeholder="W" style="width:46px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111" oninput="updatePalletData('1')">
+          <span style="color:var(--ts)">×</span>
+          <input type="number" id="pallet-H-p1" placeholder="H" style="width:46px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111" oninput="updatePalletData('1')">
+          <span style="color:var(--ts);margin:0 4px">|</span>
+          <span style="font-size:10px;font-weight:700;color:var(--ts)">Weight:</span>
+          <input type="number" id="pallet-wt-p1" placeholder="lbs" style="width:62px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111" oninput="updatePalletData('1')">
+          <select id="pallet-unit-p1" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 6px;color:var(--tp)" onchange="updatePalletData('1')">
+            <option>lbs</option><option>kg</option>
+          </select>
+        </div>
       </div>
       <div class="totals">
         <div class="total-box"><div class="total-val" id="t-pieces">—</div><div class="total-lbl">Pieces</div></div>
@@ -510,7 +534,31 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
       <div class="divider"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <div class="card-title" style="margin-bottom:0">Packing Summary</div>
-        <button class="btn btn-outline btn-sm" onclick="recalcPacking('packing-list-p2')">&#8635; Recalc</button>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-outline btn-sm" id="palletize-btn-p2" onclick="togglePalletize('2')" style="color:var(--green);border-color:rgba(76,175,80,0.5)">&#x1F6D2; Palletize / Crate</button>
+          <button class="btn btn-outline btn-sm" onclick="recalcPacking('packing-list-p2')">&#8635; Recalc</button>
+        </div>
+      </div>
+      <div id="pallet-form-p2" style="display:none;margin-bottom:12px;padding:10px 14px;background:rgba(76,175,80,0.07);border:1.5px solid rgba(76,175,80,0.4);border-radius:8px">
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--green);margin-bottom:8px">&#x1F6D2; Palletized / Crated Shipment — Enter Outer Dims</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <select id="pallet-type-p2" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp)" onchange="updatePalletData('2')">
+            <option value="Pallet">Pallet</option>
+            <option value="Crate">Crate</option>
+          </select>
+          <span style="font-size:10px;font-weight:700;color:var(--ts)">Dims (in):</span>
+          <input type="number" id="pallet-L-p2" placeholder="L" style="width:54px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111" oninput="updatePalletData('2')">
+          <span style="color:var(--ts)">×</span>
+          <input type="number" id="pallet-W-p2" placeholder="W" style="width:46px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111" oninput="updatePalletData('2')">
+          <span style="color:var(--ts)">×</span>
+          <input type="number" id="pallet-H-p2" placeholder="H" style="width:46px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111" oninput="updatePalletData('2')">
+          <span style="color:var(--ts);margin:0 4px">|</span>
+          <span style="font-size:10px;font-weight:700;color:var(--ts)">Weight:</span>
+          <input type="number" id="pallet-wt-p2" placeholder="lbs" style="width:62px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111" oninput="updatePalletData('2')">
+          <select id="pallet-unit-p2" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 6px;color:var(--tp)" onchange="updatePalletData('2')">
+            <option>lbs</option><option>kg</option>
+          </select>
+        </div>
       </div>
       <div class="totals">
         <div class="total-box"><div class="total-val" id="t-pieces-p2">—</div><div class="total-lbl">Pieces</div></div>
@@ -1074,6 +1122,33 @@ function applyConsignee(idx) {
   renderOrderList(); // re-render so active button updates
 }
 
+// Toggle palletize/crate overlay on the packing summary for a given phase
+function togglePalletize(ph) {
+  const isP1 = ph === '1';
+  if (isP1) p1Pallet = p1Pallet ? null : { type: 'Pallet', L: '', W: '', H: '', wt: '', unit: 'lbs' };
+  else       p2Pallet = p2Pallet ? null : { type: 'Pallet', L: '', W: '', H: '', wt: '', unit: 'lbs' };
+  const on = isP1 ? !!p1Pallet : !!p2Pallet;
+  const formEl = document.getElementById(`pallet-form-p${ph}`);
+  const btnEl  = document.getElementById(`palletize-btn-p${ph}`);
+  if (formEl) formEl.style.display = on ? '' : 'none';
+  if (btnEl)  btnEl.textContent    = on ? '✕ Remove Pallet/Crate' : '\u{1F6D2} Palletize / Crate';
+  if (btnEl)  btnEl.style.color    = on ? 'var(--pink)' : 'var(--green)';
+  updatePackingTotals(isP1 ? 'packing-list' : 'packing-list-p2');
+}
+
+// Sync pallet form inputs into state and refresh the breakdown
+function updatePalletData(ph) {
+  const pallet = ph === '1' ? p1Pallet : p2Pallet;
+  if (!pallet) return;
+  pallet.type = document.getElementById(`pallet-type-p${ph}`)?.value || 'Pallet';
+  pallet.L    = document.getElementById(`pallet-L-p${ph}`)?.value   || '';
+  pallet.W    = document.getElementById(`pallet-W-p${ph}`)?.value   || '';
+  pallet.H    = document.getElementById(`pallet-H-p${ph}`)?.value   || '';
+  pallet.wt   = document.getElementById(`pallet-wt-p${ph}`)?.value  || '';
+  pallet.unit = document.getElementById(`pallet-unit-p${ph}`)?.value || 'lbs';
+  updatePackingTotals(ph === '1' ? 'packing-list' : 'packing-list-p2');
+}
+
 // Auto-sum declared value from all orders
 function updateDeclaredValue() {
   if (!loadedOrders.length) return;
@@ -1444,13 +1519,17 @@ function renumberPieces(listId = 'packing-list') {
 // ─────────────────────────────────────────────────────────────────────────────
 let p1Accessories = []; // [{item_code, item_name, qty, assignedTo}] — phase 1 acc state
 let p2Accessories = []; // [{item_code, item_name, qty, assignedTo}] — phase 2 acc state
-                        // assignedTo: 'piece-N' (0-based) | 'new-box' | 'not-shipping'
+let p1AccBoxCount = 1;  // how many small accessory boxes are in Phase 1
+let p2AccBoxCount = 1;  // how many small accessory boxes are in Phase 2
+let p1Pallet = null;    // { type, L, W, H, wt, unit } — palletize/crate overlay for Phase 1
+let p2Pallet = null;    // same for Phase 2
+                        // assignedTo: 'piece-N' (0-based) | 'new-box-N' | 'not-shipping'
 
 // ph = '1' or '2' — which phase's accessory state to use
 function buildAccessoriesPanel(items, ph = '2') {
   const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
-  if (ph === '1') { p1Accessories = items.map(it => ({ ...it, assignedTo: 'new-box' })); }
-  else            { p2Accessories = items.map(it => ({ ...it, assignedTo: 'new-box' })); }
+  if (ph === '1') { p1Accessories = items.map(it => ({ ...it, assignedTo: 'new-box-1' })); p1AccBoxCount = 1; }
+  else            { p2Accessories = items.map(it => ({ ...it, assignedTo: 'new-box-1' })); p2AccBoxCount = 1; }
 
   const card = document.getElementById(`acc-card-p${ph}`);
   const list = document.getElementById(`accessories-list-p${ph}`);
@@ -1465,14 +1544,18 @@ function buildAccessoriesPanel(items, ph = '2') {
   if (tAcc)    tAcc.textContent = totalAccQty || '—';
 
   function render() {
-    const accArr = ph === '1' ? p1Accessories : p2Accessories;
-    // Build piece options from current packing list containers (exclude acc small-box)
+    const accArr    = ph === '1' ? p1Accessories : p2Accessories;
+    const boxCount  = ph === '1' ? p1AccBoxCount : p2AccBoxCount;
+    // Build piece options from current packing list containers (exclude acc small-boxes)
     const pieces = [...document.querySelectorAll(`#${listId} .piece-container`)]
       .filter(c => !c.dataset.accBox);
     const pieceOpts = pieces.map((c, i) => {
       const label = c.querySelector('.piece-num-badge')?.textContent || `Piece ${i+1}`;
       return `<option value="piece-${i}">Pack in ${label}</option>`;
     }).join('');
+    const boxOpts = Array.from({length: boxCount}, (_, i) =>
+      `<option value="new-box-${i+1}">${boxCount > 1 ? `Small Box ${i+1}` : '+ New Small Box'}</option>`
+    ).join('');
 
     list.innerHTML = accArr.map((acc, idx) => `
       <div class="acc-row" data-idx="${idx}" draggable="true"
@@ -1488,7 +1571,7 @@ function buildAccessoriesPanel(items, ph = '2') {
         <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp)"
           onchange="onAccAssign(this,${idx},'${ph}')">
           ${pieceOpts}
-          <option value="new-box">+ New Small Box</option>
+          ${boxOpts}
           <option value="not-shipping">Not Shipping</option>
         </select>
       </div>`).join('');
@@ -1506,9 +1589,12 @@ function buildAccessoriesPanel(items, ph = '2') {
         const lbl = c.querySelector('.piece-num-badge')?.textContent || `Piece ${i+1}`;
         return `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('piece-${i}','${ph}')">All → ${lbl}</button>`;
       }).join('');
+      const boxBtns = Array.from({length: boxCount}, (_, i) =>
+        `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('new-box-${i+1}','${ph}')">All → ${boxCount > 1 ? `Box ${i+1}` : 'Small Box'}</button>`
+      ).join('');
       btnDiv.innerHTML =
-        pieceBtns +
-        `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('new-box','${ph}')">All → New Small Box</button>` +
+        pieceBtns + boxBtns +
+        `<button class="btn btn-outline btn-sm" onclick="addAccBox('${ph}')" style="color:var(--green);border-color:rgba(76,175,80,0.5)">&#43; Add Box</button>` +
         `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('not-shipping','${ph}')" style="opacity:.7">All → Not Shipping</button>`;
     }
 
@@ -1593,87 +1679,124 @@ function unSplitAccessory(idx, ph = '2') {
   updateAccessorySmallBox(ph);
 }
 
-// Creates / updates a single shared Small Box piece container for accessory items
+// Creates / updates Small Box piece containers for accessory items (one per box slot)
 function updateAccessorySmallBox(ph = '2') {
-  const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
-  const accArr = ph === '1' ? p1Accessories : p2Accessories;
-  const list   = document.getElementById(listId);
-  const boxItems = accArr.filter(a => a.assignedTo === 'new-box');
+  const listId   = ph === '1' ? 'packing-list' : 'packing-list-p2';
+  const accArr   = ph === '1' ? p1Accessories : p2Accessories;
+  const boxCount = ph === '1' ? p1AccBoxCount : p2AccBoxCount;
+  const list     = document.getElementById(listId);
+  const btnDiv   = document.getElementById(`acc-group-btns-p${ph}`);
 
-  // Find or create the accessories small-box piece
-  let boxContainer = list.querySelector('.piece-container[data-acc-box="1"]');
-  if (boxItems.length === 0) {
-    if (boxContainer) { boxContainer.remove(); renumberPieces(listId); }
-    removeAccBoxDimsRow(ph);
-    return;
-  }
-  if (!boxContainer) {
-    const pieceNum = list.querySelectorAll('.piece-container').length + 1;
-    boxContainer = createPieceContainer(pieceNum, 'small-box', []);
-    boxContainer.dataset.accBox = '1';
-    list.appendChild(boxContainer);
-    renumberPieces(listId);
-  }
-  // Store total accessory weight on the container (for calcPieceDims)
-  const totalWt = boxItems.reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
-  boxContainer.dataset.accessoryWt = totalWt.toFixed(1);
+  for (let n = 1; n <= boxCount; n++) {
+    const boxKey   = `new-box-${n}`;
+    const boxItems = accArr.filter(a => a.assignedTo === boxKey);
 
-  // Hide the piece container's sb-dims (user enters dims via inline panel row instead)
-  const sbDimsEl = boxContainer.querySelector('.sb-dims');
-  if (sbDimsEl) sbDimsEl.style.display = 'none';
-
-  // Show items summary in the box header note
-  let note = boxContainer.querySelector('.acc-box-note');
-  if (!note) {
-    note = document.createElement('div');
-    note.className = 'acc-box-note';
-    note.style.cssText = 'font-size:11px;color:var(--ts);padding:4px 10px 6px';
-    boxContainer.insertBefore(note, boxContainer.querySelector('.piece-col-hdr'));
-  }
-  note.innerHTML = '<strong>Contents:</strong> ' +
-    boxItems.map(a => `${a.qty}× ${htmlEsc(a.item_name || a.item_code)}`).join(', ');
-
-  // Manage inline dims row in acc panel (appears near the group buttons)
-  const btnDiv = document.getElementById(`acc-group-btns-p${ph}`);
-  if (btnDiv) {
-    let dimsRow = document.getElementById(`sb-dims-inline-p${ph}`);
-    if (!dimsRow) {
-      dimsRow = document.createElement('div');
-      dimsRow.id = `sb-dims-inline-p${ph}`;
-      dimsRow.style.cssText = 'margin-top:8px;padding:8px 12px;background:rgba(232,18,125,0.07);border:1.5px solid var(--accent,#e8127d);border-radius:6px;font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--tp)';
-      dimsRow.innerHTML = `
-        <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--accent,#e8127d);white-space:nowrap">📦 Box Dims (in):</span>
-        <input type="number" class="sbi-L"  placeholder="L" style="width:54px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
-        <span style="color:var(--ts)">×</span>
-        <input type="number" class="sbi-W"  placeholder="W" style="width:46px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
-        <span style="color:var(--ts)">×</span>
-        <input type="number" class="sbi-H"  placeholder="H" style="width:46px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
-        <span style="color:var(--ts);margin:0 4px">|</span>
-        <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--accent,#e8127d);white-space:nowrap">Weight:</span>
-        <input type="number" class="sbi-Wt" placeholder="lbs" style="width:56px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
-      `;
-      btnDiv.after(dimsRow);
-      // Wire input → sync to piece container
-      ['sbi-L','sbi-W','sbi-H','sbi-Wt'].forEach(cls => {
-        dimsRow.querySelector(`.${cls}`).addEventListener('input', () => syncSbDims(ph));
-      });
-      // Pre-fill from piece container if values already entered
-      const get = cls => boxContainer.querySelector(cls)?.value || '';
-      dimsRow.querySelector('.sbi-L').value  = get('.sb-len');
-      dimsRow.querySelector('.sbi-W').value  = get('.sb-w');
-      dimsRow.querySelector('.sbi-H').value  = get('.sb-h');
-      dimsRow.querySelector('.sbi-Wt').value = get('.sb-wt');
+    let boxContainer = list.querySelector(`.piece-container[data-acc-box="${n}"]`);
+    if (boxItems.length === 0) {
+      if (boxContainer) { boxContainer.remove(); renumberPieces(listId); }
+      const dr = document.getElementById(`sb-dims-inline-p${ph}-${n}`);
+      if (dr) dr.remove();
+      continue;
     }
+    if (!boxContainer) {
+      const pieceNum = list.querySelectorAll('.piece-container').length + 1;
+      boxContainer = createPieceContainer(pieceNum, 'small-box', []);
+      boxContainer.dataset.accBox = String(n);
+      list.appendChild(boxContainer);
+      renumberPieces(listId);
+    }
+
+    const totalWt = boxItems.reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
+    boxContainer.dataset.accessoryWt = totalWt.toFixed(1);
+
+    const sbDimsEl = boxContainer.querySelector('.sb-dims');
+    if (sbDimsEl) sbDimsEl.style.display = 'none';
+
+    // Contents summary note in the box header
+    let note = boxContainer.querySelector('.acc-box-note');
+    if (!note) {
+      note = document.createElement('div');
+      note.className = 'acc-box-note';
+      note.style.cssText = 'font-size:11px;color:var(--ts);padding:4px 10px 6px';
+      boxContainer.insertBefore(note, boxContainer.querySelector('.piece-col-hdr'));
+    }
+    const boxLabel = boxCount > 1 ? ` (Box ${n})` : '';
+    note.innerHTML = `<strong>Contents${boxLabel}:</strong> ` +
+      boxItems.map(a => `${a.qty}&times; ${htmlEsc(a.item_name || a.item_code)}`).join(', ');
+
+    // Inline dims row per box
+    if (btnDiv) {
+      const dimsRowId = `sb-dims-inline-p${ph}-${n}`;
+      let dimsRow = document.getElementById(dimsRowId);
+      if (!dimsRow) {
+        dimsRow = document.createElement('div');
+        dimsRow.id = dimsRowId;
+        const lbl = boxCount > 1 ? ` ${n}` : '';
+        dimsRow.style.cssText = 'margin-top:8px;padding:8px 12px;background:rgba(232,18,125,0.07);border:1.5px solid var(--accent,#e8127d);border-radius:6px;font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--tp)';
+        dimsRow.innerHTML = `
+          <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--accent,#e8127d);white-space:nowrap">&#x1F4E6; Box${lbl} Dims (in):</span>
+          <input type="number" class="sbi-L"  placeholder="L" style="width:54px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
+          <span style="color:var(--ts)">&#215;</span>
+          <input type="number" class="sbi-W"  placeholder="W" style="width:46px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
+          <span style="color:var(--ts)">&#215;</span>
+          <input type="number" class="sbi-H"  placeholder="H" style="width:46px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
+          <span style="color:var(--ts);margin:0 4px">|</span>
+          <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--accent,#e8127d);white-space:nowrap">Weight:</span>
+          <input type="number" class="sbi-Wt" placeholder="lbs" style="width:56px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:3px 6px;color:#111">
+        `;
+        // Insert after the previous box dims row, or after btnDiv
+        const prevRow = n > 1 ? document.getElementById(`sb-dims-inline-p${ph}-${n-1}`) : null;
+        if (prevRow) prevRow.after(dimsRow); else btnDiv.after(dimsRow);
+
+        const bc = boxContainer; // capture for event closure
+        ['sbi-L','sbi-W','sbi-H','sbi-Wt'].forEach(cls => {
+          dimsRow.querySelector(`.${cls}`).addEventListener('input', () => {
+            const setV = (qcls, val) => { const el = bc.querySelector(qcls); if (el) el.value = val; };
+            setV('.sb-len', dimsRow.querySelector('.sbi-L').value);
+            setV('.sb-w',   dimsRow.querySelector('.sbi-W').value);
+            setV('.sb-h',   dimsRow.querySelector('.sbi-H').value);
+            setV('.sb-wt',  dimsRow.querySelector('.sbi-Wt').value);
+            calcPieceDims(bc);
+            updatePackingTotals(listId);
+          });
+        });
+        // Pre-fill if piece container already has dims
+        const get = cls => bc.querySelector(cls)?.value || '';
+        dimsRow.querySelector('.sbi-L').value  = get('.sb-len');
+        dimsRow.querySelector('.sbi-W').value  = get('.sb-w');
+        dimsRow.querySelector('.sbi-H').value  = get('.sb-h');
+        dimsRow.querySelector('.sbi-Wt').value = get('.sb-wt');
+      }
+    }
+    calcPieceDims(boxContainer);
   }
 
-  calcPieceDims(boxContainer);
+  // Remove stale box containers/dims rows above current count
+  for (let n = boxCount + 1; n <= boxCount + 10; n++) {
+    const stale = list.querySelector(`.piece-container[data-acc-box="${n}"]`);
+    if (!stale) break;
+    stale.remove();
+    const dr = document.getElementById(`sb-dims-inline-p${ph}-${n}`);
+    if (dr) dr.remove();
+  }
+  renumberPieces(listId);
   updatePackingTotals(listId);
 }
 
-// Remove inline dims row when small box is removed
+// Remove all inline dims rows for the given phase (called on full reset)
 function removeAccBoxDimsRow(ph) {
-  const dimsRow = document.getElementById(`sb-dims-inline-p${ph}`);
-  if (dimsRow) dimsRow.remove();
+  const boxCount = ph === '1' ? p1AccBoxCount : p2AccBoxCount;
+  for (let n = 1; n <= boxCount + 10; n++) {
+    const dr = document.getElementById(`sb-dims-inline-p${ph}-${n}`);
+    if (dr) dr.remove(); else break;
+  }
+}
+
+// Add another small accessory box slot
+function addAccBox(ph) {
+  if (ph === '1') p1AccBoxCount++; else p2AccBoxCount++;
+  const list = document.getElementById(`accessories-list-p${ph}`);
+  if (list && list._render) list._render();
 }
 
 // Returns accessories assigned to a given piece index (for document output)
@@ -1732,10 +1855,10 @@ function onPieceAccDrop(e, containerEl) {
   const { idx, ph } = _dragAcc;
   const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
   const arr    = ph === '1' ? p1Accessories : p2Accessories;
-  const isAccBox = containerEl.dataset.accBox === '1';
+  const accBoxN = containerEl.dataset.accBox; // '1', '2', etc. or undefined
 
-  if (isAccBox) {
-    arr[idx].assignedTo = 'new-box';
+  if (accBoxN) {
+    arr[idx].assignedTo = `new-box-${accBoxN}`;
   } else {
     const nonAccPieces = [...document.querySelectorAll(`#${listId} .piece-container`)]
       .filter(c => !c.dataset.accBox);
@@ -1749,19 +1872,6 @@ function onPieceAccDrop(e, containerEl) {
 }
 
 // Sync inline acc-panel dims inputs → hidden sb-* inputs on the piece container
-function syncSbDims(ph) {
-  const listId      = ph === '1' ? 'packing-list' : 'packing-list-p2';
-  const boxContainer = document.querySelector(`#${listId} .piece-container[data-acc-box="1"]`);
-  const dimsRow      = document.getElementById(`sb-dims-inline-p${ph}`);
-  if (!boxContainer || !dimsRow) return;
-  const set = (cls, val) => { const el = boxContainer.querySelector(cls); if (el) el.value = val; };
-  set('.sb-len', dimsRow.querySelector('.sbi-L').value);
-  set('.sb-w',   dimsRow.querySelector('.sbi-W').value);
-  set('.sb-h',   dimsRow.querySelector('.sbi-H').value);
-  set('.sb-wt',  dimsRow.querySelector('.sbi-Wt').value);
-  calcPieceDims(boxContainer);
-  updatePackingTotals(listId);
-}
 
 function onPoleRowDragStart(e) {
   _dragRow = e.currentTarget;
@@ -1857,8 +1967,9 @@ function updatePackingTotals(listId = 'packing-list') {
       const wtLbs    = Math.round(accWt * 10) / 10;
       const wtKg     = Math.round(accWt * 0.453592 * 10) / 10;
       totalLbs += wtLbs;
+      const boxN    = c.dataset.accBox || '1';
       const accCount = Array.isArray(accArr)
-        ? accArr.filter(a => a.assignedTo === 'new-box').reduce((s, a) => s + a.qty, 0)
+        ? accArr.filter(a => a.assignedTo === `new-box-${boxN}`).reduce((s, a) => s + a.qty, 0)
         : 0;
       pieceRows.push({ num: pieceSeq, label: pt.label, lenIn: L, w: W, h: H, wtLbs, wtKg, poleCount: 0, isAccBox: true, accCount });
       return;
@@ -1945,7 +2056,27 @@ function updatePackingTotals(listId = 'packing-list') {
           <td>${Math.round(totalLbs*10)/10} lbs &nbsp;·&nbsp; ${totalKg} kg</td>
         </tr>
       </tbody>
-    </table>`;
+    </table>
+    ${(() => {
+      const pallet = sfx === '-p2' ? p2Pallet : p1Pallet;
+      if (!pallet) return '';
+      const dimsStr = (pallet.L && pallet.W && pallet.H)
+        ? `${pallet.L}" &times; ${pallet.W}" &times; ${pallet.H}"`
+        : '<em style="color:#c00">— enter dims above —</em>';
+      const wtStr = pallet.wt ? `${pallet.wt} ${pallet.unit}` : '—';
+      const aQty  = Array.isArray(accArr) ? accArr.filter(a => a.assignedTo !== 'not-shipping').reduce((s,a) => s+a.qty, 0) : 0;
+      const innerDesc = [
+        n + ' piece' + (n !== 1 ? 's' : ''),
+        totalPoles ? totalPoles + ' pole' + (totalPoles !== 1 ? 's' : '') : '',
+        aQty ? aQty + ' acc.' : ''
+      ].filter(Boolean).join(' / ');
+      return `<div style="margin-top:10px;padding:10px 14px;background:rgba(76,175,80,0.08);border:1.5px solid rgba(76,175,80,0.45);border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:800;color:var(--green)">&#x1F6D2; ${pallet.type}</span>
+        <span style="font-size:11px;color:var(--ts)">Contains: ${innerDesc}</span>
+        <span style="font-size:11px;font-weight:700;color:var(--tp)">Dims: ${dimsStr}</span>
+        <span style="font-size:11px;font-weight:700;color:var(--tp)">Weight: ${wtStr}</span>
+      </div>`;
+    })()}`;
 }
 
 // Add a single pole row to an existing piece container
@@ -2277,7 +2408,8 @@ function downloadPackingListPDF() {
       const W        = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
       const H        = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
       const manualWt = parseFloat(c.querySelector('.sb-wt')?.value)  || 0;
-      const accWt    = p1Accessories.filter(a => a.assignedTo === 'new-box')
+      const _p1boxN  = c.dataset.accBox || '1';
+      const accWt    = p1Accessories.filter(a => a.assignedTo === `new-box-${_p1boxN}`)
                          .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
       lenIn    = L;
       wtLbs    = manualWt > 0 ? manualWt : Math.round((accWt + pt.extra_wt) * 10) / 10;
@@ -2338,7 +2470,7 @@ function downloadPackingListPDF() {
       ? `<table class="pole-tbl"><thead><tr>
            <th>Item</th><th style="width:60px;text-align:center">Qty</th>
          </tr></thead><tbody>
-         ${p1Accessories.filter(a=>a.assignedTo==='new-box').map(a=>
+         ${p1Accessories.filter(a=>a.assignedTo===`new-box-${_p1boxN}`).map(a=>
            `<tr><td>${htmlEsc(a.item_name||a.item_code)}</td><td style="text-align:center">${a.qty}</td></tr>`
          ).join('') || '<tr><td colspan="2" style="color:#aaa;font-style:italic">No items assigned</td></tr>'}
          </tbody></table>`
@@ -2613,7 +2745,8 @@ function downloadPackingListP2() {
       const W        = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
       const H        = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
       const manualWt = parseFloat(c.querySelector('.sb-wt')?.value)  || 0;
-      const accWt    = p2Accessories.filter(a => a.assignedTo === 'new-box')
+      const _p2boxN  = c.dataset.accBox || '1';
+      const accWt    = p2Accessories.filter(a => a.assignedTo === `new-box-${_p2boxN}`)
                          .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
       lenIn    = L;
       wtLbs    = manualWt > 0 ? manualWt : Math.round((accWt + pt.extra_wt) * 10) / 10;
@@ -2675,7 +2808,7 @@ function downloadPackingListP2() {
       ? `<table class="pole-tbl"><thead><tr>
            <th>Item</th><th style="width:60px;text-align:center">Qty</th>
          </tr></thead><tbody>
-         ${p2Accessories.filter(a=>a.assignedTo==='new-box').map(a=>
+         ${p2Accessories.filter(a=>a.assignedTo===`new-box-${_p2boxN}`).map(a=>
            `<tr><td>${htmlEsc(a.item_name||a.item_code)}</td><td style="text-align:center">${a.qty}</td></tr>`
          ).join('') || '<tr><td colspan="2" style="color:#aaa;font-style:italic">No items assigned</td></tr>'}
          </tbody></table>`
@@ -2937,7 +3070,8 @@ function downloadSLI() {
       const L      = parseFloat(container.querySelector('.sb-len')?.value) || 0;
       const W      = parseFloat(container.querySelector('.sb-w')?.value)   || 0;
       const H      = parseFloat(container.querySelector('.sb-h')?.value)   || 0;
-      const accWt  = p2Accessories.filter(a => a.assignedTo === 'new-box')
+      const _sliboxN = container.dataset.accBox || '1';
+      const accWt  = p2Accessories.filter(a => a.assignedTo === `new-box-${_sliboxN}`)
                        .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
       const wtLbs  = Math.round((accWt + pt.extra_wt) * 10) / 10;
       const wtKgs  = Math.round(wtLbs * 0.453592 * 10) / 10;
@@ -2969,7 +3103,7 @@ function downloadSLI() {
 
   // Add shipping weight of accessories not yet in any piece (not-shipping excluded)
   const unattachedAccWt = p2Accessories
-    .filter(a => a.assignedTo !== 'not-shipping' && a.assignedTo !== 'new-box' && !a.assignedTo?.startsWith('piece-'))
+    .filter(a => a.assignedTo !== 'not-shipping' && !a.assignedTo?.startsWith('new-box-') && !a.assignedTo?.startsWith('piece-'))
     .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
   totalLbs += unattachedAccWt;
 
