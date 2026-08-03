@@ -3606,6 +3606,62 @@ ${p2Pallet ? `<tr style="background:#f1f8e9;font-weight:700;border-top:2px solid
 // ─────────────────────────────────────────────────────────────────────────────
 // EMAIL BUILDER
 // ─────────────────────────────────────────────────────────────────────────────
+// Collect all Phase-1 piece data from the live Packing Summary DOM.
+// Returns the same shape that packPoles() returns, but includes Small Boxes
+// and respects manual overrides / current packing state.
+function collectP1PiecesFromDOM() {
+  const pieces = [];
+  document.querySelectorAll('#packing-list .piece-container').forEach(c => {
+    const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const isSmBox = !!pt.configDims;
+    const poleEls = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
+      model: row.querySelector('.pr-model')?.value || '',
+      flex:  row.querySelector('.pr-flex')?.value  || '',
+    })).filter(p => p.model);
+
+    if (!poleEls.length && !isSmBox) return;
+
+    let lenIn, wIn, hIn, wtLbs;
+
+    if (isSmBox) {
+      lenIn = parseFloat(c.querySelector('.sb-len')?.value) || 0;
+      wIn   = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
+      hIn   = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
+      const manualWt = parseFloat(c.querySelector('.sb-wt')?.value) || 0;
+      const accWt    = p1Accessories
+        .filter(a => a.assignedTo === `new-box-${c.dataset.accBox || '1'}`)
+        .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
+      wtLbs = manualWt > 0 ? manualWt : Math.round((accWt + pt.extra_wt) * 10) / 10;
+    } else {
+      const ov     = getPieceOverrideDims(c);
+      const models = poleEls.map(p => parseInt(p.model)).filter(Boolean);
+      const longest = models.length ? Math.max(...models) : 0;
+      if (ov) {
+        lenIn = ov.lenIn; wIn = ov.w; hIn = ov.h; wtLbs = ov.wtLbs;
+      } else {
+        lenIn = pt.fixedLen !== null ? pt.fixedLen : (longest ? (POLE_LENGTH_IN[longest] || 200) + pt.extra_len : 0);
+        wIn   = pt.w;
+        hIn   = pt.h;
+        const wtPoles = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
+        wtLbs = Math.round((wtPoles + pt.extra_wt) * 10) / 10;
+      }
+    }
+
+    const wtKg = Math.round(wtLbs * 0.453592 * 10) / 10;
+    pieces.push({
+      poles:          poleEls,
+      type:           pt.label || typeKey,
+      tube_length_in: lenIn,
+      tube_width_in:  wIn,
+      tube_height_in: hIn,
+      weight_lbs:     wtLbs,
+      weight_kg:      wtKg,
+    });
+  });
+  return pieces;
+}
+
 function buildEmail(ff, pieces) {
   const soList   = loadedOrders.length > 1
     ? loadedOrders.map(o => o.so_number).join(', ')
@@ -3624,9 +3680,12 @@ function buildEmail(ff, pieces) {
   const totalKg     = Math.round(pieces.reduce((s,p)=>s+p.weight_kg,0)*100)/100;
   const totalLbs    = Math.round(pieces.reduce((s,p)=>s+p.weight_lbs,0)*10)/10;
 
-  const dimsLines = pieces.map((p,i) =>
-    `  Piece ${i+1} (${p.type}): ${p.tube_length_in}" L × ${p.tube_width_in}" W × ${p.tube_height_in}" H  |  ${p.weight_lbs} lbs (${p.weight_kg} kg)`
-  ).join('\n');
+  const dimsLines = pieces.map((p,i) => {
+    const dimsStr = (p.tube_length_in && p.tube_width_in && p.tube_height_in)
+      ? `${p.tube_length_in}" L × ${p.tube_width_in}" W × ${p.tube_height_in}" H`
+      : '(dims not entered)';
+    return `  Piece ${i+1} (${p.type}): ${dimsStr}  |  ${p.weight_lbs} lbs (${p.weight_kg} kg)`;
+  }).join('\n');
 
   const subject = `Rate Request – ${so} | Export ${method} | ${cons}`;
 
@@ -3647,10 +3706,11 @@ Schedule B / HS Code:  ${schedB}
 Port of Destination:   ${goodsD}
 Declared Goods Value:  ${goodsVal}
 
-Piece Count:     ${totalPieces} piece(s) — ${totalPoles} poles total
-Total Weight:    ${totalLbs} lbs / ${totalKg} kg
+Piece Count:     ${totalPieces} piece(s) — ${totalPoles} poles total${p1Pallet ? ' (inner pieces, on pallet)' : ''}
+Total Weight:    ${totalLbs} lbs / ${totalKg} kg${p1Pallet ? `
+Packaging:    Palletized — 1 ${p1Pallet.type}${(p1Pallet.L && p1Pallet.W && p1Pallet.H) ? '\nOuter Dims:   ' + p1Pallet.L + '" × ' + p1Pallet.W + '" × ' + p1Pallet.H + '"' : ''}${p1Pallet.wt ? '\nPallet Wt:    ' + p1Pallet.wt + ' ' + p1Pallet.unit : ''}` : ''}
 
-Piece Dimensions & Weight:
+Piece Dimensions & Weight:${p1Pallet ? ' (inner pieces)' : ''}
 ${dimsLines}
 
 ───────────────────────────────────────
@@ -3895,19 +3955,16 @@ async function createDraftViaGraph(token, to, ccList, subject, body) {
 // CREATE DRAFTS
 // ─────────────────────────────────────────────────────────────────────────────
 async function createDrafts() {
-  // Read individual poles from the new packing view (each row is qty=1)
-  const poleRows = [];
-  document.querySelectorAll('#packing-list .pole-row-p1').forEach(row => {
-    const m = parseInt(row.querySelector('.pr-model')?.value) || 0;
-    if (m) poleRows.push({ model: m, qty: 1, flex: row.querySelector('.pr-flex')?.value || '' });
-  });
+  // Validate poles exist in the packing view
+  const hasPoles = !!document.querySelector('#packing-list .pole-row-p1 .pr-model');
   const activeFFs = getActiveFFs();
-  if (!poleRows.length)  { setActionErr('p1', 'Add at least one pole before creating drafts.'); return; }
+  if (!hasPoles)         { setActionErr('p1', 'Add at least one pole before creating drafts.'); return; }
   if (!v('so'))          { setActionErr('p1', 'Enter a Sales Order number.'); return; }
   if (!v('consignee'))   { setActionErr('p1', 'Enter a Consignee name.'); return; }
   if (!activeFFs.length) { setActionErr('p1', 'Select at least one freight forwarder.'); return; }
 
-  const pieces = packPoles(poleRows);
+  // Collect all pieces (tubes + small boxes) from the live Packing Summary DOM
+  const pieces = collectP1PiecesFromDOM();
 
   let token;
   try { token = await getToken(); }
