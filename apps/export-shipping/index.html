@@ -2682,29 +2682,29 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
       </div>
 
       ${p1Pallet ? (() => {
-        const innerDesc = [
-          `${totPcs} piece${totPcs !== 1 ? 's' : ''}`,
+        const pieceDetail = [
           totalPoles ? `${totalPoles} pole${totalPoles !== 1 ? 's' : ''}` : '',
           totAccQty  ? `${totAccQty} acc.` : ''
-        ].filter(Boolean).join(' / ');
+        ].filter(Boolean).join(' + ');
         const dimsStr = (p1Pallet.L && p1Pallet.W && p1Pallet.H)
           ? `${p1Pallet.L}&quot; &times; ${p1Pallet.W}&quot; &times; ${p1Pallet.H}&quot;`
           : '<em style="color:#c00">dims not entered</em>';
         const wtStr = p1Pallet.wt ? `${p1Pallet.wt} ${p1Pallet.unit}` : '—';
-        return `<div style="margin:10px 0 22px;border:2px solid #2e7d32;border-radius:4px;background:#e8f5e9;overflow:hidden;break-inside:avoid">
-          <div style="background:#2e7d32;padding:7px 14px;font-size:9pt;font-weight:900;color:#fff;letter-spacing:.06em;text-transform:uppercase">&#x1F6D2;&nbsp; ${htmlEsc(p1Pallet.type)} — Palletized Shipment</div>
-          <div style="display:flex;border-top:none">
-            <div style="flex:1;padding:12px 10px;text-align:center;border-right:1px solid #a5d6a7">
-              <span style="font-size:16pt;font-weight:900;display:block;line-height:1.1;color:#1b5e20">${innerDesc}</span>
-              <span style="font-size:7pt;text-transform:uppercase;font-weight:700;color:#2e7d32;letter-spacing:.5px">Contents</span>
+        return `<div style="margin:10px 0 22px;border:2px solid #2e7d32;border-radius:3px;overflow:hidden;break-inside:avoid">
+          <div style="background:#2e7d32;padding:6px 14px;font-size:8.5pt;font-weight:900;color:#fff;letter-spacing:.07em;text-transform:uppercase">&#x1F6D2;&nbsp; ${htmlEsc(p1Pallet.type)} — Palletized Shipment</div>
+          <div style="display:flex;background:#e8f5e9">
+            <div style="flex:1;padding:10px 6px;text-align:center;border-right:1px solid #a5d6a7">
+              <span style="font-size:16pt;font-weight:900;display:block;line-height:1.1;color:#1b5e20">${totPcs}</span>
+              <span style="font-size:7pt;text-transform:uppercase;font-weight:bold;color:#2e7d32;letter-spacing:.5px">Pieces</span>
+              ${pieceDetail ? `<span style="font-size:6.5pt;color:#555;display:block;margin-top:2px">${pieceDetail}</span>` : ''}
             </div>
-            <div style="flex:1;padding:12px 10px;text-align:center;border-right:1px solid #a5d6a7">
+            <div style="flex:1;padding:10px 6px;text-align:center;border-right:1px solid #a5d6a7">
               <span style="font-size:16pt;font-weight:900;display:block;line-height:1.1;color:#1b5e20">${dimsStr}</span>
-              <span style="font-size:7pt;text-transform:uppercase;font-weight:700;color:#2e7d32;letter-spacing:.5px">Outer Dimensions</span>
+              <span style="font-size:7pt;text-transform:uppercase;font-weight:bold;color:#2e7d32;letter-spacing:.5px">Outer Dims</span>
             </div>
-            <div style="flex:1;padding:12px 10px;text-align:center">
+            <div style="flex:1;padding:10px 6px;text-align:center">
               <span style="font-size:16pt;font-weight:900;display:block;line-height:1.1;color:#1b5e20">${wtStr}</span>
-              <span style="font-size:7pt;text-transform:uppercase;font-weight:700;color:#2e7d32;letter-spacing:.5px">Pallet Weight</span>
+              <span style="font-size:7pt;text-transform:uppercase;font-weight:bold;color:#2e7d32;letter-spacing:.5px">Pallet Weight</span>
             </div>
           </div>
         </div>`;
@@ -3028,21 +3028,30 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
       </div>
 
       ${p2Pallet ? (() => {
-        const innerDesc = [
-          `${totPcs} piece${totPcs !== 1 ? 's' : ''}`,
+        const pieceDetail = [
           totalPoles ? `${totalPoles} pole${totalPoles !== 1 ? 's' : ''}` : '',
           totalAccQty ? `${totalAccQty} acc.` : ''
-        ].filter(Boolean).join(' / ');
+        ].filter(Boolean).join(' + ');
         const dimsStr = (p2Pallet.L && p2Pallet.W && p2Pallet.H)
           ? `${p2Pallet.L}&quot; &times; ${p2Pallet.W}&quot; &times; ${p2Pallet.H}&quot;`
           : '<em style="color:#c00">dims not entered</em>';
         const wtStr = p2Pallet.wt ? `${p2Pallet.wt} ${p2Pallet.unit}` : '—';
-        return `<div style="margin:10px 0 18px;padding:14px 18px;border:3px solid #2e7d32;border-radius:6px;background:#e8f5e9;break-inside:avoid">
-          <div style="font-size:13pt;font-weight:900;color:#1b5e20;letter-spacing:.04em;margin-bottom:10px">&#x1F6D2;&nbsp; ${htmlEsc(p2Pallet.type).toUpperCase()} — PALLETIZED SHIPMENT</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 24px">
-            <div><div style="font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:2px">Contains</div><div style="font-size:10pt;font-weight:700;color:#1b5e20">${innerDesc}</div></div>
-            <div><div style="font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:2px">Outer Dimensions</div><div style="font-size:10pt;font-weight:700;color:#1b5e20">${dimsStr}</div></div>
-            <div><div style="font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#555;margin-bottom:2px">Pallet Weight</div><div style="font-size:10pt;font-weight:700;color:#1b5e20">${wtStr}</div></div>
+        return `<div style="margin:10px 0 22px;border:2px solid #2e7d32;border-radius:3px;overflow:hidden;break-inside:avoid">
+          <div style="background:#2e7d32;padding:6px 14px;font-size:8.5pt;font-weight:900;color:#fff;letter-spacing:.07em;text-transform:uppercase">&#x1F6D2;&nbsp; ${htmlEsc(p2Pallet.type)} — Palletized Shipment</div>
+          <div style="display:flex;background:#e8f5e9">
+            <div style="flex:1;padding:10px 6px;text-align:center;border-right:1px solid #a5d6a7">
+              <span style="font-size:16pt;font-weight:900;display:block;line-height:1.1;color:#1b5e20">${totPcs}</span>
+              <span style="font-size:7pt;text-transform:uppercase;font-weight:bold;color:#2e7d32;letter-spacing:.5px">Pieces</span>
+              ${pieceDetail ? `<span style="font-size:6.5pt;color:#555;display:block;margin-top:2px">${pieceDetail}</span>` : ''}
+            </div>
+            <div style="flex:1;padding:10px 6px;text-align:center;border-right:1px solid #a5d6a7">
+              <span style="font-size:16pt;font-weight:900;display:block;line-height:1.1;color:#1b5e20">${dimsStr}</span>
+              <span style="font-size:7pt;text-transform:uppercase;font-weight:bold;color:#2e7d32;letter-spacing:.5px">Outer Dims</span>
+            </div>
+            <div style="flex:1;padding:10px 6px;text-align:center">
+              <span style="font-size:16pt;font-weight:900;display:block;line-height:1.1;color:#1b5e20">${wtStr}</span>
+              <span style="font-size:7pt;text-transform:uppercase;font-weight:bold;color:#2e7d32;letter-spacing:.5px">Pallet Weight</span>
+            </div>
           </div>
         </div>`;
       })() : ''}
