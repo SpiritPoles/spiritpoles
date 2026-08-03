@@ -109,23 +109,23 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
-// Replaces SS2471 — item on-hand aggregated across all locations from inventoryBalance.
-// item.quantityonhand returns 0 in SuiteQL analytics context; inventoryBalance has the real numbers.
-// Drive from inventoryBalance (small table) → JOIN item, filter onhand>0 to keep the result tiny.
-// Items with zero stock simply won't appear here; buildPayload defaults missing models to 0.
-// Lot-tracked flex poles are further overridden below using per-lot quantities from Q_FLEXES.
+// Replaces SS2471 — item on-hand from inventoryItemLocation (aggregated across all locations).
+// item.quantityonhand returns 0 in SuiteQL analytics; inventoryBalance table name appears wrong.
+// inventoryItemLocation is the standard SuiteQL table for per-location inventory quantities.
+// Drive from the inventory table → JOIN item to avoid large intermediate result sets.
+// Items with zero stock won't appear; buildPayload stubs them at 0. Flex poles overridden by Q_FLEXES.
 const Q_ITEMS = `
   SELECT
-    i.itemid                  AS name,
-    MAX(i.displayname)        AS displayname,
-    SUM(ib.quantityonhand)    AS onhand,
-    SUM(ib.quantitycommitted) AS committed,
-    SUM(ib.quantityavailable) AS available
-  FROM inventoryBalance ib
-  JOIN item i ON i.id = ib.item
+    i.itemid                      AS name,
+    MAX(i.displayname)            AS displayname,
+    SUM(il.quantityonhand)        AS onhand,
+    SUM(il.quantitycommitted)     AS committed,
+    SUM(il.quantityavailable)     AS available
+  FROM inventoryItemLocation il
+  JOIN item i ON i.id = il.item
   WHERE i.isinactive = 'F'
-    AND ib.quantityonhand > 0
-  GROUP BY ib.item, i.itemid
+    AND il.quantityonhand > 0
+  GROUP BY il.item, i.itemid
   ORDER BY i.itemid
 `;
 
