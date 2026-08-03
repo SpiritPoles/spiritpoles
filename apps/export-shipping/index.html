@@ -2709,6 +2709,9 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
               <span style="font-size:7pt;text-transform:uppercase;font-weight:bold;color:#2e7d32;letter-spacing:.5px">Pallet Weight</span>
             </div>
           </div>
+          <div style="border-top:2px solid #2e7d32;background:#c8e6c9;padding:7px 14px;text-align:center;font-size:9pt;font-weight:900;color:#1b5e20;letter-spacing:.05em;text-transform:uppercase">
+            &#9888;&nbsp; All inner pieces are consolidated — Ships as 1 ${htmlEsc(p1Pallet.type)} (Palletized / Crated)
+          </div>
         </div>`;
       })() : ''}
 
@@ -3055,6 +3058,9 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#111;background
               <span style="font-size:7pt;text-transform:uppercase;font-weight:bold;color:#2e7d32;letter-spacing:.5px">Pallet Weight</span>
             </div>
           </div>
+          <div style="border-top:2px solid #2e7d32;background:#c8e6c9;padding:7px 14px;text-align:center;font-size:9pt;font-weight:900;color:#1b5e20;letter-spacing:.05em;text-transform:uppercase">
+            &#9888;&nbsp; All inner pieces are consolidated — Ships as 1 ${htmlEsc(p2Pallet.type)} (Palletized / Crated)
+          </div>
         </div>`;
       })() : ''}
 
@@ -3196,7 +3202,7 @@ function downloadSLI() {
   const tibNote  = tib !== 'No' ? ` <span style="font-size:6pt">(${htmlEsc(tib)})</span>` : '';
 
   const instructions = p2Pallet
-    ? `FRAGILE! Handle with Care! ${totalPoles} vaulting pole${totalPoles > 1 ? 's' : ''} packed in ${totalPieces} piece${totalPieces > 1 ? 's' : ''}, consolidated on 1 ${p2Pallet.type}${(p2Pallet.L && p2Pallet.W && p2Pallet.H) ? ' (' + p2Pallet.L + '" × ' + p2Pallet.W + '" × ' + p2Pallet.H + '")' : ''}${p2Pallet.wt ? ', ' + p2Pallet.wt + ' ' + p2Pallet.unit : ''}. Do not stack heavy items on top of pallet.`
+    ? `SHIPS AS 1 PIECE — All inner pieces are consolidated on 1 ${p2Pallet.type} (Palletized / Crated). FRAGILE! Handle with Care! ${totalPoles} vaulting pole${totalPoles > 1 ? 's' : ''} packed in ${totalPieces} inner piece${totalPieces > 1 ? 's' : ''}, consolidated on 1 ${p2Pallet.type}${(p2Pallet.L && p2Pallet.W && p2Pallet.H) ? ' (' + p2Pallet.L + '" × ' + p2Pallet.W + '" × ' + p2Pallet.H + '")' : ''}${p2Pallet.wt ? ', ' + p2Pallet.wt + ' ' + p2Pallet.unit : ''}. Do not stack heavy items on top of pallet.`
     : `FRAGILE! Handle with Care! ${totalPoles} vaulting pole${totalPoles > 1 ? 's' : ''} packed in ${totalPieces} piece${totalPieces > 1 ? 's' : ''}. Do not stack heavy items on top of containers.`;
 
   // Consignee contact line (for Box 10)
@@ -3730,9 +3736,10 @@ Schedule B / HS Code:  ${schedB}
 Port of Destination:   ${goodsD}
 Declared Goods Value:  ${goodsVal}
 
-Piece Count:     ${totalPieces} piece(s) — ${totalPoles} poles total${p1Pallet ? ' (inner pieces, on pallet)' : ''}
+Piece Count:     ${totalPieces} piece(s) — ${totalPoles} poles total${p1Pallet ? ' (inner pieces, consolidated on pallet)' : ''}
 Total Weight:    ${totalLbs} lbs / ${totalKg} kg${p1Pallet ? `
-Packaging:    Palletized — 1 ${p1Pallet.type}${(p1Pallet.L && p1Pallet.W && p1Pallet.H) ? '\nOuter Dims:   ' + p1Pallet.L + '" × ' + p1Pallet.W + '" × ' + p1Pallet.H + '"' : ''}${p1Pallet.wt ? '\nPallet Wt:    ' + p1Pallet.wt + ' ' + p1Pallet.unit : ''}` : ''}
+Packaging:    Palletized — 1 ${p1Pallet.type}${(p1Pallet.L && p1Pallet.W && p1Pallet.H) ? '\nOuter Dims:   ' + p1Pallet.L + '" × ' + p1Pallet.W + '" × ' + p1Pallet.H + '"' : ''}${p1Pallet.wt ? '\nPallet Wt:    ' + p1Pallet.wt + ' ' + p1Pallet.unit : ''}
+*** SHIPS AS 1 PIECE — All inner pieces consolidated on 1 ${p1Pallet.type} (Palletized / Crated) ***` : ''}
 
 Piece Dimensions & Weight:${p1Pallet ? ' (inner pieces)' : ''}
 ${dimsLines}
@@ -3841,10 +3848,11 @@ Port of Destination:  ${namedPl || '—'}
 Schedule B / HS Code: ${schedB}
 Declared Value (USD): ${goodsVal || '—'}
 
-Pieces:       ${pieces}
+Pieces:       ${pieces}${p2Pallet ? ' (inner — consolidated on pallet)' : ''}
 Poles:        ${poles}
 Total Weight: ${weightKg} kg${p2Pallet ? `
-Packaging:    Palletized — 1 ${p2Pallet.type}${(p2Pallet.L && p2Pallet.W && p2Pallet.H) ? '\nOuter Dims:   ' + p2Pallet.L + '" × ' + p2Pallet.W + '" × ' + p2Pallet.H + '"' : ''}${p2Pallet.wt ? '\nPallet Wt:    ' + p2Pallet.wt + ' ' + p2Pallet.unit : ''}` : ''}
+Packaging:    Palletized — 1 ${p2Pallet.type}${(p2Pallet.L && p2Pallet.W && p2Pallet.H) ? '\nOuter Dims:   ' + p2Pallet.L + '" × ' + p2Pallet.W + '" × ' + p2Pallet.H + '"' : ''}${p2Pallet.wt ? '\nPallet Wt:    ' + p2Pallet.wt + ' ' + p2Pallet.unit : ''}
+*** SHIPS AS 1 PIECE — All inner pieces consolidated on 1 ${p2Pallet.type} (Palletized / Crated) ***` : ''}
 
 Ship Date:    ${fmtDate}
 
