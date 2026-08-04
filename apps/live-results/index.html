@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.17</title>
+  <title>VaultDesk v1.19</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -314,7 +314,10 @@ const totalMisses=(a,n)=>{let t=0;for(let i=0;i<n;i++)t+=countMisses(a.attempts[
 const calcPlacements=(athletes,heights)=>{
   const n=heights.length;
   const dns=athletes.filter(a=>a.status==='dns');
-  const out=athletes.filter(a=>a.status!=='dns'&&highestClearedIdx(a,n)<0);
+  // out = definitively eliminated with no clears (NH/retired confirmed)
+  const out=athletes.filter(a=>a.status!=='dns'&&highestClearedIdx(a,n)<0&&(TERMINAL.includes(a.status)||totalConsecutiveMisses(a.attempts)>=3));
+  // pending = still competing, no clears yet — don't show as NH during live comp
+  const pending=athletes.filter(a=>a.status!=='dns'&&highestClearedIdx(a,n)<0&&!TERMINAL.includes(a.status)&&totalConsecutiveMisses(a.attempts)<3);
   const withH=athletes.filter(a=>highestClearedIdx(a,n)>=0);
   const sorted=[...withH].sort((a,b)=>{
     const ai=highestClearedIdx(a,n),bi=highestClearedIdx(b,n);
@@ -335,7 +338,7 @@ const calcPlacements=(athletes,heights)=>{
     place=Math.max(place,i+2);
   }
   for(let i=0;i<result.length;i++)result[i].tied=result.some((r,j)=>j!==i&&r.placement===result[i].placement);
-  return[...result,...out.map(a=>({...a,placement:null,tied:false})),...dns.map(a=>({...a,placement:null,tied:false}))];
+  return[...result,...out.map(a=>({...a,placement:null,tied:false})),...pending.map(a=>({...a,placement:null,tied:false})),...dns.map(a=>({...a,placement:null,tied:false}))];
 };
 
 const plLabel=p=>p===1?'1st':p===2?'2nd':p===3?'3rd':`${p}th`;
@@ -345,6 +348,10 @@ const totalConsecutiveMisses=attempts=>{let c=0;for(const m of attempts){if(!m||
 const isEliminatedFromComp=a=>TERMINAL.includes(a.status)||totalConsecutiveMisses(a.attempts)>=3;
 const nextVaulter=(athletes,hIdx,fromIdx)=>{const n=athletes.length;for(let s=1;s<=n;s++){const idx=(fromIdx+s)%n;const a=athletes[idx];if(!isEliminatedFromComp(a)&&!isDone(a.attempts[hIdx]||[],a.status))return idx;}return-1};
 const firstEligible=(athletes,hIdx)=>{for(let i=0;i<athletes.length;i++){const a=athletes[i];if(!isEliminatedFromComp(a)&&!isDone(a.attempts[hIdx]||[],a.status))return i;}return-1};
+// Jump-off helpers — jIds = array of athlete IDs participating in the JO
+const firstJO=(athletes,jIds)=>{for(let i=0;i<athletes.length;i++){const a=athletes[i];if(jIds.includes(a.id)&&!TERMINAL.includes(a.status))return i;}return-1};
+// Next JO athlete who hasn't yet attempted curH (each athlete gets exactly 1 attempt in JO)
+const nextVaulterJO=(athletes,hIdx,fromIdx,jIds)=>{const n=athletes.length;for(let s=1;s<=n;s++){const idx=(fromIdx+s)%n;const a=athletes[idx];if(!jIds.includes(a.id)||TERMINAL.includes(a.status)||(a.attempts[hIdx]||[]).length>=1)continue;return idx;}return-1};
 
 // genHeights — maxH=6 by default (expandable to 10 in editor)
 const genHeights=(startStr,incStr,maxH=6)=>{
@@ -1119,7 +1126,7 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
             const isCur=isActive&&origIdx===curA;
             const plInfo=placementOf[ath.id]||{pl:null,tied:false};
             const best=bestResult(ath);
-            const isOut=TERMINAL.includes(ath.status);
+            const isOut=isEliminatedFromComp(ath);
             const rowBg=isCur?`${C.accent}12`:rowIdx%2===0?'transparent':`${C.surface}60`;
             const isDoneHere=isDone(ath.attempts[curH]||[],ath.status);
             return(
@@ -1128,7 +1135,7 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
                 <td style={{position:'sticky',left:30,background:rowBg,padding:'7px 6px',textAlign:'center',fontWeight:800,fontSize:compact?13:14}}>
                   {plInfo.pl===1?'🥇':plInfo.pl===2?'🥈':plInfo.pl===3?'🥉':plInfo.pl
                     ?<span style={{color:C.muted,fontSize:11}}>{plInfo.pl}{plInfo.tied?'=':''}</span>
-                    :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':best?'':'NH'}</span>}
+                    :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
                 </td>
                 <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px',minWidth:155}}>
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
@@ -1289,18 +1296,18 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
 }
 
 // ─── SCORING SCREEN ───────────────────────────────────────────────────────────
-function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primaryMetric,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,startJumpOff,onEnd,onEditSetup,onRestart}){
+function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primaryMetric,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,isJumpOff,startJumpOff,onEnd,onEditSetup,onRestart}){
   const isActive=compStatus==='active';
   const rbCfg=RULEBOOK_CFG[rulebook]||RULEBOOK_CFG.WA;
-  const tiedFirst=ranked.filter(r=>r.placement===1&&r.tied);
-  const hasFirstTie=tiedFirst.length>=2;
-  const showJumpOffBanner=!isActive&&hasFirstTie;
-  const curAth=athletes[curA];
   const meetOver=useMemo(()=>{
     if(!isActive||!heights.length)return false;
     for(let h=curH;h<heights.length;h++){if(firstEligible(athletes,h)!==-1)return false;}
     return true;
   },[athletes,heights,curH,isActive]);
+  const tiedFirst=ranked.filter(r=>r.placement===1&&r.tied);
+  const hasFirstTie=tiedFirst.length>=2;
+  const showJumpOffBanner=(meetOver||compStatus==='complete-pending')&&hasFirstTie&&!isJumpOff;
+  const curAth=athletes[curA];
   const curHt=heights[curH];
   const curMarks=curAth?(curAth.attempts[curH]||[]):[];
   const alreadyDone=curAth?isDone(curMarks,curAth.status):true;
@@ -1347,8 +1354,8 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
       <div style={{background:'linear-gradient(135deg,#0b1829 0%,#0e1e38 55%,#0d1520 100%)',borderBottom:`1px solid rgba(79,124,255,.25)`,padding:'16px 16px 14px'}}>
 
         {/* Status bar */}
-        <div style={{fontSize:10,color:'rgba(79,124,255,.7)',fontWeight:700,letterSpacing:.9,textTransform:'uppercase',marginBottom:12}}>
-          {isActive&&curAth?`Now vaulting · Attempt ${attemptNum}${curMarks.length>0?' · '+curMarks.join(''):''}`:isActive?'Waiting…':''}
+        <div style={{fontSize:10,color:isJumpOff?'rgba(245,158,11,.85)':'rgba(79,124,255,.7)',fontWeight:700,letterSpacing:.9,textTransform:'uppercase',marginBottom:12}}>
+          {isActive&&curAth?`${isJumpOff?'⚡ JUMP-OFF · ':''}Now vaulting · Attempt ${attemptNum}${curMarks.length>0?' · '+curMarks.join(''):''}`:isActive?'Waiting…':''}
         </div>
 
         {/* Main row: height left | divider | athlete right */}
@@ -1426,6 +1433,14 @@ function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primar
             {onDeck!==null&&athletes[onDeck]&&<div style={{fontSize:11,color:C.warn,background:`${C.warn}10`,borderRadius:7,padding:'3px 9px',border:`1px solid ${C.warn}30`}}>On deck: {athletes[onDeck].firstName} {athletes[onDeck].lastName}</div>}
             {inHole!==null&&athletes[inHole]&&<div style={{fontSize:11,color:'#f87171',background:'rgba(248,113,113,.1)',borderRadius:7,padding:'3px 9px',border:'1px solid rgba(248,113,113,.28)'}}>On hold: {athletes[inHole].firstName} {athletes[inHole].lastName}</div>}
           </div>
+        </div>
+      )}
+
+      {/* JUMP-OFF IN PROGRESS */}
+      {isJumpOff&&isActive&&(
+        <div style={{margin:'8px 14px 0',background:'rgba(245,158,11,.12)',borderRadius:12,padding:'10px 14px',border:'1px solid rgba(245,158,11,.4)'}}>
+          <div style={{fontWeight:800,fontSize:13,color:C.warn,marginBottom:3}}>⚡ Jump-Off In Progress</div>
+          <div style={{fontSize:11,color:C.muted}}>{rbCfg.jumpOffNote} · One attempt per height per athlete · Bar raises 5cm if all clear, lowers 5cm if all fail</div>
         </div>
       )}
 
@@ -1529,8 +1544,8 @@ function DisplayScreen({sc,primaryMetric,updSc}){
   const winners=ranked.filter(r=>r.placement===1);
   const winnerBestIdx=winners.length?highestClearedIdx(winners[0],heights.length):-1;
   const winnerBestH=winnerBestIdx>=0?heights[winnerBestIdx]:null;
-  const onDeckIdx=isActive&&curA>=0?nextVaulter(athletes,curH,curA):-1;
-  const inHoleIdx=onDeckIdx>=0?nextVaulter(athletes,curH,onDeckIdx):-1;
+  const onDeckIdx=isActive&&curA>=0?(sc.isJumpOff?nextVaulterJO(athletes,curH,curA,sc.jumpOffIds||[]):nextVaulter(athletes,curH,curA)):-1;
+  const inHoleIdx=onDeckIdx>=0?(sc.isJumpOff?nextVaulterJO(athletes,curH,onDeckIdx,sc.jumpOffIds||[]):nextVaulter(athletes,curH,onDeckIdx)):-1;
   const rbLabel=RULEBOOKS.find(r=>r.key===rulebook)?.label||rulebook||'';
   const genderLabel=info.gender==='M'?"Men's":info.gender==='W'?"Women's":info.gender?'Mixed':'';
 
@@ -1589,8 +1604,8 @@ function DisplayScreen({sc,primaryMetric,updSc}){
       {/* ── HERO (read-only mirror of Score tab) ── */}
       {isActive&&(
         <div style={{background:'linear-gradient(135deg,#0b1829 0%,#0e1e38 55%,#0d1520 100%)',borderBottom:`1px solid rgba(79,124,255,.25)`,padding:'16px 16px 14px'}}>
-          <div style={{fontSize:10,color:'rgba(79,124,255,.7)',fontWeight:700,letterSpacing:.9,textTransform:'uppercase',marginBottom:12}}>
-            {curAth?`Now vaulting · Attempt ${attemptNum}${curMarks.length>0?' · '+curMarks.join(''):''}`:isActive?'Waiting…':''}
+          <div style={{fontSize:10,color:sc.isJumpOff?'rgba(245,158,11,.85)':'rgba(79,124,255,.7)',fontWeight:700,letterSpacing:.9,textTransform:'uppercase',marginBottom:12}}>
+            {curAth?`${sc.isJumpOff?'⚡ JUMP-OFF · ':''}Now vaulting · Attempt ${attemptNum}${curMarks.length>0?' · '+curMarks.join(''):''}`:isActive?'Waiting…':''}
           </div>
           <div style={{display:'flex',alignItems:'flex-start',gap:0}}>
             {/* Height */}
@@ -2056,6 +2071,7 @@ function VaultDeskApp(){
       ...s,athletes:orderedAthletes,compStatus:'active',metric:primaryMetric,
       curH:0,curA:firstEligible(orderedAthletes,0),
       compId:s.compId||`c_${Date.now().toString(36)}`,
+      origHeightCount:s.heights.length,
     };
     let finalSc=newSc;
     try{
@@ -2068,58 +2084,174 @@ function VaultDeskApp(){
   // Mark recording
   const recordMark=useCallback(mark=>{
     const c=scRef.current;if(!c||c.compStatus!=='active')return;
-    const{athletes,heights,curH,curA}=c;
+    const{athletes,heights,curH,curA,isJumpOff=false,jumpOffIds=[]}=c;
     if(curA<0||curA>=athletes.length)return;
     const ath=athletes[curA];
-    if(mark==='DNS'){updSc({athletes:athletes.map((a,i)=>i===curA?{...a,status:'dns',attempts:a.attempts}:a)});const nA=nextVaulter(athletes,curH,curA);updSc({curA:nA});return;}
+
+    // DNS — set status, advance rotation, sync
+    if(mark==='DNS'){
+      const newAthletes=athletes.map((a,i)=>i===curA?{...a,status:'dns'}:a);
+      const nA=isJumpOff?nextVaulterJO(newAthletes,curH,curA,jumpOffIds):nextVaulter(newAthletes,curH,curA);
+      updSc({athletes:newAthletes,curA:nA});
+      syncState(c,curH,nA,'active').catch(e=>console.warn('syncState failed:',e));
+      return;
+    }
+
+    // Record the mark
     const newMarks=[...(ath.attempts[curH]||[]),mark];
     const newAthletes=athletes.map((a,i)=>{
       if(i!==curA)return a;
       const newAtt=[...a.attempts];newAtt[curH]=newMarks;
       let status=a.status;
       if(mark==='R')status='retired';
-      // NH if 3 consecutive misses (including carry-over from passes) AND never cleared any height
       if(!newAtt.some(hasCleared)&&totalConsecutiveMisses(newAtt)>=3)status='nh';
       return{...a,attempts:newAtt,status};
     });
     updSc({athletes:newAthletes});
-    // Sync mark to Supabase (fire-and-forget — local state is source of truth)
     syncMark(c,ath.id,curH,newMarks).catch(e=>console.warn('syncMark failed:',e));
-    // Always advance rotation after any mark (X included) — nextVaulter skips done athletes
+
+    // ── JUMP-OFF MODE ──────────────────────────────────────────────────────────
+    if(isJumpOff){
+      // In JO each athlete gets exactly 1 attempt. P/R = concede (treated as fail)
+      const nA_jo=nextVaulterJO(newAthletes,curH,curA,jumpOffIds);
+      if(nA_jo!==-1){
+        updSc({curA:nA_jo});
+        syncState(c,curH,nA_jo,'active').catch(e=>console.warn('syncState failed:',e));
+        return;
+      }
+      // All JO athletes have had their 1 attempt at this height — evaluate
+      const joActive=newAthletes.filter(a=>jumpOffIds.includes(a.id)&&!TERMINAL.includes(a.status));
+      const jo_cleared=joActive.filter(a=>hasCleared(a.attempts[curH]||[]));
+      const jo_failed=joActive.filter(a=>!hasCleared(a.attempts[curH]||[]));
+
+      const addJOHeight=async(heightCm,finalAthletes,newJOIds,newStatus)=>{
+        const newHeights=[...heights,heightCm];
+        const nH_idx=newHeights.length-1;
+        const nA2=firstJO(finalAthletes,newJOIds);
+        updSc({athletes:finalAthletes,heights:newHeights,curH:nH_idx,curA:nA2,jumpOffIds:newJOIds,isJumpOff:newStatus});
+        syncState(c,nH_idx,nA2,'active').catch(e=>console.warn('syncState failed:',e));
+        // Insert new JO height into Supabase
+        if(c.supabaseCompId&&c.scorerToken){
+          sb.from('heights').insert({comp_id:c.supabaseCompId,height_cm:heightCm,sort_order:nH_idx}).select()
+            .then(({data})=>{if(data?.[0]){const cur=scRef.current;updSc({heightIds:{...cur?.heightIds,[nH_idx]:data[0].id}});}})
+            .catch(e=>console.warn('JO height sync failed:',e));
+        }
+      };
+
+      if(jo_cleared.length===1&&jo_failed.length>0){
+        // Exactly one cleared — JO winner decided
+        const final=newAthletes.map(a=>jo_failed.find(f=>f.id===a.id)?{...a,status:'retired'}:a);
+        updSc({athletes:final,curA:-1,isJumpOff:false});
+        syncState(c,curH,-1,'active').catch(e=>console.warn('syncState failed:',e));
+        return;
+      }
+      if(jo_cleared.length>1&&jo_failed.length>0){
+        // Mix — eliminate failures, continue with cleared athletes at next height up
+        const newJOIds=jo_cleared.map(a=>a.id);
+        const final=newAthletes.map(a=>jo_failed.find(f=>f.id===a.id)?{...a,status:'retired'}:a);
+        addJOHeight(heights[curH]+5,final,newJOIds,true);
+        return;
+      }
+      if(jo_failed.length===joActive.length){
+        // All failed → lower bar 5cm
+        addJOHeight(heights[curH]-5,newAthletes,jumpOffIds,true);
+        return;
+      }
+      // All cleared → raise bar 5cm
+      addJOHeight(heights[curH]+5,newAthletes,jumpOffIds,true);
+      return;
+    }
+
+    // ── REGULAR COMPETITION ROTATION ───────────────────────────────────────────
     const nA=nextVaulter(newAthletes,curH,curA);
-    if(nA!==-1){updSc({curA:nA});return;}
+    if(nA!==-1){
+      updSc({curA:nA});
+      syncState(c,curH,nA,'active').catch(e=>console.warn('syncState failed:',e));
+      return;
+    }
     // No one left at this height — advance height
     let nH=curH+1;
     while(nH<heights.length&&firstEligible(newAthletes,nH)===-1)nH++;
-    if(nH<heights.length)updSc({curH:nH,curA:firstEligible(newAthletes,nH)});
-    else updSc({curA:-1}); // meet over
+    if(nH<heights.length){
+      const nA2=firstEligible(newAthletes,nH);
+      updSc({curH:nH,curA:nA2});
+      syncState(c,nH,nA2,'active').catch(e=>console.warn('syncState failed:',e));
+    }else{
+      updSc({curA:-1});
+      syncState(c,curH,-1,'active').catch(e=>console.warn('syncState failed:',e));
+    }
   },[]);
 
   const undoMark=useCallback(()=>{
     const c=scRef.current;if(!c)return;
-    const{athletes,curH,curA}=c;
-    if(curA<0||curA>=athletes.length)return;
-    const ath=athletes[curA];const marks=[...(ath.attempts[curH]||[])];
-    if(!marks.length)return;marks.pop();
-    const newAthletes=athletes.map((a,i)=>{if(i!==curA)return a;const newAtt=[...a.attempts];newAtt[curH]=marks;return{...a,attempts:newAtt,status:marks.length===0||!marks.includes('R')?'competing':a.status};});
-    updSc({athletes:newAthletes});
+    const{athletes}=c;
+    let{curH,curA}=c;
+    // If curA=-1 (meet over or between heights), find the last athlete who made an attempt at curH
+    if(curA<0||curA>=athletes.length){
+      let found=-1;
+      for(let i=athletes.length-1;i>=0;i--){if((athletes[i].attempts[curH]||[]).length>0){found=i;break;}}
+      // If nothing at curH, try curH-1
+      if(found===-1&&curH>0){
+        curH=curH-1;
+        for(let i=athletes.length-1;i>=0;i--){if((athletes[i].attempts[curH]||[]).length>0){found=i;break;}}
+      }
+      if(found===-1)return;
+      curA=found;
+    }
+    const ath=athletes[curA];
+    const marks=[...(ath.attempts[curH]||[])];
+    if(!marks.length)return;
+    marks.pop();
+    const newAtt=[...ath.attempts];newAtt[curH]=marks;
+    // Recalculate status from full attempt history
+    let newStatus='competing';
+    if(newAtt.some(m=>hasRetired(m)))newStatus='retired';
+    else if(!newAtt.some(hasCleared)&&totalConsecutiveMisses(newAtt)>=3)newStatus='nh';
+    const newAthletes=athletes.map((a,i)=>i!==curA?a:{...a,attempts:newAtt,status:newStatus});
+    updSc({athletes:newAthletes,curA,curH});
   },[]);
 
   const startJumpOff=useCallback(()=>{
     const c=scRef.current;if(!c)return;
     const{athletes,heights}=c;
-    const lastH=heights[heights.length-1]||50000;
-    const jumpOffH=lastH+5;
+    const n=heights.length;
+    const ranked=calcPlacements(athletes,heights);
+    const tiedFirst=ranked.filter(r=>r.placement===1&&r.tied);
+    const jumpOffIds=tiedFirst.map(a=>a.id);
+    if(jumpOffIds.length<2)return;
+    // JO starts 5cm above the last competition height
+    const jumpOffH=(heights[n-1]||50000)+5;
     const newHeights=[...heights,jumpOffH];
-    const resetAthletes=athletes.map(a=>({...a,status:a.status==='retired'||a.status==='dns'?a.status:'competing'}));
-    updSc({heights:newHeights,curH:newHeights.length-1,curA:firstEligible(resetAthletes,newHeights.length-1),athletes:resetAthletes,compStatus:'active'});
+    const nH_idx=newHeights.length-1;
+    // Only JO athletes remain active; others become 'retired' (unless already dns/nh/retired)
+    const updatedAthletes=athletes.map(a=>{
+      if(TERMINAL.includes(a.status))return a;
+      if(jumpOffIds.includes(a.id))return a;
+      return{...a,status:'retired'};
+    });
+    const nA=firstJO(updatedAthletes,jumpOffIds);
+    updSc({heights:newHeights,curH:nH_idx,athletes:updatedAthletes,compStatus:'active',isJumpOff:true,jumpOffIds,curA:nA});
+    syncState(c,nH_idx,nA,'active').catch(e=>console.warn('syncState failed:',e));
+    // Insert JO height into Supabase
+    if(c.supabaseCompId&&c.scorerToken){
+      sb.from('heights').insert({comp_id:c.supabaseCompId,height_cm:jumpOffH,sort_order:nH_idx}).select()
+        .then(({data})=>{if(data?.[0]){const cur=scRef.current;updSc({heightIds:{...cur?.heightIds,[nH_idx]:data[0].id}});}})
+        .catch(e=>console.warn('JO height sync failed:',e));
+    }
   },[]);
 
-  const endCompetition=useCallback(()=>updSc({compStatus:'complete-pending'}),[]);
+  const endCompetition=useCallback(()=>{
+    const c=scRef.current;
+    updSc({compStatus:'complete-pending'});
+    syncState(c,c?.curH??0,c?.curA??-1,'complete-pending').catch(e=>console.warn('syncState failed:',e));
+  },[]);
   const restartComp=useCallback(()=>{
     const c=scRef.current;if(!c)return;
+    // Trim back to original heights (before any JO heights were appended)
+    const origHeightCount=c.origHeightCount||c.heights.length;
+    const origHeights=c.heights.slice(0,origHeightCount);
     const resetAthletes=c.athletes.map(a=>({...a,attempts:Array.from({length:10},()=>[]),status:'competing'}));
-    updSc({athletes:resetAthletes,curH:0,curA:firstEligible(resetAthletes,0),compStatus:'active'});
+    updSc({heights:origHeights,athletes:resetAthletes,curH:0,curA:firstEligible(resetAthletes,0),compStatus:'active',isJumpOff:false,jumpOffIds:[]});
   },[]);
   const verifyOfficial=useCallback(()=>{
     const c=scRef.current;if(!c)return;
@@ -2137,8 +2269,8 @@ function VaultDeskApp(){
 
   const sc_ranked=sc?calcPlacements(sc.athletes||[],sc.heights||[]):[];
   const live=sc?sc.curA:-1;
-  const onDeck=sc&&sc.compStatus==='active'?nextVaulter(sc.athletes||[],sc.curH||0,live):-1;
-  const inHole=sc&&sc.compStatus==='active'&&onDeck!==-1?nextVaulter(sc.athletes||[],sc.curH||0,onDeck):-1;
+  const onDeck=sc&&sc.compStatus==='active'?(sc.isJumpOff?nextVaulterJO(sc.athletes||[],sc.curH||0,live,sc.jumpOffIds||[]):nextVaulter(sc.athletes||[],sc.curH||0,live)):-1;
+  const inHole=sc&&sc.compStatus==='active'&&onDeck!==-1?(sc.isJumpOff?nextVaulterJO(sc.athletes||[],sc.curH||0,onDeck,sc.jumpOffIds||[]):nextVaulter(sc.athletes||[],sc.curH||0,onDeck)):-1;
 
   const TABS=[
     {id:'setup',label:'Setup',icon:'⚙️'},
@@ -2230,7 +2362,7 @@ function VaultDeskApp(){
             recordMark={recordMark} undoMark={undoMark}
             live={live} onDeck={onDeck} inHole={inHole}
             compStatus={sc.compStatus} info={sc.info} rulebook={sc.rulebook}
-            startJumpOff={startJumpOff} onEnd={endCompetition}
+            isJumpOff={sc?.isJumpOff||false} startJumpOff={startJumpOff} onEnd={endCompetition}
             onEditSetup={()=>setShowEdit(true)} onRestart={restartComp}
           />
         )}
