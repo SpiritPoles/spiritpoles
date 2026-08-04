@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.20</title>
+  <title>VaultDesk v1.22</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -38,6 +38,7 @@ const {useState,useMemo,useCallback,useEffect,useRef}=React;
 const SUPABASE_URL='https://oicczjlbmxxoylkbuxzy.supabase.co';
 const SUPABASE_KEY='sb_publishable_jf648alt67vbmJRYviMR7g_IH0fSk1O';
 const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const SUPER_ADMIN_EMAIL='think4sport@gmail.com';
 
 // URL routing: #/score/SLUG/TOKEN → scorer mode, #/display/SLUG → display mode
 const parseRoute=()=>{
@@ -51,7 +52,7 @@ const ROUTE=parseRoute();
 // Publish a competition to Supabase (called from startComp)
 const publishCompetition=async(su,sc)=>{
   let{data:{session}}=await sb.auth.getSession();
-  if(!session){const r=await sb.auth.signInAnonymously();session=r.data?.session;}
+  if(!session)throw new Error('Not signed in. Please log in to create a competition.');
   const userId=session?.user?.id;
   const slug=sc.compId||`c_${Date.now().toString(36)}`;
   const{data:comp,error:compErr}=await sb.from('competitions').upsert({
@@ -1804,7 +1805,7 @@ function HistoryScreen({saved,onResume,onReview,onDelete,primaryMetric}){
   if(!saved.length)return<div style={{padding:40,textAlign:'center',color:C.muted,fontSize:14}}>No saved competitions</div>;
   return(
     <div style={{padding:14,paddingBottom:30}}>
-      <div style={{fontSize:11,color:C.muted,marginBottom:14,textTransform:'uppercase',letterSpacing:1,fontWeight:700}}>Saved Competitions ({saved.length})</div>
+      <div style={{fontSize:11,color:C.muted,marginBottom:14,textTransform:'uppercase',letterSpacing:1,fontWeight:700}}>All Competitions ({saved.length})</div>
       <div style={{display:'grid',gap:10}}>
         {[...saved].reverse().map(comp=>{
           const{athletes=[],heights=[],info={},compStatus,sc}=comp;
@@ -1842,6 +1843,22 @@ function HistoryScreen({saved,onResume,onReview,onDelete,primaryMetric}){
                   })}
                 </div>
               )}
+              {c.compId&&(()=>{
+                const base=`${window.location.origin}${window.location.pathname}`;
+                const dispUrl=`${base}#/display/${c.compId}`;
+                const scoreUrl=c.scorerToken?`${base}#/score/${c.compId}/${c.scorerToken}`:null;
+                return(
+                  <div style={{marginBottom:10,display:'flex',flexDirection:'column',gap:4}}>
+                    {[{label:'📺 Display',url:dispUrl},{label:'📊 Scorer',url:scoreUrl}].filter(r=>r.url).map(r=>(
+                      <div key={r.label} style={{display:'flex',alignItems:'center',gap:6}}>
+                        <span style={{fontSize:9,color:C.muted,width:54,flexShrink:0}}>{r.label}</span>
+                        <span style={{fontSize:9,color:C.muted,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:'monospace',background:C.card,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.border}`}}>{r.url}</span>
+                        <button onClick={()=>navigator.clipboard.writeText(r.url).catch(()=>{})} style={{...btn(C.card,'2px 8px',9),border:`1px solid ${C.border}`,flexShrink:0}}>Copy</button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
               <div style={{display:'flex',gap:8}}>
                 {isActive&&<button onClick={()=>onResume(comp)} style={btn(C.accent,'7px 14px',13)}>Resume</button>}
                 <button onClick={()=>onReview(comp)} style={{...btn(C.card,'7px 14px',13),border:`1px solid ${C.border}`}}>Review</button>
@@ -2077,10 +2094,26 @@ function LiveDashboard({savedComps,sc,onResumeComp,primaryMetric,liveCompKey,set
                   })}
                 </div>
               )}
-              <div style={{display:'flex',gap:8}}>
+              <div style={{display:'flex',gap:8,marginBottom:8}}>
                 <button onClick={()=>openComp('score')} style={btn(C.accent,'7px 14px',13)}>📊 Score</button>
                 <button onClick={()=>openComp('display')} style={{...btn(C.card,'7px 14px',13),border:`1px solid ${C.border}`}}>📺 Display</button>
               </div>
+              {cCompId&&(()=>{
+                const base=`${window.location.origin}${window.location.pathname}`;
+                const dispUrl=`${base}#/display/${cCompId}`;
+                const scoreUrl=c.scorerToken?`${base}#/score/${cCompId}/${c.scorerToken}`:null;
+                return(
+                  <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,display:'flex',flexDirection:'column',gap:4}}>
+                    {[{label:'📺 Display',url:dispUrl},{label:'📊 Scorer',url:scoreUrl}].filter(r=>r.url).map(r=>(
+                      <div key={r.label} style={{display:'flex',alignItems:'center',gap:6}}>
+                        <span style={{fontSize:9,color:C.muted,width:54,flexShrink:0}}>{r.label}</span>
+                        <span style={{fontSize:9,color:C.muted,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:'monospace',background:C.card,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.border}`}}>{r.url}</span>
+                        <button onClick={e=>{e.stopPropagation();navigator.clipboard.writeText(r.url).catch(()=>{});}} style={{...btn(C.card,'2px 8px',9),border:`1px solid ${C.border}`,flexShrink:0}}>Copy</button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
@@ -2090,6 +2123,148 @@ function LiveDashboard({savedComps,sc,onResumeComp,primaryMetric,liveCompKey,set
 }
 
 // ─── VAULT DESK APP ───────────────────────────────────────────────────────────
+// ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
+function LoginScreen(){
+  const[email,setEmail]=useState('');
+  const[pw,setPw]=useState('');
+  const[mode,setMode]=useState('login');
+  const[loading,setLoading]=useState(false);
+  const[msg,setMsg]=useState('');
+  const[isErr,setIsErr]=useState(false);
+  const submit=async()=>{
+    if(!email.trim()||!pw)return;
+    setLoading(true);setMsg('');setIsErr(false);
+    try{
+      if(mode==='login'){
+        const{error}=await sb.auth.signInWithPassword({email:email.trim(),password:pw});
+        if(error)throw error;
+      }else{
+        const{data,error}=await sb.auth.signUp({email:email.trim(),password:pw});
+        if(error)throw error;
+        if(!data.session){setMsg('Check your email to confirm your account, then sign in.');setMode('login');setLoading(false);return;}
+      }
+    }catch(e){setMsg(e.message||'Authentication failed');setIsErr(true);}
+    setLoading(false);
+  };
+  return(
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'100vh',padding:24,background:C.bg}}>
+      <div style={{fontWeight:900,fontSize:28,letterSpacing:-.5,marginBottom:6}}><span style={{color:C.accent}}>Vault</span>Desk</div>
+      <div style={{fontSize:12,color:C.muted,marginBottom:32,letterSpacing:.5}}>ADMIN PORTAL</div>
+      <div style={{background:C.surface,borderRadius:14,border:`1px solid ${C.border}`,padding:28,width:'100%',maxWidth:340,display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{fontSize:13,fontWeight:700,textAlign:'center',marginBottom:2}}>{mode==='login'?'Sign In':'Create Admin Account'}</div>
+        <input type="email" placeholder="Email address" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} style={{...inp,width:'100%'}}/>
+        <input type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} style={{...inp,width:'100%'}}/>
+        {msg&&<div style={{fontSize:12,color:isErr?C.danger:C.success,textAlign:'center',lineHeight:1.4}}>{msg}</div>}
+        <button onClick={submit} disabled={loading} style={{...btn(C.accent,'11px',14),opacity:loading?.6:1}}>
+          {loading?'…':mode==='login'?'Sign In':'Create Account'}
+        </button>
+        <button onClick={()=>{setMode(m=>m==='login'?'register':'login');setMsg('');}} style={{...btn('transparent','6px',11),color:C.muted,border:'none',textDecoration:'underline'}}>
+          {mode==='login'?'New here? Create an account →':'Already have an account? Sign in →'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── SUPER-ADMIN SCREEN ────────────────────────────────────────────────────────
+function SuperAdminScreen(){
+  const[loading,setLoading]=useState(true);
+  const[admins,setAdmins]=useState([]);
+  const[comps,setComps]=useState([]);
+  const[drillId,setDrillId]=useState(null);
+  const[refreshAt,setRefreshAt]=useState(0);
+
+  useEffect(()=>{
+    setLoading(true);
+    Promise.all([
+      sb.from('admin_profiles').select('*').order('created_at',{ascending:true}),
+      sb.from('competitions').select('slug,owner_id,name,date,venue,rulebook,status,scorer_token,created_at').order('created_at',{ascending:false}),
+    ]).then(([{data:profiles},{data:allComps}])=>{
+      setAdmins(profiles||[]);setComps(allComps||[]);setLoading(false);
+    }).catch(()=>setLoading(false));
+  },[refreshAt]);
+
+  const base=`${window.location.origin}${window.location.pathname}`;
+  const mkUrls=c=>({
+    disp:`${base}#/display/${c.slug}`,
+    score:c.scorer_token?`${base}#/score/${c.slug}/${c.scorer_token}`:null,
+  });
+
+  if(loading)return<div style={{padding:32,textAlign:'center',color:C.muted,fontSize:13}}>Loading…</div>;
+
+  // ── Drill-in: one admin's competitions ──
+  if(drillId){
+    const admin=admins.find(a=>a.id===drillId);
+    const aComps=comps.filter(c=>c.owner_id===drillId);
+    return(
+      <div style={{padding:14}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+          <button onClick={()=>setDrillId(null)} style={{...btn(C.card,'6px 12px',12),border:`1px solid ${C.border}`}}>← All Admins</button>
+          <button onClick={()=>setRefreshAt(Date.now())} style={{...btn(C.card,'6px 10px',11),border:`1px solid ${C.border}`,color:C.muted}}>↻</button>
+        </div>
+        <div style={{fontWeight:800,fontSize:16,marginBottom:2}}>{admin?.display_name||admin?.email?.split('@')[0]}</div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{admin?.email} · <span style={{color:admin?.role==='super_admin'?C.accent:C.muted}}>{admin?.role==='super_admin'?'Super Admin':'Admin'}</span></div>
+        {aComps.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:'center',padding:32}}>No competitions yet.</div>}
+        {aComps.map(c=>{
+          const{disp,score}=mkUrls(c);
+          const isLive=c.status==='active';
+          return(
+            <div key={c.slug} style={{background:C.surface,borderRadius:10,border:`1px solid ${isLive?C.success+'66':C.border}`,padding:14,marginBottom:10}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                {isLive&&<span className="live-dot" style={{width:7,height:7,borderRadius:'50%',background:C.success,flexShrink:0,display:'inline-block'}}/>}
+                <span style={{fontWeight:700,fontSize:14,flex:1}}>{c.name||'Untitled'}</span>
+                <span style={{fontSize:10,fontWeight:700,color:isLive?C.success:C.muted,background:isLive?`${C.success}22`:C.card,padding:'2px 8px',borderRadius:5,textTransform:'uppercase'}}>{c.status}</span>
+              </div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:10}}>
+                {[c.venue,c.date,c.rulebook].filter(Boolean).join(' · ')}
+              </div>
+              {[{label:'📺 Display',url:disp},{label:'📊 Scorer',url:score}].filter(r=>r.url).map(r=>(
+                <div key={r.label} style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                  <span style={{fontSize:9,color:C.muted,width:54,flexShrink:0}}>{r.label}</span>
+                  <span style={{fontSize:9,fontFamily:'monospace',background:C.card,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.border}`,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.url}</span>
+                  <button onClick={()=>navigator.clipboard.writeText(r.url).catch(()=>{})} style={{...btn(C.card,'2px 8px',9),border:`1px solid ${C.border}`,flexShrink:0}}>Copy</button>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // ── Admin list ──
+  return(
+    <div style={{padding:14}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+        <div style={{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:1,fontWeight:700,flex:1}}>All Admins ({admins.length})</div>
+        <button onClick={()=>setRefreshAt(Date.now())} style={{...btn(C.card,'5px 10px',11),border:`1px solid ${C.border}`,color:C.muted}}>↻ Refresh</button>
+      </div>
+      {admins.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:'center',padding:32}}>No admins yet.</div>}
+      {admins.map(a=>{
+        const aComps=comps.filter(c=>c.owner_id===a.id);
+        const liveCount=aComps.filter(c=>c.status==='active').length;
+        return(
+          <div key={a.id} onClick={()=>setDrillId(a.id)}
+            style={{background:C.surface,borderRadius:10,border:`1px solid ${C.border}`,padding:14,marginBottom:8,cursor:'pointer',display:'flex',alignItems:'center',gap:12,transition:'border-color .15s'}}
+            onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent+'66'}
+            onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:14}}>{a.display_name||a.email?.split('@')[0]}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:2}}>{a.email}</div>
+              <div style={{fontSize:11,marginTop:4}}>
+                <span style={{color:C.muted}}>{aComps.length} competition{aComps.length!==1?'s':''}</span>
+                {liveCount>0&&<span style={{color:C.success,marginLeft:8}}>● {liveCount} live</span>}
+              </div>
+            </div>
+            {a.role==='super_admin'&&<span style={{fontSize:10,fontWeight:700,color:C.accent,background:`${C.accent}22`,padding:'3px 8px',borderRadius:5}}>Super Admin</span>}
+            <span style={{color:C.muted,fontSize:18}}>›</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function VaultDeskApp(){
   const saved_=useMemo(()=>{try{const s=JSON.parse(localStorage.getItem(LS_CUR)||'{}');return s;}catch{return{}};},[]);
   const[screen,setScreen]=useState(()=>{const s=saved_.screen;return(s==='scoring'||s==='display')?'live':s||'setup';});
@@ -2106,6 +2281,11 @@ function VaultDeskApp(){
   const[liveSubTab,setLiveSubTab]=useState('score');
   const[savedComps,setSavedComps]=useState(loadSaved);
   const[sbLoading,setSbLoading]=useState(ROUTE.mode!=='admin');
+  // Auth
+  const[authUser,setAuthUser]=useState(null);
+  const[authLoading,setAuthLoading]=useState(ROUTE.mode==='admin');
+  const[adminProfile,setAdminProfile]=useState(null);
+  const isSuperAdmin=authUser?.email===SUPER_ADMIN_EMAIL;
   const[sbError,setSbError]=useState(null);
   const suRef=useRef(su);const scRef=useRef(sc);
   useEffect(()=>{suRef.current=su;},[su]);
@@ -2148,6 +2328,35 @@ function VaultDeskApp(){
 
   useEffect(()=>{saveCurrent({screen,primaryMetric,su,sc});},[screen,primaryMetric,su,sc]);
 
+  // ── Auth init (admin mode only) ──
+  useEffect(()=>{
+    if(ROUTE.mode!=='admin')return;
+    sb.auth.getSession().then(({data:{session}})=>{
+      setAuthUser(session?.user??null);
+      setAuthLoading(false);
+      if(session?.user)initAdminProfile(session.user);
+    });
+    const{data:{subscription}}=sb.auth.onAuthStateChange((_,session)=>{
+      setAuthUser(session?.user??null);
+      if(session?.user)initAdminProfile(session.user);
+      else setAdminProfile(null);
+    });
+    return()=>subscription.unsubscribe();
+  },[]);
+
+  const initAdminProfile=useCallback(async(user)=>{
+    const role=user.email===SUPER_ADMIN_EMAIL?'super_admin':'admin';
+    try{
+      await sb.from('admin_profiles').upsert({
+        id:user.id,email:user.email,
+        display_name:user.user_metadata?.display_name||user.email.split('@')[0],
+        role,last_active:new Date().toISOString(),
+      },{onConflict:'id'});
+      const{data}=await sb.from('admin_profiles').select('*').eq('id',user.id).single();
+      setAdminProfile(data);
+    }catch(e){console.warn('Profile init failed:',e);}
+  },[]);
+
   // Setup helpers
   const setInfo=useCallback(fn=>updSu({info:fn(suRef.current.info)}),[]);
   const setRulebook=useCallback(rb=>{updSu({rulebook:rb});setPrimaryMetric(rb!=='NFHS');},[]);
@@ -2189,7 +2398,13 @@ function VaultDeskApp(){
       const ids=await publishCompetition(s,newSc);
       finalSc={...newSc,...ids};
     }catch(e){console.warn('Supabase publish failed (offline mode):',e);}
-    setSc(finalSc);updSu(mkSu());setScreen('live');setLiveCompKey(finalSc.compId);setLiveSubTab('score');
+    // Stash any current active comp so it stays in the Live list
+    const prevSc=scRef.current;
+    if(prevSc&&prevSc.compStatus==='active'){
+      const all=loadSaved();
+      if(!all.some(c=>(c.sc?.compId||c.compId)===prevSc.compId)){saveAll([...all,prevSc]);}
+    }
+    setSc(finalSc);updSu(mkSu());setSavedComps(loadSaved());setScreen('live');setLiveCompKey(finalSc.compId);setLiveSubTab('score');
   },[primaryMetric]);
 
   // Mark recording
@@ -2371,6 +2586,8 @@ function VaultDeskApp(){
     const filtered=all.filter(s=>(s.id||s.compId)!==(c.compId));
     saveAll([...filtered,snap]);setSavedComps(loadSaved());
     updSc({compStatus:'official'});
+    // Sync official status to Supabase so super-admin view reflects it
+    if(c.compId)sb.from('competitions').update({status:'official'}).eq('slug',c.compId).then(()=>{}).catch(()=>{});
     setShowSave(true);
   },[]);
 
@@ -2388,7 +2605,17 @@ function VaultDeskApp(){
     {id:'live',label:'Live',icon:'📡'},
     {id:'history',label:'History',icon:'🕐'},
     {id:'rules',label:'Rules',icon:'📋'},
+    ...(isSuperAdmin?[{id:'admin',label:'Admin',icon:'🔐'}]:[]),
   ];
+
+  // Auth gate (admin mode only)
+  if(ROUTE.mode==='admin'&&authLoading)return(
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'100vh',gap:14,color:C.muted,fontSize:14}}>
+      <span className="live-dot" style={{width:10,height:10,borderRadius:'50%',background:C.accent,display:'inline-block'}}/>
+      Loading…
+    </div>
+  );
+  if(ROUTE.mode==='admin'&&!authUser)return<LoginScreen/>;
 
   // Supabase loading / error screens for scorer + display modes
   if(sbLoading)return(
@@ -2418,6 +2645,12 @@ function VaultDeskApp(){
         {sc&&sc.compStatus==='complete-pending'&&<button onClick={verifyOfficial} style={btn(C.success,'6px 12px',12)}>Verify Official</button>}
         {sc?.supabaseCompId&&ROUTE.mode==='admin'&&(
           <button onClick={()=>setShowShare(true)} style={{...btn(C.card,'6px 12px',12),border:`1px solid ${C.border}`}}>🔗 Share</button>
+        )}
+        {authUser&&ROUTE.mode==='admin'&&(
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <span style={{fontSize:10,color:C.muted,maxWidth:90,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{adminProfile?.display_name||authUser.email.split('@')[0]}</span>
+            <button onClick={()=>sb.auth.signOut()} style={{...btn(C.card,'4px 8px',10),border:`1px solid ${C.border}`,color:C.muted}}>Sign Out</button>
+          </div>
         )}
       </div>
 
@@ -2469,7 +2702,7 @@ function VaultDeskApp(){
             savedComps={savedComps} sc={sc} primaryMetric={primaryMetric}
             liveCompKey={liveCompKey} setLiveCompKey={setLiveCompKey}
             liveSubTab={liveSubTab} setLiveSubTab={setLiveSubTab}
-            onResumeComp={comp=>setSc({...comp,...(comp.sc||{})})}
+            onResumeComp={comp=>{const cur=scRef.current;if(cur&&cur.compStatus==='active'){const all=loadSaved();if(!all.some(c=>(c.sc?.compId||c.compId)===cur.compId)){saveAll([...all,cur]);}}setSc({...comp,...(comp.sc||{})});setSavedComps(loadSaved());}}
             athletes={sc?.athletes||[]} ranked={sc_ranked} heights={sc?.heights||[]}
             curH={sc?.curH||0} setCurH={setCurH} curA={sc?.curA??-1} setCurA={setCurA}
             recordMark={recordMark} undoMark={undoMark}
@@ -2480,6 +2713,7 @@ function VaultDeskApp(){
           />
         )}
         {screen==='rules'&&<RulesTab/>}
+        {screen==='admin'&&isSuperAdmin&&<SuperAdminScreen/>}
         {screen==='history'&&(
           <HistoryScreen
             saved={savedComps}
