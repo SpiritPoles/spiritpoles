@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.18</title>
+  <title>VaultDesk v1.19</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -1135,7 +1135,7 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
                 <td style={{position:'sticky',left:30,background:rowBg,padding:'7px 6px',textAlign:'center',fontWeight:800,fontSize:compact?13:14}}>
                   {plInfo.pl===1?'🥇':plInfo.pl===2?'🥈':plInfo.pl===3?'🥉':plInfo.pl
                     ?<span style={{color:C.muted,fontSize:11}}>{plInfo.pl}{plInfo.tied?'=':''}</span>
-                    :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':best?'':'NH'}</span>}
+                    :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
                 </td>
                 <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px',minWidth:155}}>
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
@@ -1299,15 +1299,15 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
 function ScoringScreen({athletes,ranked,heights,curH,setCurH,curA,setCurA,primaryMetric,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,isJumpOff,startJumpOff,onEnd,onEditSetup,onRestart}){
   const isActive=compStatus==='active';
   const rbCfg=RULEBOOK_CFG[rulebook]||RULEBOOK_CFG.WA;
-  const tiedFirst=ranked.filter(r=>r.placement===1&&r.tied);
-  const hasFirstTie=tiedFirst.length>=2;
-  const showJumpOffBanner=(meetOver||compStatus==='complete-pending')&&hasFirstTie&&!isJumpOff;
-  const curAth=athletes[curA];
   const meetOver=useMemo(()=>{
     if(!isActive||!heights.length)return false;
     for(let h=curH;h<heights.length;h++){if(firstEligible(athletes,h)!==-1)return false;}
     return true;
   },[athletes,heights,curH,isActive]);
+  const tiedFirst=ranked.filter(r=>r.placement===1&&r.tied);
+  const hasFirstTie=tiedFirst.length>=2;
+  const showJumpOffBanner=(meetOver||compStatus==='complete-pending')&&hasFirstTie&&!isJumpOff;
+  const curAth=athletes[curA];
   const curHt=heights[curH];
   const curMarks=curAth?(curAth.attempts[curH]||[]):[];
   const alreadyDone=curAth?isDone(curMarks,curAth.status):true;
@@ -1544,8 +1544,8 @@ function DisplayScreen({sc,primaryMetric,updSc}){
   const winners=ranked.filter(r=>r.placement===1);
   const winnerBestIdx=winners.length?highestClearedIdx(winners[0],heights.length):-1;
   const winnerBestH=winnerBestIdx>=0?heights[winnerBestIdx]:null;
-  const onDeckIdx=isActive&&curA>=0?nextVaulter(athletes,curH,curA):-1;
-  const inHoleIdx=onDeckIdx>=0?nextVaulter(athletes,curH,onDeckIdx):-1;
+  const onDeckIdx=isActive&&curA>=0?(sc.isJumpOff?nextVaulterJO(athletes,curH,curA,sc.jumpOffIds||[]):nextVaulter(athletes,curH,curA)):-1;
+  const inHoleIdx=onDeckIdx>=0?(sc.isJumpOff?nextVaulterJO(athletes,curH,onDeckIdx,sc.jumpOffIds||[]):nextVaulter(athletes,curH,onDeckIdx)):-1;
   const rbLabel=RULEBOOKS.find(r=>r.key===rulebook)?.label||rulebook||'';
   const genderLabel=info.gender==='M'?"Men's":info.gender==='W'?"Women's":info.gender?'Mixed':'';
 
@@ -2071,6 +2071,7 @@ function VaultDeskApp(){
       ...s,athletes:orderedAthletes,compStatus:'active',metric:primaryMetric,
       curH:0,curA:firstEligible(orderedAthletes,0),
       compId:s.compId||`c_${Date.now().toString(36)}`,
+      origHeightCount:s.heights.length,
     };
     let finalSc=newSc;
     try{
@@ -2246,12 +2247,11 @@ function VaultDeskApp(){
   },[]);
   const restartComp=useCallback(()=>{
     const c=scRef.current;if(!c)return;
-    // Strip JO heights (any heights beyond the original setup), reset all marks and statuses
-    const origHeights=c.heights.slice(0,c.athletes[0]?.attempts?.length||c.heights.length);
-    // Reset: use original athletes without JO-only heights; if heights grew via JO, trim back
-    // Safest: keep all heights but clear all attempt marks
+    // Trim back to original heights (before any JO heights were appended)
+    const origHeightCount=c.origHeightCount||c.heights.length;
+    const origHeights=c.heights.slice(0,origHeightCount);
     const resetAthletes=c.athletes.map(a=>({...a,attempts:Array.from({length:10},()=>[]),status:'competing'}));
-    updSc({athletes:resetAthletes,curH:0,curA:firstEligible(resetAthletes,0),compStatus:'active',isJumpOff:false,jumpOffIds:[]});
+    updSc({heights:origHeights,athletes:resetAthletes,curH:0,curA:firstEligible(resetAthletes,0),compStatus:'active',isJumpOff:false,jumpOffIds:[]});
   },[]);
   const verifyOfficial=useCallback(()=>{
     const c=scRef.current;if(!c)return;
