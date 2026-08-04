@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.19</title>
+  <title>VaultDesk v1.20</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -1980,10 +1980,119 @@ function EditOverlay({sc,updSc,onClose}){
   );
 }
 
+// ─── LIVE DASHBOARD ───────────────────────────────────────────────────────────
+function LiveDashboard({savedComps,sc,onResumeComp,primaryMetric,liveCompKey,setLiveCompKey,liveSubTab,setLiveSubTab,athletes,ranked,heights,curH,setCurH,curA,setCurA,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,isJumpOff,startJumpOff,onEnd,onEditSetup,onRestart,updSc}){
+  const activeSaved=savedComps.filter(comp=>{
+    const c=comp.sc||comp;
+    const cId=c.compId||comp.compId;
+    const isAct=(c.compStatus==='active'||comp.compStatus==='active');
+    return isAct&&cId!==sc?.compId;
+  });
+  const currentIsActive=sc&&(sc.compStatus==='active'||sc.compStatus==='complete-pending');
+
+  // ── Drilled into a specific competition ────────────────────────────────────
+  if(liveCompKey&&sc){
+    return(
+      <div style={{display:'flex',flexDirection:'column',minHeight:'100%'}}>
+        {/* Back bar + sub-tab switcher */}
+        <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'8px 14px',display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+          <button onClick={()=>setLiveCompKey(null)} style={{...btn(C.card,'5px 10px',11),border:`1px solid ${C.border}`}}>← Live</button>
+          <span className="live-dot" style={{width:6,height:6,borderRadius:'50%',background:C.success,display:'inline-block',flexShrink:0}}/>
+          <span style={{fontWeight:800,fontSize:14,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{sc.info?.name||'Competition'}</span>
+          <div style={{display:'flex',gap:2,background:C.card,borderRadius:8,padding:2,border:`1px solid ${C.border}`,flexShrink:0}}>
+            <button onClick={()=>setLiveSubTab('score')} style={{...btn(liveSubTab==='score'?C.accent:C.card,'4px 10px',11),borderRadius:6,border:'none'}}>📊 Score</button>
+            <button onClick={()=>setLiveSubTab('display')} style={{...btn(liveSubTab==='display'?C.accent:C.card,'4px 10px',11),borderRadius:6,border:'none'}}>📺 Display</button>
+          </div>
+        </div>
+        {liveSubTab==='score'&&(
+          <ScoringScreen athletes={athletes} ranked={ranked} heights={heights} curH={curH} setCurH={setCurH} curA={curA} setCurA={setCurA} primaryMetric={primaryMetric} recordMark={recordMark} undoMark={undoMark} live={live} onDeck={onDeck} inHole={inHole} compStatus={compStatus} info={info} rulebook={rulebook} isJumpOff={isJumpOff} startJumpOff={startJumpOff} onEnd={onEnd} onEditSetup={onEditSetup} onRestart={onRestart}/>
+        )}
+        {liveSubTab==='display'&&(
+          <DisplayScreen sc={sc} primaryMetric={primaryMetric} updSc={updSc}/>
+        )}
+      </div>
+    );
+  }
+
+  // ── Competition list ───────────────────────────────────────────────────────
+  const activeList=[
+    ...(currentIsActive?[{_cur:true,compId:sc.compId,sc}]:[]),
+    ...activeSaved,
+  ];
+
+  if(!activeList.length)return(
+    <div style={{padding:40,textAlign:'center',color:C.muted,display:'flex',flexDirection:'column',alignItems:'center',gap:12}}>
+      <div style={{fontSize:40}}>📡</div>
+      <div style={{fontWeight:700,fontSize:16,color:C.text}}>No Live Competitions</div>
+      <div style={{fontSize:13,lineHeight:1.6,maxWidth:280,color:C.muted}}>Start a new competition in the Setup tab.</div>
+    </div>
+  );
+
+  return(
+    <div style={{padding:14,paddingBottom:30}}>
+      <div style={{fontSize:11,color:C.muted,marginBottom:14,textTransform:'uppercase',letterSpacing:1,fontWeight:700}}>
+        Live Now · {activeList.length} {activeList.length===1?'Competition':'Competitions'}
+      </div>
+      <div style={{display:'grid',gap:10}}>
+        {activeList.map(comp=>{
+          const c=comp.sc||comp;
+          const cAthletes=c.athletes||[];
+          const cHeights=c.heights||[];
+          const cInfo=c.info||{};
+          const cRulebook=c.rulebook;
+          const cCompId=comp.compId||(c.compId);
+          const cCurH=c.curH||0;
+          const curHCm=cHeights[cCurH];
+          const cRanked=calcPlacements(cAthletes,cHeights);
+          const top3=cRanked.filter(r=>r.placement&&r.placement<=3).slice(0,3);
+          const openComp=(subTab)=>{if(!comp._cur)onResumeComp(comp);setLiveCompKey(cCompId);setLiveSubTab(subTab);};
+          return(
+            <div key={cCompId} style={{background:C.surface,borderRadius:14,padding:'14px 16px',border:`1px solid ${C.accent}44`}}>
+              <div style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:top3.length?10:8}}>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:800,fontSize:15}}>{cInfo.name||'Unnamed Meet'}</div>
+                  <div style={{fontSize:12,color:C.muted,marginTop:2}}>
+                    {[cInfo.date,cInfo.venue,RULEBOOKS.find(r=>r.key===cRulebook)?.label].filter(Boolean).join(' · ')}
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:3}}>
+                    {cAthletes.length} athletes{curHCm?` · Bar: ${fmtH(curHCm,primaryMetric)}`:''}
+                  </div>
+                </div>
+                <span style={{fontSize:9,background:`${C.success}22`,color:C.success,borderRadius:6,padding:'3px 9px',fontWeight:700,border:`1px solid ${C.success}44`,display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
+                  <span className="live-dot" style={{width:5,height:5,borderRadius:'50%',background:C.success,display:'inline-block'}}/>LIVE
+                </span>
+              </div>
+              {top3.length>0&&(
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+                  {top3.map((a,i)=>{
+                    const best=highestClearedIdx(a,cHeights.length);
+                    return(
+                      <div key={a.id} style={{display:'flex',alignItems:'center',gap:6,background:C.card,borderRadius:8,padding:'5px 10px',border:`1px solid ${C.border}`}}>
+                        <span style={{fontSize:13}}>{i===0?'🥇':i===1?'🥈':'🥉'}</span>
+                        <FlagCell athlete={a} size={14}/>
+                        <span style={{fontSize:12,fontWeight:700}}>{a.firstName} {a.lastName}</span>
+                        {best>=0&&<span style={{fontSize:11,color:C.success}}>{fmtH(cHeights[best],primaryMetric)}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>openComp('score')} style={btn(C.accent,'7px 14px',13)}>📊 Score</button>
+                <button onClick={()=>openComp('display')} style={{...btn(C.card,'7px 14px',13),border:`1px solid ${C.border}`}}>📺 Display</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── VAULT DESK APP ───────────────────────────────────────────────────────────
 function VaultDeskApp(){
   const saved_=useMemo(()=>{try{const s=JSON.parse(localStorage.getItem(LS_CUR)||'{}');return s;}catch{return{}};},[]);
-  const[screen,setScreen]=useState(saved_.screen||'setup');
+  const[screen,setScreen]=useState(()=>{const s=saved_.screen;return(s==='scoring'||s==='display')?'live':s||'setup';});
   // primaryMetric: true = metric displayed larger, false = imperial displayed larger
   // Auto-set by rulebook (NFHS → imperial, WA/NCAA → metric), can also init from saved state
   const[primaryMetric,setPrimaryMetric]=useState(saved_.primaryMetric!==undefined?saved_.primaryMetric:true);
@@ -1993,6 +2102,8 @@ function VaultDeskApp(){
   const[showImport,setShowImport]=useState(false);
   const[showSave,setShowSave]=useState(false);
   const[showShare,setShowShare]=useState(false);
+  const[liveCompKey,setLiveCompKey]=useState(null);
+  const[liveSubTab,setLiveSubTab]=useState('score');
   const[savedComps,setSavedComps]=useState(loadSaved);
   const[sbLoading,setSbLoading]=useState(ROUTE.mode!=='admin');
   const[sbError,setSbError]=useState(null);
@@ -2078,7 +2189,7 @@ function VaultDeskApp(){
       const ids=await publishCompetition(s,newSc);
       finalSc={...newSc,...ids};
     }catch(e){console.warn('Supabase publish failed (offline mode):',e);}
-    setSc(finalSc);updSu(mkSu());setScreen('scoring');
+    setSc(finalSc);updSu(mkSu());setScreen('live');setLiveCompKey(finalSc.compId);setLiveSubTab('score');
   },[primaryMetric]);
 
   // Mark recording
@@ -2274,10 +2385,9 @@ function VaultDeskApp(){
 
   const TABS=[
     {id:'setup',label:'Setup',icon:'⚙️'},
-    {id:'scoring',label:'Score',icon:'📊'},
-    {id:'display',label:'Display',icon:'📺'},
-    {id:'rules',label:'Rules',icon:'📋'},
+    {id:'live',label:'Live',icon:'📡'},
     {id:'history',label:'History',icon:'🕐'},
+    {id:'rules',label:'Rules',icon:'📋'},
   ];
 
   // Supabase loading / error screens for scorer + display modes
@@ -2329,7 +2439,7 @@ function VaultDeskApp(){
         <div style={{background:`${C.accent}18`,borderBottom:`1px solid ${C.accent}44`,padding:'8px 14px',display:'flex',alignItems:'center',gap:10}}>
           <span className="live-dot" style={{width:6,height:6,borderRadius:'50%',background:C.accent,display:'inline-block',flexShrink:0}}/>
           <span style={{fontSize:13,fontWeight:700,color:C.accent,flex:1}}>Scoring: {sc.info?.name||'Competition'}</span>
-          <button onClick={()=>setScreen('scoring')} style={btn(C.accent,'5px 12px',12)}>Resume →</button>
+          <button onClick={()=>{setScreen('live');setLiveCompKey(sc.compId);setLiveSubTab('score');}} style={btn(C.accent,'5px 12px',12)}>Resume →</button>
         </div>
       )}
 
@@ -2354,27 +2464,28 @@ function VaultDeskApp(){
             onImport={()=>setShowImport(true)}
           />
         )}
-        {screen==='scoring'&&sc&&(
-          <ScoringScreen
-            athletes={sc.athletes} ranked={sc_ranked} heights={sc.heights}
-            curH={sc.curH} setCurH={setCurH} curA={sc.curA} setCurA={setCurA}
-            primaryMetric={primaryMetric}
+        {screen==='live'&&(
+          <LiveDashboard
+            savedComps={savedComps} sc={sc} primaryMetric={primaryMetric}
+            liveCompKey={liveCompKey} setLiveCompKey={setLiveCompKey}
+            liveSubTab={liveSubTab} setLiveSubTab={setLiveSubTab}
+            onResumeComp={comp=>setSc({...comp,...(comp.sc||{})})}
+            athletes={sc?.athletes||[]} ranked={sc_ranked} heights={sc?.heights||[]}
+            curH={sc?.curH||0} setCurH={setCurH} curA={sc?.curA??-1} setCurA={setCurA}
             recordMark={recordMark} undoMark={undoMark}
             live={live} onDeck={onDeck} inHole={inHole}
-            compStatus={sc.compStatus} info={sc.info} rulebook={sc.rulebook}
+            compStatus={sc?.compStatus||'active'} info={sc?.info||{}} rulebook={sc?.rulebook||'WA'}
             isJumpOff={sc?.isJumpOff||false} startJumpOff={startJumpOff} onEnd={endCompetition}
-            onEditSetup={()=>setShowEdit(true)} onRestart={restartComp}
+            onEditSetup={()=>setShowEdit(true)} onRestart={restartComp} updSc={updSc}
           />
         )}
-        {screen==='scoring'&&!sc&&<div style={{padding:40,textAlign:'center',color:C.muted}}>No active competition. Set up a competition in the Setup tab.</div>}
-        {screen==='display'&&<DisplayScreen sc={sc} primaryMetric={primaryMetric} updSc={updSc}/>}
         {screen==='rules'&&<RulesTab/>}
         {screen==='history'&&(
           <HistoryScreen
             saved={savedComps}
             primaryMetric={primaryMetric}
-            onResume={comp=>{setSc({...comp,...(comp.sc||{})});setScreen('scoring');}}
-            onReview={comp=>{setSc({...comp,...(comp.sc||{})});setScreen('display');}}
+            onResume={comp=>{setSc({...comp,...(comp.sc||{})});setScreen('live');setLiveCompKey((comp.sc||comp).compId);setLiveSubTab('score');}}
+            onReview={comp=>{setSc({...comp,...(comp.sc||{})});setScreen('live');setLiveCompKey((comp.sc||comp).compId);setLiveSubTab('display');}}
             onDelete={id=>{deleteComp(id);setSavedComps(loadSaved());}}
           />
         )}
