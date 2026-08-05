@@ -1596,8 +1596,8 @@ let p2Pallet = null;    // same for Phase 2
 // ph = '1' or '2' — which phase's accessory state to use
 function buildAccessoriesPanel(items, ph = '2') {
   const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
-  if (ph === '1') { p1Accessories = items.map(it => ({ ...it, assignedTo: 'new-box-1' })); p1AccBoxCount = 1; }
-  else            { p2Accessories = items.map(it => ({ ...it, assignedTo: 'new-box-1' })); p2AccBoxCount = 1; }
+  if (ph === '1') { p1Accessories = items.map(it => ({ ...it, assignedTo: 'new-box-1', note: it.note || '' })); p1AccBoxCount = 1; }
+  else            { p2Accessories = items.map(it => ({ ...it, assignedTo: 'new-box-1', note: it.note || '' })); p2AccBoxCount = 1; }
 
   const card = document.getElementById(`acc-card-p${ph}`);
   const list = document.getElementById(`accessories-list-p${ph}`);
@@ -1625,28 +1625,33 @@ function buildAccessoriesPanel(items, ph = '2') {
       `<option value="new-box-${i+1}">${boxCount > 1 ? `Small Box ${i+1}` : '+ New Small Box'}</option>`
     ).join('');
 
-    list.innerHTML = accArr.map((acc, idx) => `
-      <div class="acc-row" data-idx="${idx}" draggable="true"
-        ondragstart="onAccRowDragStart(event,${idx},'${ph}')"
+    // Filter out accessories already assigned to a piece (they show inside the piece container instead)
+    const visibleAccs = accArr
+      .map((acc, idx) => ({ ...acc, _idx: idx }))
+      .filter(acc => !String(acc.assignedTo || '').startsWith('piece-'));
+
+    list.innerHTML = visibleAccs.map(acc => `
+      <div class="acc-row" data-idx="${acc._idx}" draggable="true"
+        ondragstart="onAccRowDragStart(event,${acc._idx},'${ph}')"
         ondragend="onAccRowDragEnd(event)"
         style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--tgbr);flex-wrap:wrap">
         <span style="font-weight:700;font-size:12px;color:var(--tp);white-space:nowrap">${acc.qty}×</span>
         <span style="font-size:11px;font-weight:700;color:var(--tp);white-space:nowrap">${htmlEsc(acc.item_code)}</span>
         <span style="font-size:12px;color:var(--tp);flex:1;min-width:100px">${htmlEsc(acc.item_name || acc.item_code)}</span>
-        ${acc.splitGroup ? `<button class="btn btn-outline btn-sm" onclick="unSplitAccessory(${idx},'${ph}')" style="font-size:9px;padding:2px 7px;opacity:.8;color:var(--accent,#e8127d)" title="Merge all splits back into one row">↩ Un-split</button>` : ''}
-        ${acc.qty > 1 ? `<button class="btn btn-outline btn-sm" onclick="splitAccessory(${idx},'${ph}')" style="font-size:9px;padding:2px 7px;opacity:.8" title="Split into separate rows">✂ Split</button>` : ''}
+        ${acc.splitGroup ? `<button class="btn btn-outline btn-sm" onclick="unSplitAccessory(${acc._idx},'${ph}')" style="font-size:9px;padding:2px 7px;opacity:.8;color:var(--accent,#e8127d)" title="Merge all splits back into one row">↩ Un-split</button>` : ''}
+        ${acc.qty > 1 ? `<button class="btn btn-outline btn-sm" onclick="splitAccessory(${acc._idx},'${ph}')" style="font-size:9px;padding:2px 7px;opacity:.8" title="Split into separate rows">✂ Split</button>` : ''}
         <span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ts);white-space:nowrap">Assign to:</span>
         <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp)"
-          onchange="onAccAssign(this,${idx},'${ph}')">
+          onchange="onAccAssign(this,${acc._idx},'${ph}')">
           ${pieceOpts}
           ${boxOpts}
           <option value="not-shipping">Not Shipping</option>
         </select>
       </div>`).join('');
 
-    // Restore saved selections
-    accArr.forEach((acc, idx) => {
-      const sel = list.querySelector(`.acc-row[data-idx="${idx}"] .acc-assign`);
+    // Restore saved selections (only for visible items)
+    visibleAccs.forEach(acc => {
+      const sel = list.querySelector(`.acc-row[data-idx="${acc._idx}"] .acc-assign`);
       if (sel && acc.assignedTo) sel.value = acc.assignedTo;
     });
 
@@ -1769,20 +1774,45 @@ function updatePieceAccRowsUI(ph = '2') {
   containers.forEach(c => {
     if (c.dataset.accBox) return; // acc-box containers handled separately
     const myIdx  = pieceIdx++;
-    const myAccs = accArr.filter(a => a.assignedTo === `piece-${myIdx}`);
+    const myAccs = accArr.map((a, i) => ({ ...a, _idx: i })).filter(a => a.assignedTo === `piece-${myIdx}`);
     const section = c.querySelector('.piece-acc-section');
     if (!section) return;
     if (!myAccs.length) { section.style.display = 'none'; return; }
     section.style.display = '';
-    section.querySelector('.acc-rows-container').innerHTML = myAccs.map(a =>
-      `<div style="display:flex;align-items:baseline;gap:7px;padding:2px 0;font-size:11px;flex-wrap:wrap">
-         <span style="font-size:8.5px;font-weight:900;color:#e65100;min-width:26px;letter-spacing:.03em">ACC</span>
-         <span style="font-weight:800;color:var(--tp);min-width:24px">${htmlEsc(a.qty)}&times;</span>
-         <span style="font-weight:700;color:var(--tp);min-width:58px">${htmlEsc(a.item_code||'')}</span>
-         <span style="color:var(--ts);font-size:10.5px">${htmlEsc(a.item_name||a.item_code)}</span>
-       </div>`
-    ).join('');
+    section.querySelector('.acc-rows-container').innerHTML =
+      `<div style="display:grid;grid-template-columns:18px 90px 74px 104px 1fr 24px;gap:4px;padding:2px 10px 1px;font-size:8.5px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;color:var(--ts)">
+         <span></span><span>Code</span><span style="text-align:center">Qty</span><span>Notes</span><span>Description</span><span></span>
+       </div>` +
+      myAccs.map(a =>
+        `<div class="pole-row-p1" style="padding:2px 10px">
+           <span class="pr-line-num" style="font-size:7px;font-weight:900;color:#e65100;padding-top:3px">ACC</span>
+           <span style="font-size:11px;font-weight:700;color:var(--tp);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${htmlEsc(a.item_code||'')}</span>
+           <span style="text-align:center;font-size:11px;color:var(--tp)">${htmlEsc(String(a.qty))}&times;</span>
+           <input class="pr-note" type="text" value="${htmlEsc(a.note||'')}" placeholder="Note"
+             data-acc-idx="${a._idx}" data-ph="${ph}"
+             oninput="onAccPieceNoteInput(this)">
+           <span style="font-size:10px;color:var(--ts);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${htmlEsc(a.item_name||a.item_code||'')}</span>
+           <button class="pole-del" onclick="unassignAccFromPiece(${a._idx},'${ph}')" title="Remove from piece">&times;</button>
+         </div>`
+      ).join('');
   });
+}
+
+function onAccPieceNoteInput(inp) {
+  const idx = parseInt(inp.dataset.accIdx);
+  const ph  = inp.dataset.ph || '2';
+  const arr = ph === '1' ? p1Accessories : p2Accessories;
+  if (arr && arr[idx] !== undefined) arr[idx].note = inp.value;
+}
+
+function unassignAccFromPiece(idx, ph = '2') {
+  const arr = ph === '1' ? p1Accessories : p2Accessories;
+  if (!arr || arr[idx] === undefined) return;
+  arr[idx].assignedTo = 'not-shipping';
+  const list = document.getElementById(`accessories-list-p${ph}`);
+  if (list && list._render) list._render();
+  updatePieceAccRowsUI(ph);
+  updatePackingTotals(ph === '1' ? 'packing-list' : 'packing-list-p2');
 }
 function _updateAccessorySmallBoxImpl(ph) {
   const listId   = ph === '1' ? 'packing-list' : 'packing-list-p2';
@@ -2074,12 +2104,15 @@ function updatePackingTotals(listId = 'packing-list') {
   let totalPoles = 0, totalLbs = 0, pieceSeq = 0;
   const pieceRows = [];
 
+  let nonAccBoxIdx = 0;
   containers.forEach((c) => {
-    const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
-    const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const typeKey  = c.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt       = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const isAccBox = !!c.dataset.accBox;
+    const isManual = !!pt.manualPiece;
 
-    if (pt.configDims) {
-      // Small-box (accessories) piece — read custom dims; manual weight overrides calculated
+    if (isAccBox) {
+      // Small-box piece — custom dims, accessories looked up by new-box-N
       pieceSeq++;
       const L        = parseFloat(c.querySelector('.sb-len')?.value) || 0;
       const W        = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
@@ -2089,18 +2122,40 @@ function updatePackingTotals(listId = 'packing-list') {
       const wtLbs    = Math.round(accWt * 10) / 10;
       const wtKg     = Math.round(accWt * 0.453592 * 10) / 10;
       totalLbs += wtLbs;
-      const boxN    = c.dataset.accBox || '1';
+      const boxN     = c.dataset.accBox || '1';
       const accCount = Array.isArray(accArr)
-        ? accArr.filter(a => a.assignedTo === `new-box-${boxN}`).reduce((s, a) => s + a.qty, 0)
-        : 0;
+        ? accArr.filter(a => a.assignedTo === `new-box-${boxN}`).reduce((s, a) => s + a.qty, 0) : 0;
       pieceRows.push({ num: pieceSeq, label: pt.label, lenIn: L, w: W, h: H, wtLbs, wtKg, poleCount: 0, isAccBox: true, accCount });
       return;
     }
 
+    // All non-acc-box pieces (including "Other") get a nonAccBoxIdx slot
+    const myIdx = nonAccBoxIdx++;
+
+    if (isManual) {
+      // "Other" type — manual dims, accessories looked up by piece-N
+      pieceSeq++;
+      const L        = parseFloat(c.querySelector('.sb-len')?.value) || 0;
+      const W        = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
+      const H        = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
+      const manualWt = parseFloat(c.querySelector('.sb-wt')?.value)  || 0;
+      const wtLbs    = Math.round(manualWt * 10) / 10;
+      const wtKg     = Math.round(manualWt * 0.453592 * 10) / 10;
+      totalLbs += wtLbs;
+      const accCount = Array.isArray(accArr)
+        ? accArr.filter(a => a.assignedTo === `piece-${myIdx}`).reduce((s, a) => s + a.qty, 0) : 0;
+      const customTitle = c.querySelector('.piece-custom-label')?.value.trim() || 'Other';
+      pieceRows.push({ num: pieceSeq, label: customTitle, lenIn: L, w: W, h: H, wtLbs, wtKg, poleCount: 0, isManual: true, accCount });
+      return;
+    }
+
+    // Regular pole piece
     const models  = Array.from(c.querySelectorAll('.pr-model'))
       .map(inp => (inp.value || '').trim()).filter(Boolean);
     totalPoles += models.length;
-    if (models.length) {
+    const accCount = Array.isArray(accArr)
+      ? accArr.filter(a => a.assignedTo === `piece-${myIdx}`).reduce((s, a) => s + a.qty, 0) : 0;
+    if (models.length || accCount) {
       pieceSeq++;
       const ov = getPieceOverrideDims(c);
       let lenIn, w, h, wtLbs, wtKg;
@@ -2108,15 +2163,15 @@ function updatePackingTotals(listId = 'packing-list') {
         lenIn = ov.lenIn; w = ov.w; h = ov.h;
         wtLbs = ov.wtLbs; wtKg = Math.round(ov.wtLbs * 0.453592 * 10) / 10;
       } else {
-        const longest    = Math.max(...models);
+        const longest    = models.length ? Math.max(...models.map(Number)) : 0;
         lenIn      = pt.fixedLen !== null ? pt.fixedLen : (POLE_LENGTH_IN[longest] || 200) + pt.extra_len;
         w = pt.w; h = pt.h;
-        const wtPolesLbs = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[m] || 10), 0);
+        const wtPolesLbs = models.reduce((s, m) => s + (POLE_WEIGHT_LBS[parseInt(m)] || 10), 0);
         wtLbs      = Math.round((wtPolesLbs + pt.extra_wt) * 10) / 10;
         wtKg       = Math.round(wtLbs * 0.453592 * 10) / 10;
       }
       totalLbs += wtLbs;
-      pieceRows.push({ num: pieceSeq, label: pt.label, lenIn, w, h, wtLbs, wtKg, poleCount: models.length });
+      pieceRows.push({ num: pieceSeq, label: pt.label, lenIn, w, h, wtLbs, wtKg, poleCount: models.length, accCount });
     }
   });
 
@@ -2162,8 +2217,12 @@ function updatePackingTotals(listId = 'packing-list') {
           <tr>
             <td><strong>${r.num}</strong></td>
             <td>${r.label}</td>
-            <td style="text-align:center">${r.isAccBox ? (r.accCount ? `${r.accCount} items` : '—') : r.poleCount}</td>
-            <td class="bd-dims">${r.isAccBox ? (r.lenIn && r.w && r.h ? `${r.lenIn}" × ${r.w}" × ${r.h}"` : 'Enter dims above') : `${r.lenIn}" × ${r.w}" × ${r.h}"`}</td>
+            <td style="text-align:center">${
+              r.isAccBox ? (r.accCount ? `${r.accCount} items` : '—') :
+              r.isManual ? (r.accCount ? `${r.accCount} items` : '—') :
+              r.poleCount + (r.accCount ? ` +${r.accCount}acc` : '')
+            }</td>
+            <td class="bd-dims">${(r.isAccBox || r.isManual) ? (r.lenIn && r.w && r.h ? `${r.lenIn}" × ${r.w}" × ${r.h}"` : 'Enter dims above') : `${r.lenIn}" × ${r.w}" × ${r.h}"`}</td>
             <td>${r.wtLbs} lbs &nbsp;·&nbsp; ${r.wtKg} kg</td>
           </tr>`).join('')}
         <tr style="font-weight:800;border-top:1px solid var(--tgbr)">
@@ -2528,9 +2587,11 @@ function downloadPackingListPDF() {
       so:     row.querySelector('.pr-so-chip')?.textContent?.trim() || '',
     })).filter(p => p.model);
 
-    // Accessories assigned to THIS pole piece (index among non-acc-box, non-manual containers)
-    const pieceAccs = (isSmBox || isManual) ? [] : getAccForPiece(poleContainerIdx, '1');
-    if (!isSmBox && !isManual) poleContainerIdx++;
+    // poleContainerIdx increments for ALL non-acc-box pieces (including "Other")
+    if (!isSmBox) poleContainerIdx++;
+    const myPieceIdx = poleContainerIdx - 1;
+    // Accessories: small-box uses new-box-N lookup; all others use piece-N
+    const pieceAccs = isSmBox ? [] : getAccForPiece(myPieceIdx, '1');
 
     // Skip empty non-small-box, non-manual pieces with no accessories
     if (!poles.length && !isSmBox && !isManual && !pieceAccs.length) return;
@@ -2600,9 +2661,9 @@ function downloadPackingListPDF() {
           `<tr style="background:#fff8e1">
             <td class="tc n" style="font-size:7pt;font-weight:900;color:#e65100">ACC</td>
             <td class="mdl" style="font-size:8pt">${htmlEsc(a.item_code||a.item_name)}</td>
-            <td class="tc" style="font-size:8pt;color:#555"></td>
-            <td class="nte" style="font-size:8pt;color:#333">${htmlEsc(a.item_name||a.item_code)}</td>
-            <td style="font-size:8pt;font-weight:700;text-align:center">${a.qty}&times;</td>
+            <td class="tc" style="font-size:8pt;color:#e65100;font-weight:700">${a.qty}&times;</td>
+            <td class="nte" style="font-size:8pt;color:#333">${htmlEsc(a.note||'')}</td>
+            <td style="font-size:8pt;color:#555">${htmlEsc(a.item_name||a.item_code)}</td>
             ${isMultiOrder ? '<td></td>' : ''}
           </tr>`).join('') : '';
 
@@ -2634,7 +2695,7 @@ function downloadPackingListPDF() {
            `<tr><td>${htmlEsc(a.item_name||a.item_code)}</td><td style="text-align:center">${a.qty}</td></tr>`
          ).join('') || '<tr><td colspan="2" style="color:#aaa;font-style:italic">No items assigned</td></tr>'}
          </tbody></table>`
-      : isManual
+      : (isManual && !pieceAccs.length)
       ? `<table class="pole-tbl"><tbody>
            <tr><td colspan="5" style="padding:6px;color:#888;font-style:italic;font-size:8.5pt">Contents per shipper&apos;s records.</td></tr>
          </tbody></table>`
@@ -2930,9 +2991,11 @@ function downloadPackingListP2() {
       so:     row.querySelector('.pr-so-chip')?.textContent?.trim() || '',
     })).filter(p => p.model);
 
-    // Accessories assigned to THIS pole piece (index among non-acc-box, non-manual containers)
-    const pieceAccs = (isSmBox || isManual) ? [] : getAccForPiece(poleContainerIdx);
-    if (!isSmBox && !isManual) poleContainerIdx++;
+    // poleContainerIdx increments for ALL non-acc-box pieces (including "Other")
+    if (!isSmBox) poleContainerIdx++;
+    const myPieceIdx = poleContainerIdx - 1;
+    // Accessories: small-box uses new-box-N lookup; all others use piece-N
+    const pieceAccs = isSmBox ? [] : getAccForPiece(myPieceIdx, '2');
 
     // Skip empty non-small-box, non-manual pieces with no accessories
     if (!poles.length && !isSmBox && !isManual && !pieceAccs.length) return;
@@ -3003,9 +3066,9 @@ function downloadPackingListP2() {
           `<tr style="background:#fff8e1">
             <td class="tc n" style="font-size:7pt;font-weight:900;color:#e65100">ACC</td>
             <td class="mdl" style="font-size:8pt">${htmlEsc(a.item_code||a.item_name)}</td>
-            <td class="tc" style="font-size:8pt;color:#555"></td>
-            <td class="nte" style="font-size:8pt;color:#333">${htmlEsc(a.item_name||a.item_code)}</td>
-            <td style="font-size:8pt;font-weight:700;text-align:center">${a.qty}&times;</td>
+            <td class="tc" style="font-size:8pt;color:#e65100;font-weight:700">${a.qty}&times;</td>
+            <td class="nte" style="font-size:8pt;color:#333">${htmlEsc(a.note||'')}</td>
+            <td style="font-size:8pt;color:#555">${htmlEsc(a.item_name||a.item_code)}</td>
             ${isMultiOrder ? '<td></td>' : ''}
           </tr>`).join('') : '';
 
@@ -3038,7 +3101,7 @@ function downloadPackingListP2() {
            `<tr><td>${htmlEsc(a.item_name||a.item_code)}</td><td style="text-align:center">${a.qty}</td></tr>`
          ).join('') || '<tr><td colspan="2" style="color:#aaa;font-style:italic">No items assigned</td></tr>'}
          </tbody></table>`
-      : isManual
+      : (isManual && !pieceAccs.length)
       ? `<table class="pole-tbl"><tbody>
            <tr><td colspan="5" style="padding:6px;color:#888;font-style:italic;font-size:8.5pt">Contents per shipper&apos;s records.</td></tr>
          </tbody></table>`
