@@ -3329,16 +3329,21 @@ function downloadSLI() {
     const typeKey = container.querySelector('.piece-type-sel')?.value || 'large-tube';
     const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
     if (pt.configDims) {
-      // Small Box — read custom dims + accessory weight
-      const L      = parseFloat(container.querySelector('.sb-len')?.value) || 0;
-      const W      = parseFloat(container.querySelector('.sb-w')?.value)   || 0;
-      const H      = parseFloat(container.querySelector('.sb-h')?.value)   || 0;
-      const accWt  = p2Accessories.filter(a => a.assignedTo === `new-box-${container.dataset.accBox || '1'}`)
-                       .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
-      const wtLbs  = Math.round((accWt + pt.extra_wt) * 10) / 10;
-      const wtKgs  = Math.round(wtLbs * 0.453592 * 10) / 10;
+      // Small Box / Other (manual) — read custom dims + weight
+      const L        = parseFloat(container.querySelector('.sb-len')?.value) || 0;
+      const W        = parseFloat(container.querySelector('.sb-w')?.value)   || 0;
+      const H        = parseFloat(container.querySelector('.sb-h')?.value)   || 0;
+      const manualWt = parseFloat(container.querySelector('.sb-wt')?.value)  || 0;
+      const accWt    = pt.manualPiece ? 0
+                       : p2Accessories.filter(a => a.assignedTo === `new-box-${container.dataset.accBox || '1'}`)
+                           .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
+      const wtLbs    = manualWt > 0 ? manualWt : Math.round((accWt + pt.extra_wt) * 10) / 10;
+      const wtKgs    = Math.round(wtLbs * 0.453592 * 10) / 10;
       totalLbs += wtLbs;
-      pieceData.push({ num: pieceData.length + 1, label: pt.label, lenIn: L, w: W, h: H, wtLbs, wtKgs, poleCount: 0 });
+      const pieceLabel = pt.customLabel
+        ? (container.querySelector('.piece-custom-label')?.value.trim() || 'Other')
+        : (pt.label || 'Other');
+      pieceData.push({ num: pieceData.length + 1, label: pieceLabel, lenIn: L, w: W, h: H, wtLbs, wtKgs, poleCount: 0 });
       return;
     }
     const rows    = [...container.querySelectorAll('.pole-row-p1')];
@@ -4003,7 +4008,9 @@ function buildShippingDocsEmail(ffName) {
     ? loadedOrders.map(o => o.so_number).filter(Boolean)
     : [soNum].filter(Boolean);
   const allIFs = loadedOrders.length > 1
-    ? loadedOrders.map(o => o.if_number).filter(Boolean)
+    ? (loadedOrders.map(o => o.if_number).filter(Boolean).length
+        ? loadedOrders.map(o => o.if_number).filter(Boolean)
+        : [ifNum].filter(Boolean))
     : [ifNum].filter(Boolean);
   const ref = [...allSOs, ...allIFs].filter(Boolean).join(', ') || '(order ref)';
 
