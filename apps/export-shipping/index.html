@@ -1630,23 +1630,40 @@ function buildAccessoriesPanel(items, ph = '2') {
       .map((acc, idx) => ({ ...acc, _idx: idx }))
       .filter(acc => !String(acc.assignedTo || '').startsWith('piece-'));
 
-    list.innerHTML = visibleAccs.map(acc => `
+    // Column header row — mirrors pole row grid
+    const accColHdr = visibleAccs.length ? `
+      <div style="display:grid;grid-template-columns:18px 90px 60px 104px 1fr auto;gap:4px;align-items:center;padding:3px 0 2px;font-size:8.5px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;color:var(--ts);border-bottom:1px solid var(--tgbr)">
+        <span></span>
+        <span>Code</span>
+        <span style="text-align:center">Qty</span>
+        <span>Special Line Item Notes</span>
+        <span>Description</span>
+        <span style="text-align:right">Assign To</span>
+      </div>` : '';
+
+    list.innerHTML = accColHdr + visibleAccs.map((acc, vi) => `
       <div class="acc-row" data-idx="${acc._idx}" draggable="true"
         ondragstart="onAccRowDragStart(event,${acc._idx},'${ph}')"
         ondragend="onAccRowDragEnd(event)"
-        style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--tgbr);flex-wrap:wrap">
-        <span style="font-weight:700;font-size:12px;color:var(--tp);white-space:nowrap">${acc.qty}×</span>
-        <span style="font-size:11px;font-weight:700;color:var(--tp);white-space:nowrap">${htmlEsc(acc.item_code)}</span>
-        <span style="font-size:12px;color:var(--tp);flex:1;min-width:100px">${htmlEsc(acc.item_name || acc.item_code)}</span>
-        ${acc.splitGroup ? `<button class="btn btn-outline btn-sm" onclick="unSplitAccessory(${acc._idx},'${ph}')" style="font-size:9px;padding:2px 7px;opacity:.8;color:var(--accent,#e8127d)" title="Merge all splits back into one row">↩ Un-split</button>` : ''}
-        ${acc.qty > 1 ? `<button class="btn btn-outline btn-sm" onclick="splitAccessory(${acc._idx},'${ph}')" style="font-size:9px;padding:2px 7px;opacity:.8" title="Split into separate rows">✂ Split</button>` : ''}
-        <span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ts);white-space:nowrap">Assign to:</span>
-        <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp)"
-          onchange="onAccAssign(this,${acc._idx},'${ph}')">
-          ${pieceOpts}
-          ${boxOpts}
-          <option value="not-shipping">Not Shipping</option>
-        </select>
+        style="display:grid;grid-template-columns:18px 90px 60px 104px 1fr auto;gap:4px;align-items:center;padding:4px 0;border-bottom:1px solid var(--tgbr)">
+        <span style="font-size:9px;color:var(--ts);text-align:center;cursor:grab;user-select:none" title="Drag to reorder">&#x22EE;</span>
+        <span style="font-size:11px;font-weight:700;color:var(--tp);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${htmlEsc(acc.item_code)}</span>
+        <span style="font-size:11px;font-weight:700;color:var(--tp);text-align:center">${acc.qty}&times;</span>
+        <input type="text" value="${htmlEsc(acc.note||'')}" placeholder="Note"
+          style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:4px;padding:2px 6px;color:var(--tp);width:100%;box-sizing:border-box"
+          data-acc-idx="${acc._idx}" data-ph="${ph}"
+          oninput="onAccPieceNoteInput(this)">
+        <span style="font-size:11px;color:var(--tp);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${htmlEsc(acc.item_name || acc.item_code)}</span>
+        <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">
+          ${acc.splitGroup ? `<button class="btn btn-outline btn-sm" onclick="unSplitAccessory(${acc._idx},'${ph}')" style="font-size:9px;padding:2px 6px;opacity:.8;color:var(--accent,#e8127d);white-space:nowrap" title="Merge splits">↩</button>` : ''}
+          ${acc.qty > 1 ? `<button class="btn btn-outline btn-sm" onclick="splitAccessory(${acc._idx},'${ph}')" style="font-size:9px;padding:2px 6px;opacity:.8;white-space:nowrap" title="Split into separate rows">✂</button>` : ''}
+          <select class="acc-assign" style="font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:2px 6px;color:var(--tp)"
+            onchange="onAccAssign(this,${acc._idx},'${ph}')">
+            ${pieceOpts}
+            ${boxOpts}
+            <option value="not-shipping">Not Shipping</option>
+          </select>
+        </div>
       </div>`).join('');
 
     // Restore saved selections (only for visible items)
