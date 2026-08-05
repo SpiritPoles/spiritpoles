@@ -4003,7 +4003,9 @@ function buildShippingDocsEmail(ffName) {
     ? loadedOrders.map(o => o.so_number).filter(Boolean)
     : [soNum].filter(Boolean);
   const allIFs = loadedOrders.length > 1
-    ? loadedOrders.map(o => o.if_number).filter(Boolean)
+    ? (loadedOrders.map(o => o.if_number).filter(Boolean).length
+        ? loadedOrders.map(o => o.if_number).filter(Boolean)
+        : [ifNum].filter(Boolean))
     : [ifNum].filter(Boolean);
   const ref = [...allSOs, ...allIFs].filter(Boolean).join(', ') || '(order ref)';
 
