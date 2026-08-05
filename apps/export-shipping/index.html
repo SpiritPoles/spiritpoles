@@ -708,7 +708,8 @@ const PIECE_TYPES = {
   'x-bar-tube': { label:'X-Bar Tube',       w:4,  h:4,  extra_wt:3,  extra_len:0,  max:4,  fixedLen:null },
   'x-bars-hj':  { label:'X-Bars HJ Box',   w:15, h:4,  extra_wt:5,  extra_len:0,  max:25, fixedLen:158  },
   'x-bars-pv':  { label:'X-Bars PV Box',   w:15, h:4,  extra_wt:5,  extra_len:0,  max:25, fixedLen:180  },
-  'small-box':  { label:'Small Box',       w:0,  h:0,  extra_wt:2,  extra_len:0,  max:99, fixedLen:null, configDims:true },
+  'small-box':  { label:'Small Box',        w:0,  h:0,  extra_wt:2,  extra_len:0,  max:99, fixedLen:null, configDims:true },
+  'manual':     { label:'Manual Piece',     w:0,  h:0,  extra_wt:0,  extra_len:0,  max:99, fixedLen:null, configDims:true, manualPiece:true },
 };
 const htmlEsc = s => String(s==null?'':s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -722,7 +723,7 @@ function autoResize(el) {
 // Parse model number from NetSuite item code like "SP400/40" or "UF350/55".
 // Requires slash format — avoids false matches on non-pole items like "XB-400-BOX".
 function parseModel(itemCode) {
-  const m = String(itemCode || '').match(/(\d+)\//);
+  const m = String(itemCode || '').match(/(\d+[A-Za-z]*)\//);
   return m ? parseInt(m[1]) : null;
 }
 
@@ -1409,17 +1410,80 @@ function onPieceTypeChange(sel) {
   const container = sel.closest('.piece-container');
   const listEl    = container.parentElement;
   const pt        = PIECE_TYPES[sel.value] || {};
-  // Show/hide custom dimension inputs for Small Box
+  const ph        = listEl.id === 'packing-list' ? '1' : '2';
+
+  // If switching FROM a small-box (data-acc-box set) TO a non-configDims type,
+  // demote this container: reassign accessories to this piece index, clear acc-box state
+  if (container.dataset.accBox && !pt.configDims) {
+    const boxN   = container.dataset.accBox;
+    const accArr = ph === '1' ? p1Accessories : p2Accessories;
+
+    // Compute the piece-N index this container will have after demotion
+    // Count non-acc-box containers BEFORE this one
+    const allContainers = [...listEl.querySelectorAll('.piece-container')];
+    const thisIdx = allContainers.indexOf(container);
+    let pieceIdx = 0;
+    for (let i = 0; i < thisIdx; i++) {
+      if (!allContainers[i].dataset.accBox) pieceIdx++;
+    }
+
+    // Reassign accessories from this box → piece-N (they'll appear as inline rows)
+    accArr.forEach(a => { if (a.assignedTo === `new-box-${boxN}`) a.assignedTo = `piece-${pieceIdx}`; });
+
+    // Remove the inline dims row for this box
+    const dimsRow = document.getElementById(`sb-dims-inline-p${ph}-${boxN}`);
+    if (dimsRow) dimsRow.remove();
+
+    // Decrement acc box count
+    if (ph === '1') p1AccBoxCount = Math.max(0, p1AccBoxCount - 1);
+    else            p2AccBoxCount = Math.max(0, p2AccBoxCount - 1);
+
+    // Remove the acc-box content note
+    container.querySelector('.acc-box-note')?.remove();
+
+    // Clear data-acc-box so this container is now a regular piece
+    delete container.dataset.accBox;
+
+    // Inject Override and Apply-to-All buttons (hidden at small-box creation time)
+    const pieceHeader = container.querySelector('.piece-header');
+    if (pieceHeader && !pieceHeader.querySelector('.override-toggle')) {
+      const applyBtn = document.createElement('button');
+      applyBtn.className = 'btn btn-outline btn-sm';
+      applyBtn.setAttribute('onclick', 'applyTypeToAll(this)');
+      applyBtn.style.cssText = 'font-size:9px;padding:2px 7px;white-space:nowrap;opacity:.7';
+      applyBtn.title = 'Apply this piece type to all pieces';
+      applyBtn.textContent = 'Apply to All';
+
+      const overrideBtn = document.createElement('button');
+      overrideBtn.className = 'btn btn-outline btn-sm override-toggle';
+      overrideBtn.setAttribute('onclick', 'toggleDimsOverride(this)');
+      overrideBtn.style.cssText = 'font-size:9px;padding:2px 7px;margin-left:4px;opacity:.7';
+      overrideBtn.title = 'Manually override dims & weight';
+      overrideBtn.textContent = 'Override';
+
+      const dimBox = pieceHeader.querySelector('.piece-dims-box');
+      if (dimBox) {
+        pieceHeader.insertBefore(applyBtn, dimBox);
+        dimBox.after(overrideBtn);
+      } else {
+        pieceHeader.appendChild(applyBtn);
+        pieceHeader.appendChild(overrideBtn);
+      }
+    }
+  }
+
+  // Show/hide custom dimension inputs for Small Box / Manual
   const sbDims = container.querySelector('.sb-dims');
   if (sbDims) sbDims.style.display = pt.configDims ? 'flex' : 'none';
-  // Show/hide pole rows for Small Box (no poles in a small box)
-  const poleSection = container.querySelector('.piece-col-hdr, .piece-poles, .piece-foot');
+  // Show/hide pole rows (hidden for configDims types)
   container.querySelectorAll('.piece-col-hdr, .piece-poles, .piece-foot')
     .forEach(el => el.style.display = pt.configDims ? 'none' : '');
   calcPieceDims(container);
   if (!pt.configDims) cascadeOverflowFrom(container);
   renumberPieces(listEl.id);
   updatePackingTotals(listEl.id);
+  // Refresh accessory panel so dropdowns reflect the new piece structure
+  refreshAccessoryPanel(ph);
   listEl.style.opacity = '0.4';
   setTimeout(() => { listEl.style.transition = 'opacity .25s'; listEl.style.opacity = '1'; }, 30);
 }
@@ -1595,6 +1659,7 @@ function buildAccessoriesPanel(items, ph = '2') {
       btnDiv.innerHTML =
         pieceBtns + boxBtns +
         `<button class="btn btn-outline btn-sm" onclick="addAccBox('${ph}')" style="color:var(--green);border-color:rgba(76,175,80,0.5)">&#43; Add Box</button>` +
+        `<button class="btn btn-outline btn-sm" onclick="addManualPiece('${ph}')" style="color:var(--green);border-color:rgba(76,175,80,0.5)">&#43; Manual Piece</button>` +
         `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('not-shipping','${ph}')" style="opacity:.7">All → Not Shipping</button>`;
     }
 
@@ -1808,6 +1873,18 @@ function addAccBox(ph) {
   if (ph === '1') p1AccBoxCount++; else p2AccBoxCount++;
   const list = document.getElementById(`accessories-list-p${ph}`);
   if (list && list._render) list._render();
+}
+
+function addManualPiece(ph) {
+  const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
+  const list   = document.getElementById(listId);
+  const pieceNum = list.querySelectorAll('.piece-container').length + 1;
+  const c = createPieceContainer(pieceNum, 'manual', []);
+  list.appendChild(c);
+  renumberPieces(listId);
+  updatePackingTotals(listId);
+  refreshAccessoryPanel(ph);
+  c.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // Returns accessories assigned to a given piece index (for document output)
@@ -2397,11 +2474,12 @@ function downloadPackingListPDF() {
   let poleContainerIdx = 0; // 0-based among non-acc-box pieces (matches p1Accessories assignedTo)
 
   containers.forEach((c) => {
-    const typeKey   = c.querySelector('.piece-type-sel')?.value || 'large-tube';
-    const pt        = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
-    const isSmBox   = !!pt.configDims;
+    const typeKey    = c.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt         = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const isSmBox    = !!pt.configDims && !pt.manualPiece;
+    const isManual   = !!pt.manualPiece;
     const isMultiOrder = loadedOrders.length > 1;
-    const poles     = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
+    const poles      = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
       model:  row.querySelector('.pr-model')?.value  || '',
       flex:   row.querySelector('.pr-flex')?.value   || '',
       note:   row.querySelector('.pr-note')?.value   || '',
@@ -2409,12 +2487,12 @@ function downloadPackingListPDF() {
       so:     row.querySelector('.pr-so-chip')?.textContent?.trim() || '',
     })).filter(p => p.model);
 
-    // Accessories assigned to THIS pole piece (index among non-acc-box containers)
-    const pieceAccs = isSmBox ? [] : getAccForPiece(poleContainerIdx, '1');
-    if (!isSmBox) poleContainerIdx++;
+    // Accessories assigned to THIS pole piece (index among non-acc-box, non-manual containers)
+    const pieceAccs = (isSmBox || isManual) ? [] : getAccForPiece(poleContainerIdx, '1');
+    if (!isSmBox && !isManual) poleContainerIdx++;
 
-    // Skip empty non-small-box pieces with no accessories
-    if (!poles.length && !isSmBox && !pieceAccs.length) return;
+    // Skip empty non-small-box, non-manual pieces with no accessories
+    if (!poles.length && !isSmBox && !isManual && !pieceAccs.length) return;
     pieceCount++;
 
     let lenIn, wtLbs, wtKgs, cuFt, dimsStr, unknownWarn;
@@ -2427,6 +2505,17 @@ function downloadPackingListPDF() {
                          .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
       lenIn    = L;
       wtLbs    = manualWt > 0 ? manualWt : Math.round((accWt + pt.extra_wt) * 10) / 10;
+      wtKgs    = Math.round(wtLbs * 0.453592 * 10) / 10;
+      cuFt     = (L && W && H) ? Math.round(L * W * H / 1728 * 100) / 100 : 0;
+      dimsStr  = (L && W && H) ? `${L}" &times; ${W}" &times; ${H}"` : '<em style="color:#c00">— dims required —</em>';
+      unknownWarn = '';
+    } else if (isManual) {
+      const L        = parseFloat(c.querySelector('.sb-len')?.value) || 0;
+      const W        = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
+      const H        = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
+      const manualWt = parseFloat(c.querySelector('.sb-wt')?.value)  || 0;
+      lenIn    = L;
+      wtLbs    = manualWt;
       wtKgs    = Math.round(wtLbs * 0.453592 * 10) / 10;
       cuFt     = (L && W && H) ? Math.round(L * W * H / 1728 * 100) / 100 : 0;
       dimsStr  = (L && W && H) ? `${L}" &times; ${W}" &times; ${H}"` : '<em style="color:#c00">— dims required —</em>';
@@ -2459,11 +2548,17 @@ function downloadPackingListPDF() {
     totalLbs   += wtLbs;
     totalCuFt  += cuFt;
 
-    // Accessory rows appended to the bottom of any pole piece
+    // Accessory rows — one row per accessory, shown as inline line items
     const accRowsHtml = pieceAccs.length
-      ? `<tr><td colspan="5" style="padding:4px 6px;background:#f5f5e8;font-size:8pt;color:#555;font-style:italic">
-           Also in this piece: ${pieceAccs.map(a => `${a.qty}× ${htmlEsc(a.item_name||a.item_code)}`).join(', ')}
-         </td></tr>` : '';
+      ? pieceAccs.map(a =>
+          `<tr style="background:#fff8e1">
+            <td class="tc n" style="font-size:7pt;font-weight:900;color:#e65100">ACC</td>
+            <td class="mdl" style="font-size:8pt">${htmlEsc(a.item_code||a.item_name)}</td>
+            <td class="tc" style="font-size:8pt;color:#555"></td>
+            <td class="nte" style="font-size:8pt;color:#333">${htmlEsc(a.item_name||a.item_code)}</td>
+            <td style="font-size:8pt;font-weight:700;text-align:center">${a.qty}&times;</td>
+            ${isMultiOrder ? '<td></td>' : ''}
+          </tr>`).join('') : '';
 
     let poleRows = '';
     poles.forEach((pole, j) => {
@@ -2492,6 +2587,10 @@ function downloadPackingListPDF() {
          ${p1Accessories.filter(a=>a.assignedTo===`new-box-${c.dataset.accBox||'1'}`).map(a=>
            `<tr><td>${htmlEsc(a.item_name||a.item_code)}</td><td style="text-align:center">${a.qty}</td></tr>`
          ).join('') || '<tr><td colspan="2" style="color:#aaa;font-style:italic">No items assigned</td></tr>'}
+         </tbody></table>`
+      : isManual
+      ? `<table class="pole-tbl"><tbody>
+           <tr><td colspan="5" style="padding:6px;color:#888;font-style:italic;font-size:8.5pt">Manual piece — contents per shipper&apos;s records.</td></tr>
          </tbody></table>`
       : `<table class="pole-tbl">
          <thead><tr>
@@ -2772,11 +2871,12 @@ function downloadPackingListP2() {
   let poleContainerIdx = 0; // 0-based index among non-acc-box pieces (matches assignedTo 'piece-N')
 
   containers.forEach((c) => {
-    const typeKey   = c.querySelector('.piece-type-sel')?.value || 'large-tube';
-    const pt        = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
-    const isSmBox   = !!pt.configDims;
+    const typeKey    = c.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt         = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const isSmBox    = !!pt.configDims && !pt.manualPiece;
+    const isManual   = !!pt.manualPiece;
     const isMultiOrder = loadedOrders.length > 1;
-    const poles     = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
+    const poles      = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
       model:  row.querySelector('.pr-model')?.value  || '',
       flex:   row.querySelector('.pr-flex')?.value   || '',
       note:   row.querySelector('.pr-note')?.value   || '',
@@ -2784,12 +2884,12 @@ function downloadPackingListP2() {
       so:     row.querySelector('.pr-so-chip')?.textContent?.trim() || '',
     })).filter(p => p.model);
 
-    // Accessories assigned to THIS pole piece (index among non-acc-box containers)
-    const pieceAccs = isSmBox ? [] : getAccForPiece(poleContainerIdx);
-    if (!isSmBox) poleContainerIdx++;
+    // Accessories assigned to THIS pole piece (index among non-acc-box, non-manual containers)
+    const pieceAccs = (isSmBox || isManual) ? [] : getAccForPiece(poleContainerIdx);
+    if (!isSmBox && !isManual) poleContainerIdx++;
 
-    // Skip empty non-small-box pieces with no accessories
-    if (!poles.length && !isSmBox && !pieceAccs.length) return;
+    // Skip empty non-small-box, non-manual pieces with no accessories
+    if (!poles.length && !isSmBox && !isManual && !pieceAccs.length) return;
     pieceCount++;
 
     let lenIn, wtLbs, wtKgs, cuFt, dimsStr, unknownWarn;
@@ -2803,6 +2903,17 @@ function downloadPackingListP2() {
                          .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
       lenIn    = L;
       wtLbs    = manualWt > 0 ? manualWt : Math.round((accWt + pt.extra_wt) * 10) / 10;
+      wtKgs    = Math.round(wtLbs * 0.453592 * 10) / 10;
+      cuFt     = (L && W && H) ? Math.round(L * W * H / 1728 * 100) / 100 : 0;
+      dimsStr  = (L && W && H) ? `${L}" &times; ${W}" &times; ${H}"` : '<em style="color:#c00">— dims required —</em>';
+      unknownWarn = '';
+    } else if (isManual) {
+      const L        = parseFloat(c.querySelector('.sb-len')?.value) || 0;
+      const W        = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
+      const H        = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
+      const manualWt = parseFloat(c.querySelector('.sb-wt')?.value)  || 0;
+      lenIn    = L;
+      wtLbs    = manualWt;
       wtKgs    = Math.round(wtLbs * 0.453592 * 10) / 10;
       cuFt     = (L && W && H) ? Math.round(L * W * H / 1728 * 100) / 100 : 0;
       dimsStr  = (L && W && H) ? `${L}" &times; ${W}" &times; ${H}"` : '<em style="color:#c00">— dims required —</em>';
@@ -2835,11 +2946,17 @@ function downloadPackingListP2() {
     totalLbs   += wtLbs;
     totalCuFt  += cuFt;
 
-    // Accessory rows appended to the bottom of any piece
+    // Accessory rows — one row per accessory, shown as inline line items
     const accRowsHtml = pieceAccs.length
-      ? `<tr><td colspan="5" style="padding:4px 6px;background:#f5f5e8;font-size:8pt;color:#555;font-style:italic">
-           Also in this piece: ${pieceAccs.map(a => `${a.qty}× ${htmlEsc(a.item_name||a.item_code)}`).join(', ')}
-         </td></tr>` : '';
+      ? pieceAccs.map(a =>
+          `<tr style="background:#fff8e1">
+            <td class="tc n" style="font-size:7pt;font-weight:900;color:#e65100">ACC</td>
+            <td class="mdl" style="font-size:8pt">${htmlEsc(a.item_code||a.item_name)}</td>
+            <td class="tc" style="font-size:8pt;color:#555"></td>
+            <td class="nte" style="font-size:8pt;color:#333">${htmlEsc(a.item_name||a.item_code)}</td>
+            <td style="font-size:8pt;font-weight:700;text-align:center">${a.qty}&times;</td>
+            ${isMultiOrder ? '<td></td>' : ''}
+          </tr>`).join('') : '';
 
     let poleRows = '';
     poles.forEach((pole, j) => {
@@ -2869,6 +2986,10 @@ function downloadPackingListP2() {
          ${p2Accessories.filter(a=>a.assignedTo===`new-box-${c.dataset.accBox||'1'}`).map(a=>
            `<tr><td>${htmlEsc(a.item_name||a.item_code)}</td><td style="text-align:center">${a.qty}</td></tr>`
          ).join('') || '<tr><td colspan="2" style="color:#aaa;font-style:italic">No items assigned</td></tr>'}
+         </tbody></table>`
+      : isManual
+      ? `<table class="pole-tbl"><tbody>
+           <tr><td colspan="5" style="padding:6px;color:#888;font-style:italic;font-size:8.5pt">Manual piece — contents per shipper&apos;s records.</td></tr>
          </tbody></table>`
       : `<table class="pole-tbl">
          <thead><tr>
@@ -3658,15 +3779,16 @@ ${p2Pallet ? `<tr style="background:#f1f8e9;font-weight:700;border-top:2px solid
 function collectP1PiecesFromDOM() {
   const pieces = [];
   document.querySelectorAll('#packing-list .piece-container').forEach(c => {
-    const typeKey = c.querySelector('.piece-type-sel')?.value || 'large-tube';
-    const pt      = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
-    const isSmBox = !!pt.configDims;
-    const poleEls = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
+    const typeKey  = c.querySelector('.piece-type-sel')?.value || 'large-tube';
+    const pt       = PIECE_TYPES[typeKey] || PIECE_TYPES['large-tube'];
+    const isSmBox  = !!pt.configDims && !pt.manualPiece;
+    const isManual = !!pt.manualPiece;
+    const poleEls  = [...c.querySelectorAll('.pole-row-p1')].map(row => ({
       model: row.querySelector('.pr-model')?.value || '',
       flex:  row.querySelector('.pr-flex')?.value  || '',
     })).filter(p => p.model);
 
-    if (!poleEls.length && !isSmBox) return;
+    if (!poleEls.length && !isSmBox && !isManual) return;
 
     let lenIn, wIn, hIn, wtLbs;
 
@@ -3679,6 +3801,11 @@ function collectP1PiecesFromDOM() {
         .filter(a => a.assignedTo === `new-box-${c.dataset.accBox || '1'}`)
         .reduce((s, a) => s + (parseFloat(a.unitWtLbs || 0) * a.qty), 0);
       wtLbs = manualWt > 0 ? manualWt : Math.round((accWt + pt.extra_wt) * 10) / 10;
+    } else if (isManual) {
+      lenIn = parseFloat(c.querySelector('.sb-len')?.value) || 0;
+      wIn   = parseFloat(c.querySelector('.sb-w')?.value)   || 0;
+      hIn   = parseFloat(c.querySelector('.sb-h')?.value)   || 0;
+      wtLbs = parseFloat(c.querySelector('.sb-wt')?.value)  || 0;
     } else {
       const ov     = getPieceOverrideDims(c);
       const models = poleEls.map(p => parseInt(p.model)).filter(Boolean);
