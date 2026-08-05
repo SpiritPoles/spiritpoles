@@ -709,7 +709,7 @@ const PIECE_TYPES = {
   'x-bars-hj':  { label:'X-Bars HJ Box',   w:15, h:4,  extra_wt:5,  extra_len:0,  max:25, fixedLen:158  },
   'x-bars-pv':  { label:'X-Bars PV Box',   w:15, h:4,  extra_wt:5,  extra_len:0,  max:25, fixedLen:180  },
   'small-box':  { label:'Small Box',        w:0,  h:0,  extra_wt:2,  extra_len:0,  max:99, fixedLen:null, configDims:true },
-  'manual':     { label:'Manual Piece',     w:0,  h:0,  extra_wt:0,  extra_len:0,  max:99, fixedLen:null, configDims:true, manualPiece:true },
+  'other':      { label:'Other',             w:0,  h:0,  extra_wt:0,  extra_len:0,  max:99, fixedLen:null, configDims:true, manualPiece:true, customLabel:true },
 };
 const htmlEsc = s => String(s==null?'':s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1472,7 +1472,11 @@ function onPieceTypeChange(sel) {
     }
   }
 
-  // Show/hide custom dimension inputs for Small Box / Manual
+  // Show/hide custom title input for "Other" type
+  const customLabelInput = container.querySelector('.piece-custom-label');
+  if (customLabelInput) customLabelInput.style.display = pt.customLabel ? '' : 'none';
+
+  // Show/hide custom dimension inputs for Small Box / Manual / Other
   const sbDims = container.querySelector('.sb-dims');
   if (sbDims) sbDims.style.display = pt.configDims ? 'flex' : 'none';
   // Show/hide pole rows (hidden for configDims types)
@@ -1659,7 +1663,7 @@ function buildAccessoriesPanel(items, ph = '2') {
       btnDiv.innerHTML =
         pieceBtns + boxBtns +
         `<button class="btn btn-outline btn-sm" onclick="addAccBox('${ph}')" style="color:var(--green);border-color:rgba(76,175,80,0.5)">&#43; Add Box</button>` +
-        `<button class="btn btn-outline btn-sm" onclick="addManualPiece('${ph}')" style="color:var(--green);border-color:rgba(76,175,80,0.5)">&#43; Manual Piece</button>` +
+        `<button class="btn btn-outline btn-sm" onclick="addManualPiece('${ph}')" style="color:var(--green);border-color:rgba(76,175,80,0.5)">&#43; Other</button>` +
         `<button class="btn btn-outline btn-sm" onclick="assignAllAccessories('not-shipping','${ph}')" style="opacity:.7">All → Not Shipping</button>`;
     }
 
@@ -1674,6 +1678,7 @@ function onAccAssign(sel, idx, ph = '2') {
   const arr = ph === '1' ? p1Accessories : p2Accessories;
   arr[idx].assignedTo = sel.value;
   updateAccessorySmallBox(ph);
+  updatePieceAccRowsUI(ph);
 }
 
 function assignAllAccessories(target, ph = '2') {
@@ -1683,6 +1688,7 @@ function assignAllAccessories(target, ph = '2') {
   const list = document.getElementById(`accessories-list-p${ph}`);
   if (list && list._render) list._render();
   updateAccessorySmallBox(ph);
+  updatePieceAccRowsUI(ph);
 }
 
 // Split an accessory with qty > 1 into two separate entries.
@@ -1751,6 +1757,32 @@ function updateAccessorySmallBox(ph = '2') {
   if (updateAccessorySmallBox._lock) return;
   updateAccessorySmallBox._lock = true;
   try { _updateAccessorySmallBoxImpl(ph); } finally { updateAccessorySmallBox._lock = false; }
+  updatePieceAccRowsUI(ph);
+}
+
+// Render accessories assigned to piece-N as live ACC rows inside each pole piece container
+function updatePieceAccRowsUI(ph = '2') {
+  const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
+  const accArr = ph === '1' ? p1Accessories : p2Accessories;
+  const containers = [...document.querySelectorAll(`#${listId} .piece-container`)];
+  let pieceIdx = 0;
+  containers.forEach(c => {
+    if (c.dataset.accBox) return; // acc-box containers handled separately
+    const myIdx  = pieceIdx++;
+    const myAccs = accArr.filter(a => a.assignedTo === `piece-${myIdx}`);
+    const section = c.querySelector('.piece-acc-section');
+    if (!section) return;
+    if (!myAccs.length) { section.style.display = 'none'; return; }
+    section.style.display = '';
+    section.querySelector('.acc-rows-container').innerHTML = myAccs.map(a =>
+      `<div style="display:flex;align-items:baseline;gap:7px;padding:2px 0;font-size:11px;flex-wrap:wrap">
+         <span style="font-size:8.5px;font-weight:900;color:#e65100;min-width:26px;letter-spacing:.03em">ACC</span>
+         <span style="font-weight:800;color:var(--tp);min-width:24px">${htmlEsc(a.qty)}&times;</span>
+         <span style="font-weight:700;color:var(--tp);min-width:58px">${htmlEsc(a.item_code||'')}</span>
+         <span style="color:var(--ts);font-size:10.5px">${htmlEsc(a.item_name||a.item_code)}</span>
+       </div>`
+    ).join('');
+  });
 }
 function _updateAccessorySmallBoxImpl(ph) {
   const listId   = ph === '1' ? 'packing-list' : 'packing-list-p2';
@@ -1879,12 +1911,14 @@ function addManualPiece(ph) {
   const listId = ph === '1' ? 'packing-list' : 'packing-list-p2';
   const list   = document.getElementById(listId);
   const pieceNum = list.querySelectorAll('.piece-container').length + 1;
-  const c = createPieceContainer(pieceNum, 'manual', []);
+  const c = createPieceContainer(pieceNum, 'other', []);
   list.appendChild(c);
   renumberPieces(listId);
   updatePackingTotals(listId);
   refreshAccessoryPanel(ph);
   c.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  // Focus the custom label input so user can type the title immediately
+  setTimeout(() => c.querySelector('.piece-custom-label')?.focus(), 80);
 }
 
 // Returns accessories assigned to a given piece index (for document output)
@@ -2221,6 +2255,9 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
     <div class="piece-header">
       <span class="piece-num-badge">Piece ${pieceNum}</span>
       <select class="piece-type-sel" onchange="onPieceTypeChange(this)">${typeOpts}</select>
+      <input class="piece-custom-label" type="text" placeholder="Title (e.g. Wooden Crate)" maxlength="60"
+        style="display:${(PIECE_TYPES[typeKey]||{}).customLabel ? '' : 'none'};font-size:11px;background:var(--tb);border:1px solid var(--tgbr);border-radius:5px;padding:3px 8px;color:var(--tp);width:165px"
+        oninput="calcPieceDims(this.closest('.piece-container'));updatePackingTotals(this.closest('.piece-container').parentElement?.id||'packing-list')">
       ${!isSmallBox ? `<button class="btn btn-outline btn-sm" onclick="applyTypeToAll(this)" style="font-size:9px;padding:2px 7px;white-space:nowrap;opacity:.7" title="Apply this piece type to all pieces">Apply to All</button>` : ''}
       <div class="piece-dims-box"><span class="piece-dims-wt">—</span></div>
       ${!isSmallBox ? `<button class="btn btn-outline btn-sm override-toggle" onclick="toggleDimsOverride(this)" style="font-size:9px;padding:2px 7px;margin-left:4px;opacity:.7" title="Manually override dims & weight">Override</button>` : ''}
@@ -2248,6 +2285,10 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
       <span>#</span><span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span class="pr-so-chip">Order</span><span></span>
     </div>
     <div class="piece-poles" style="${isSmallBox ? 'display:none' : ''}"></div>
+    <div class="piece-acc-section" style="display:none;border-top:1px solid rgba(230,81,0,0.25);margin:4px 10px 2px;padding:4px 10px 5px;background:rgba(255,248,225,0.45);border-radius:4px">
+      <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#e65100;margin-bottom:3px">&#x1F4E6; Accessories in this piece</div>
+      <div class="acc-rows-container"></div>
+    </div>
     <div class="piece-foot" style="${isSmallBox ? 'display:none' : ''}">
       <button class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 9px" onclick="addPoleToPiece(this)">+ Add Pole</button>
     </div>`;
@@ -2548,6 +2589,11 @@ function downloadPackingListPDF() {
     totalLbs   += wtLbs;
     totalCuFt  += cuFt;
 
+    // Resolve piece label — "Other" type uses the user-entered custom title
+    const pieceLabel = pt.customLabel
+      ? (c.querySelector('.piece-custom-label')?.value.trim() || 'Other')
+      : (pt.label || typeKey);
+
     // Accessory rows — one row per accessory, shown as inline line items
     const accRowsHtml = pieceAccs.length
       ? pieceAccs.map(a =>
@@ -2590,7 +2636,7 @@ function downloadPackingListPDF() {
          </tbody></table>`
       : isManual
       ? `<table class="pole-tbl"><tbody>
-           <tr><td colspan="5" style="padding:6px;color:#888;font-style:italic;font-size:8.5pt">Manual piece — contents per shipper&apos;s records.</td></tr>
+           <tr><td colspan="5" style="padding:6px;color:#888;font-style:italic;font-size:8.5pt">Contents per shipper&apos;s records.</td></tr>
          </tbody></table>`
       : `<table class="pole-tbl">
          <thead><tr>
@@ -2607,7 +2653,7 @@ function downloadPackingListPDF() {
     pieceSections += `<div class="piece-block">
       <div class="piece-hdr">
         <span class="piece-badge">PIECE&nbsp;${pieceCount}</span>
-        <span class="piece-type-lbl">${htmlEsc(pt.label)}</span>
+        <span class="piece-type-lbl">${htmlEsc(pieceLabel)}</span>
         <span class="piece-dims-lbl">${dimsStr}</span>
         <span class="piece-wt-lbl">${wtLbs}&nbsp;lbs &ndash; ${wtKgs}&nbsp;kg</span>
         <span class="piece-cuft-lbl">${cuFt}&nbsp;cu&nbsp;ft</span>
@@ -2946,6 +2992,11 @@ function downloadPackingListP2() {
     totalLbs   += wtLbs;
     totalCuFt  += cuFt;
 
+    // Resolve piece label — "Other" type uses the user-entered custom title
+    const pieceLabel = pt.customLabel
+      ? (c.querySelector('.piece-custom-label')?.value.trim() || 'Other')
+      : (pt.label || typeKey);
+
     // Accessory rows — one row per accessory, shown as inline line items
     const accRowsHtml = pieceAccs.length
       ? pieceAccs.map(a =>
@@ -2989,7 +3040,7 @@ function downloadPackingListP2() {
          </tbody></table>`
       : isManual
       ? `<table class="pole-tbl"><tbody>
-           <tr><td colspan="5" style="padding:6px;color:#888;font-style:italic;font-size:8.5pt">Manual piece — contents per shipper&apos;s records.</td></tr>
+           <tr><td colspan="5" style="padding:6px;color:#888;font-style:italic;font-size:8.5pt">Contents per shipper&apos;s records.</td></tr>
          </tbody></table>`
       : `<table class="pole-tbl">
          <thead><tr>
@@ -3006,7 +3057,7 @@ function downloadPackingListP2() {
     pieceSections += `<div class="piece-block">
       <div class="piece-hdr">
         <span class="piece-badge">PIECE&nbsp;${pieceCount}</span>
-        <span class="piece-type-lbl">${htmlEsc(pt.label)}</span>
+        <span class="piece-type-lbl">${htmlEsc(pieceLabel)}</span>
         <span class="piece-dims-lbl">${dimsStr}</span>
         <span class="piece-wt-lbl">${wtLbs}&nbsp;lbs &ndash; ${wtKgs}&nbsp;kg</span>
         <span class="piece-cuft-lbl">${cuFt}&nbsp;cu&nbsp;ft</span>
@@ -3822,9 +3873,12 @@ function collectP1PiecesFromDOM() {
     }
 
     const wtKg = Math.round(wtLbs * 0.453592 * 10) / 10;
+    const resolvedLabel = pt.customLabel
+      ? (c.querySelector('.piece-custom-label')?.value.trim() || 'Other')
+      : (pt.label || typeKey);
     pieces.push({
       poles:          poleEls,
-      type:           pt.label || typeKey,
+      type:           resolvedLabel,
       tube_length_in: lenIn,
       tube_width_in:  wIn,
       tube_height_in: hIn,
