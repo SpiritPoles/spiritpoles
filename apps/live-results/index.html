@@ -2189,7 +2189,8 @@ function EditOverlay({sc,updSc,onClose}){
 }
 
 // ─── LIVE DASHBOARD ───────────────────────────────────────────────────────────
-function LiveDashboard({savedComps,sc,onResumeComp,primaryMetric,liveCompKey,setLiveCompKey,liveSubTab,setLiveSubTab,athletes,ranked,heights,curH,setCurH,curA,setCurA,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,isJumpOff,startJumpOff,onEnd,onEditSetup,onRestart,updSc}){
+function LiveDashboard({savedComps,sc,onResumeComp,onDeleteComp,primaryMetric,liveCompKey,setLiveCompKey,liveSubTab,setLiveSubTab,athletes,ranked,heights,curH,setCurH,curA,setCurA,recordMark,undoMark,live,onDeck,inHole,compStatus,info,rulebook,isJumpOff,startJumpOff,onEnd,onEditSetup,onRestart,updSc}){
+  const[confirmDeleteId,setConfirmDeleteId]=useState(null);
   const activeSaved=savedComps.filter(comp=>{
     const c=comp.sc||comp;
     const cId=c.compId||comp.compId;
@@ -2285,10 +2286,20 @@ function LiveDashboard({savedComps,sc,onResumeComp,primaryMetric,liveCompKey,set
                   })}
                 </div>
               )}
-              <div style={{display:'flex',gap:8,marginBottom:8}}>
-                <button onClick={()=>openComp('score')} style={btn(C.accent,'7px 14px',13)}>📊 Score</button>
-                <button onClick={()=>openComp('display')} style={{...btn(C.card,'7px 14px',13),border:`1px solid ${C.border}`}}>📺 Display</button>
-              </div>
+              {confirmDeleteId===cCompId?(
+                <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background:`${C.danger}18`,borderRadius:8,border:`1px solid ${C.danger}44`,marginBottom:8}}>
+                  <span style={{fontSize:12,color:C.danger,flex:1,fontWeight:700}}>Abandon this meet?</span>
+                  <button onClick={()=>setConfirmDeleteId(null)} style={{...btn(C.card,'5px 12px',12),border:`1px solid ${C.border}`}}>Cancel</button>
+                  <button onClick={()=>{onDeleteComp(cCompId,!!comp._cur);setConfirmDeleteId(null);}} style={btn(C.danger,'5px 12px',12)}>Yes, abandon</button>
+                </div>
+              ):(
+                <div style={{display:'flex',gap:8,marginBottom:8}}>
+                  <button onClick={()=>openComp('score')} style={btn(C.accent,'7px 14px',13)}>📊 Score</button>
+                  <button onClick={()=>openComp('display')} style={{...btn(C.card,'7px 14px',13),border:`1px solid ${C.border}`}}>📺 Display</button>
+                  <div style={{flex:1}}/>
+                  <button onClick={()=>setConfirmDeleteId(cCompId)} style={{...btn(C.card,'7px 10px',12),border:`1px solid ${C.danger}44`,color:C.danger}} title="Abandon this competition">🗑</button>
+                </div>
+              )}
               {cCompId&&(()=>{
                 const base=`${window.location.origin}${window.location.pathname}`;
                 const dispUrl=`${base}#/display/${cCompId}`;
@@ -2897,6 +2908,7 @@ function VaultDeskApp(){
             liveCompKey={liveCompKey} setLiveCompKey={setLiveCompKey}
             liveSubTab={liveSubTab} setLiveSubTab={setLiveSubTab}
             onResumeComp={comp=>{const cur=scRef.current;if(cur&&cur.compStatus==='active'){const all=loadSaved();if(!all.some(c=>(c.sc?.compId||c.compId)===cur.compId)){saveAll([...all,cur]);}}setSc({...comp,...(comp.sc||{})});setSavedComps(loadSaved());}}
+            onDeleteComp={(compId,isCur)=>{if(isCur){setSc(null);setLiveCompKey(null);setScreen('setup');}deleteComp(compId);setSavedComps(loadSaved());}}
             athletes={sc?.athletes||[]} ranked={sc_ranked} heights={sc?.heights||[]}
             curH={sc?.curH||0} setCurH={setCurH} curA={sc?.curA??-1} setCurA={setCurA}
             recordMark={recordMark} undoMark={undoMark}
