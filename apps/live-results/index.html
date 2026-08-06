@@ -651,13 +651,13 @@ function PhotoImportDialog({onImport,onClose,existingAthletes=[]}){
                   onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent}
                   onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
                   <div style={{fontSize:44,marginBottom:10}}>📷</div>
-                  <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:6}}>Take a photo or upload an image</div>
-                  <div style={{fontSize:12,lineHeight:1.6}}>Start list · heat sheet · registration printout<br/>Any format — printed or on screen</div>
+                  <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:6}}>Take a photo or choose from library</div>
+                  <div style={{fontSize:12,lineHeight:1.6}}>Start list · heat sheet · registration printout<br/>Camera, photo library, or file — any format</div>
                 </div>
               ):(
                 <img src={imgUrl} style={{width:'100%',borderRadius:10,border:`1px solid ${C.border}`,display:'block',maxHeight:300,objectFit:'contain',background:'#000'}}/>
               )}
-              <input type="file" accept="image/*" capture="environment" onChange={handleFile} style={{display:'none'}} ref={fileRef}/>
+              <input type="file" accept="image/*" onChange={handleFile} style={{display:'none'}} ref={fileRef}/>
             </label>
             {step==='ready'&&(
               <div style={{display:'flex',gap:8,marginTop:12}}>
