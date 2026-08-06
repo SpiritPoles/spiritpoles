@@ -1789,15 +1789,25 @@ function updatePieceAccRowsUI(ph = '2') {
   const containers = [...document.querySelectorAll(`#${listId} .piece-container`)];
   let pieceIdx = 0;
   containers.forEach(c => {
-    if (c.dataset.accBox) return; // acc-box containers handled separately
-    const myIdx  = pieceIdx++;
-    const myAccs = accArr.map((a, i) => ({ ...a, _idx: i })).filter(a => a.assignedTo === `piece-${myIdx}`);
     const section = c.querySelector('.piece-acc-section');
     if (!section) return;
+
+    let myAccs;
+    if (c.dataset.accBox) {
+      // Small-box container — look up accessories by new-box-N
+      const boxN = c.dataset.accBox;
+      myAccs = accArr.map((a, i) => ({ ...a, _idx: i })).filter(a => a.assignedTo === `new-box-${boxN}`);
+    } else {
+      // Regular / Other piece — look up by piece-N
+      const myIdx = pieceIdx++;
+      myAccs = accArr.map((a, i) => ({ ...a, _idx: i })).filter(a => a.assignedTo === `piece-${myIdx}`);
+    }
+
     if (!myAccs.length) { section.style.display = 'none'; return; }
     section.style.display = '';
+    // Column header re-uses piece-col-hdr CSS so it aligns with pole rows above
     section.querySelector('.acc-rows-container').innerHTML =
-      `<div style="display:grid;grid-template-columns:18px 90px 74px 104px 1fr 24px;gap:4px;padding:2px 10px 1px;font-size:8.5px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;color:var(--ts)">
+      `<div class="piece-col-hdr" style="color:#e65100;padding-top:3px;padding-bottom:2px;font-size:8px">
          <span></span><span>Code</span><span style="text-align:center">Qty</span><span>Notes</span><span>Description</span><span></span>
        </div>` +
       myAccs.map(a =>
@@ -1826,10 +1836,9 @@ function unassignAccFromPiece(idx, ph = '2') {
   const arr = ph === '1' ? p1Accessories : p2Accessories;
   if (!arr || arr[idx] === undefined) return;
   arr[idx].assignedTo = 'not-shipping';
+  // list._render() → render() → updateAccessorySmallBox() → updatePieceAccRowsUI() + updatePackingTotals()
   const list = document.getElementById(`accessories-list-p${ph}`);
   if (list && list._render) list._render();
-  updatePieceAccRowsUI(ph);
-  updatePackingTotals(ph === '1' ? 'packing-list' : 'packing-list-p2');
 }
 function _updateAccessorySmallBoxImpl(ph) {
   const listId   = ph === '1' ? 'packing-list' : 'packing-list-p2';
@@ -1867,17 +1876,8 @@ function _updateAccessorySmallBoxImpl(ph) {
     const sbDimsEl = boxContainer.querySelector('.sb-dims');
     if (sbDimsEl) sbDimsEl.style.display = 'none';
 
-    // Contents summary note in the box header
-    let note = boxContainer.querySelector('.acc-box-note');
-    if (!note) {
-      note = document.createElement('div');
-      note.className = 'acc-box-note';
-      note.style.cssText = 'font-size:11px;color:var(--ts);padding:4px 10px 6px';
-      boxContainer.insertBefore(note, boxContainer.querySelector('.piece-col-hdr'));
-    }
-    const boxLabel = boxCount > 1 ? ` (Box ${n})` : '';
-    note.innerHTML = `<strong>Contents${boxLabel}:</strong> ` +
-      boxItems.map(a => `${a.qty}&times; ${htmlEsc(a.item_name || a.item_code)}`).join(', ');
+    // Remove legacy comma-list note if present from old builds
+    boxContainer.querySelector('.acc-box-note')?.remove();
 
     // Inline dims row per box
     if (btnDiv) {
@@ -2361,8 +2361,8 @@ function createPieceContainer(pieceNum, typeKey, poles = []) {
       <span>#</span><span>Model</span><span>Flex Memo</span><span>Special Line<br>Item Notes</span><span>Serial</span><span class="pr-so-chip">Order</span><span></span>
     </div>
     <div class="piece-poles" style="${isSmallBox ? 'display:none' : ''}"></div>
-    <div class="piece-acc-section" style="display:none;border-top:1px solid rgba(230,81,0,0.25);margin:4px 10px 2px;padding:4px 10px 5px;background:rgba(255,248,225,0.45);border-radius:4px">
-      <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#e65100;margin-bottom:3px">&#x1F4E6; Accessories in this piece</div>
+    <div class="piece-acc-section" style="display:none;border-top:1px solid rgba(230,81,0,0.22);margin:4px 0 0;background:rgba(255,248,225,0.38)">
+      <div style="font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;color:#e65100;padding:4px 10px 0">&#x1F4E6; Accessories in this piece</div>
       <div class="acc-rows-container"></div>
     </div>
     <div class="piece-foot" style="${isSmallBox ? 'display:none' : ''}">
