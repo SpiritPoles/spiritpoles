@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.22</title>
+  <title>VaultDesk v1.23</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{--bg:#0f0f14;--surface:#1a1a24;--card:#22222e;--border:#2e2e3d;--accent:#4f7cff;--success:#22c55e;--danger:#ef4444;--warn:#f59e0b;--text:#f0f0f0;--muted:#8888aa}
@@ -553,6 +554,195 @@ function ImportDialog({onImport,onClose,existingAthletes=[]}){
 }
 
 // ─── INCREMENT STEP BUILDER (Advanced mode) ───────────────────────────────────
+// ─── PHOTO IMPORT DIALOG ──────────────────────────────────────────────────────
+function PhotoImportDialog({onImport,onClose,existingAthletes=[]}){
+  const[step,setStep]=useState('upload'); // upload | ready | scanning | review | error
+  const[imgUrl,setImgUrl]=useState(null);
+  const[imgFile,setImgFile]=useState(null);
+  const[progress,setProgress]=useState(0);
+  const[progressMsg,setProgressMsg]=useState('');
+  const[candidates,setCandidates]=useState([]);
+  const fileRef=useRef(null);
+
+  const toTitle=s=>s?s.toLowerCase().replace(/(?:^|\s|-|')\S/g,c=>c.toUpperCase()):'';
+
+  const parseLine=line=>{
+    // Strip leading bib/rank numbers
+    let clean=line.replace(/^\s*\d+\.?\s+/,'').trim();
+    // Strip trailing marks, heights, times
+    clean=clean.replace(/\s+\d[\d.,:/'½¼¾\s]*(m|ft|cm|s|min)?.*$/i,'').trim();
+    // Strip isolated 3-letter IOC country codes
+    clean=clean.replace(/\b[A-Z]{3}\b/g,'').replace(/\s{2,}/g,' ').trim();
+    if(clean.length<3)return null;
+    const parts=clean.split(/\s+/).filter(Boolean);
+    if(!parts.length)return null;
+    // "SMITH, John" — comma format
+    const commaM=clean.match(/^([A-Z][A-Z'\-\s]+),\s*(.+)$/);
+    if(commaM)return{firstName:toTitle(commaM[2].trim()),lastName:toTitle(commaM[1].trim())};
+    // "SMITH John" — all-caps surname first
+    if(parts.length>=2&&parts[0]===parts[0].toUpperCase()&&/^[A-Z'-]+$/.test(parts[0])&&parts[0].length>1){
+      return{firstName:toTitle(parts.slice(1).join(' ')),lastName:toTitle(parts[0])};
+    }
+    // "John Smith" — normal order
+    if(parts.length===1)return{firstName:toTitle(parts[0]),lastName:''};
+    return{firstName:toTitle(parts[0]),lastName:toTitle(parts.slice(1).join(' '))};
+  };
+
+  const handleFile=e=>{
+    const file=e.target.files?.[0];if(!file)return;
+    setImgFile(file);setImgUrl(URL.createObjectURL(file));setStep('ready');
+  };
+
+  const scan=async()=>{
+    if(!imgFile)return;
+    if(!window.Tesseract){alert('OCR library still loading — try again in a moment.');return;}
+    setStep('scanning');setProgress(0);setProgressMsg('Initializing…');
+    try{
+      const{data:{text}}=await window.Tesseract.recognize(imgFile,'eng',{
+        logger:m=>{
+          if(m.status==='recognizing text'){setProgress(Math.round(m.progress*100));setProgressMsg('Reading text…');}
+          else setProgressMsg((m.status||'').replace(/_/g,' '));
+        }
+      });
+      const SKIP=new Set(['name','athlete','athletes','affiliation','club','team','country','nation','bib','heat','flight','group','event','result','mark','height','place','rank','pos','position','dnf','dns','nh','nm','nr','pb','sb','wind','qual','qualification','final','finals','start','list','entry','entries','men','women','boys','girls','pole','vault','high','long','triple','jump','round','attempt']);
+      const lines=text.split('\n')
+        .map(l=>l.trim())
+        .filter(l=>l.length>=4&&/[a-zA-Z]{2,}/.test(l))
+        .filter(l=>!/^[\d\s.,:/'½¾\-]+$/.test(l))
+        .filter(l=>{const ws=l.toLowerCase().split(/\s+/);return!ws.every(w=>SKIP.has(w));});
+      const parsed=lines.map((line,i)=>{
+        const r=parseLine(line);if(!r)return null;
+        return{id:i,raw:line,firstName:r.firstName,lastName:r.lastName,affiliation:'',checked:!!(r.firstName||r.lastName)};
+      }).filter(Boolean);
+      setCandidates(parsed);setStep('review');
+    }catch(e){setProgressMsg('Scan failed: '+(e.message||'Unknown error'));setStep('error');}
+  };
+
+  const toggle=id=>setCandidates(cs=>cs.map(c=>c.id===id?{...c,checked:!c.checked}:c));
+  const upd=(id,f,v)=>setCandidates(cs=>cs.map(c=>c.id===id?{...c,[f]:v}:c));
+  const rem=id=>setCandidates(cs=>cs.filter(c=>c.id!==id));
+
+  const nameKey=a=>`${(a.firstName||'').trim()} ${(a.lastName||'').trim()}`.trim().toLowerCase();
+  const exKeys=useMemo(()=>new Set(existingAthletes.filter(a=>nameKey(a)).map(nameKey)),[existingAthletes]);
+  const selected=candidates.filter(c=>c.checked&&(c.firstName||c.lastName));
+  const fresh=selected.filter(a=>!exKeys.has(nameKey(a)));
+  const dupes=selected.length-fresh.length;
+
+  const confirm=()=>onImport(fresh.map(c=>({firstName:c.firstName,lastName:c.lastName,affiliation:c.affiliation})));
+
+  const overlayStyle={position:'fixed',inset:0,background:'rgba(0,0,0,.85)',zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px 10px'};
+  const panelStyle={background:C.surface,borderRadius:16,padding:20,width:'100%',maxWidth:520,maxHeight:'92vh',overflowY:'auto',border:`1px solid ${C.border}`};
+
+  return(
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={panelStyle} onClick={e=>e.stopPropagation()}>
+        {/* Header */}
+        <div style={{display:'flex',alignItems:'center',marginBottom:16}}>
+          <div style={{fontWeight:800,fontSize:16,flex:1}}>📷 Scan Athlete List</div>
+          <button onClick={onClose} style={btn('#333','7px 14px',13)}>✕</button>
+        </div>
+
+        {/* UPLOAD / READY */}
+        {(step==='upload'||step==='ready')&&(
+          <div>
+            <label style={{display:'block',cursor:'pointer'}}>
+              {step==='upload'?(
+                <div style={{border:`2px dashed ${C.border}`,borderRadius:12,padding:'36px 20px',textAlign:'center',color:C.muted,transition:'border-color .2s'}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                  <div style={{fontSize:44,marginBottom:10}}>📷</div>
+                  <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:6}}>Take a photo or upload an image</div>
+                  <div style={{fontSize:12,lineHeight:1.6}}>Start list · heat sheet · registration printout<br/>Any format — printed or on screen</div>
+                </div>
+              ):(
+                <img src={imgUrl} style={{width:'100%',borderRadius:10,border:`1px solid ${C.border}`,display:'block',maxHeight:300,objectFit:'contain',background:'#000'}}/>
+              )}
+              <input type="file" accept="image/*" capture="environment" onChange={handleFile} style={{display:'none'}} ref={fileRef}/>
+            </label>
+            {step==='ready'&&(
+              <div style={{display:'flex',gap:8,marginTop:12}}>
+                <button onClick={()=>{setStep('upload');setImgUrl(null);setImgFile(null);}} style={{...btn(C.card,'9px 14px',13),border:`1px solid ${C.border}`,flex:1}}>↩ Change Photo</button>
+                <button onClick={scan} style={{...btn(C.accent,'9px 14px',13),flex:2}}>Scan for Names →</button>
+              </div>
+            )}
+            {step==='upload'&&<div style={{fontSize:11,color:C.muted,textAlign:'center',marginTop:10}}>Works with printed heat sheets, phone screenshots, or photos of posted start lists</div>}
+          </div>
+        )}
+
+        {/* SCANNING */}
+        {step==='scanning'&&(
+          <div>
+            <img src={imgUrl} style={{width:'100%',borderRadius:10,border:`1px solid ${C.border}`,display:'block',maxHeight:220,objectFit:'contain',background:'#000',opacity:.45,marginBottom:18}}/>
+            <div style={{fontSize:13,color:C.muted,textAlign:'center',marginBottom:12,fontStyle:'italic'}}>{progressMsg||'Starting…'}</div>
+            <div style={{background:C.card,borderRadius:999,height:8,overflow:'hidden',border:`1px solid ${C.border}`}}>
+              <div style={{height:'100%',background:C.accent,borderRadius:999,width:`${progress}%`,transition:'width .25s ease'}}/>
+            </div>
+            <div style={{fontSize:11,color:C.muted,textAlign:'center',marginTop:6}}>{progress}%</div>
+          </div>
+        )}
+
+        {/* ERROR */}
+        {step==='error'&&(
+          <div style={{textAlign:'center',padding:'24px 0'}}>
+            <div style={{fontSize:36,marginBottom:10}}>⚠️</div>
+            <div style={{color:C.danger,fontSize:13,marginBottom:20,maxWidth:320,margin:'0 auto 20px'}}>{progressMsg}</div>
+            <button onClick={()=>setStep('ready')} style={btn(C.accent,'9px 20px',13)}>Try Again</button>
+          </div>
+        )}
+
+        {/* REVIEW */}
+        {step==='review'&&(
+          <div>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+              <div style={{fontSize:13,flex:1}}>
+                <strong>{candidates.length}</strong> line{candidates.length!==1?'s':''} detected — check each name, uncheck anything that's not an athlete.
+              </div>
+              <button onClick={()=>{setStep('ready');setCandidates([]);}} style={{...btn(C.card,'5px 10px',11),border:`1px solid ${C.border}`,color:C.muted,flexShrink:0}}>↩ Rescan</button>
+            </div>
+            {/* Column headers */}
+            <div style={{display:'flex',gap:8,padding:'4px 10px',fontSize:10,color:C.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,marginBottom:2}}>
+              <div style={{width:20}}/>
+              <div style={{flex:1}}>First Name</div>
+              <div style={{flex:1}}>Last Name</div>
+              <div style={{width:22}}/>
+            </div>
+            <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden',maxHeight:340,overflowY:'auto',marginBottom:12}}>
+              {candidates.length===0&&(
+                <div style={{padding:24,textAlign:'center',color:C.muted,fontSize:13}}>No text detected — try a clearer or higher-contrast photo.</div>
+              )}
+              {candidates.map((c,i)=>{
+                const isDupe=exKeys.has(nameKey(c));
+                return(
+                  <div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px',borderBottom:i<candidates.length-1?`1px solid ${C.border}`:'none',background:c.checked?'transparent':C.card+'66',opacity:c.checked?1:.5,transition:'opacity .15s'}}>
+                    <input type="checkbox" checked={c.checked} onChange={()=>toggle(c.id)} style={{width:16,height:16,flexShrink:0,accentColor:C.accent,cursor:'pointer'}}/>
+                    <input value={c.firstName} onChange={e=>upd(c.id,'firstName',e.target.value)} placeholder="First" style={{...inp,padding:'5px 8px',fontSize:13,flex:1,minWidth:0}}/>
+                    <input value={c.lastName} onChange={e=>upd(c.id,'lastName',e.target.value)} placeholder="Last" style={{...inp,padding:'5px 8px',fontSize:13,flex:1,minWidth:0}}/>
+                    {isDupe&&c.checked&&<span style={{fontSize:9,color:C.warn,flexShrink:0,fontWeight:700}}>DUP</span>}
+                    <button onClick={()=>rem(c.id)} style={{...btn(C.card,'3px 7px',11),flexShrink:0,color:C.muted,border:`1px solid ${C.border}`}}>✕</button>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Select all / none */}
+            <div style={{display:'flex',gap:6,marginBottom:12}}>
+              <button onClick={()=>setCandidates(cs=>cs.map(c=>({...c,checked:true})))} style={{...btn(C.card,'5px 10px',11),border:`1px solid ${C.border}`}}>Select All</button>
+              <button onClick={()=>setCandidates(cs=>cs.map(c=>({...c,checked:false})))} style={{...btn(C.card,'5px 10px',11),border:`1px solid ${C.border}`}}>None</button>
+              <div style={{flex:1}}/>
+              <span style={{fontSize:11,color:C.muted,alignSelf:'center'}}>{selected.length} selected</span>
+            </div>
+            <button onClick={confirm} disabled={fresh.length===0}
+              style={{...btn(fresh.length>0?C.success:C.card,'11px',14),width:'100%',opacity:fresh.length===0?.5:1,border:fresh.length===0?`1px solid ${C.border}`:'none'}}>
+              {fresh.length>0
+                ?`Import ${fresh.length} Athlete${fresh.length!==1?'s':''}${dupes>0?` · ${dupes} dupe${dupes!==1?'s':''} skipped`:''}`
+                :'No new athletes selected'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function IncStepBuilder({incStr,setIncStr,primaryMetric=true}){
   // Metric: 4 standard options matching the simple picker
   const CM_STEPS=[5,10,15,20];
@@ -1184,7 +1374,7 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
 }
 
 // ─── SETUP SCREEN ─────────────────────────────────────────────────────────────
-function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updAthlete,delAthlete,moveAthlete,reorder,setOrder,editingId,setEditingId,startH,setStartH,incStr,setIncStr,manualH,setManualH,doGenHeights,heights,setHeights,updateHeight,primaryMetric,startComp,dirEmail,setDirEmail,onImport}){
+function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updAthlete,delAthlete,moveAthlete,reorder,setOrder,editingId,setEditingId,startH,setStartH,incStr,setIncStr,manualH,setManualH,doGenHeights,heights,setHeights,updateHeight,primaryMetric,startComp,dirEmail,setDirEmail,onImport,onPhotoImport}){
   const ci=(k,v)=>setInfo(p=>({...p,[k]:v}));
   const rbCfg=RULEBOOK_CFG[rulebook]||RULEBOOK_CFG.WA;
   const namedAthletes=athletes.filter(a=>(a.firstName||'').trim()||(a.lastName||'').trim());
@@ -1264,7 +1454,8 @@ function SetupScreen({info,setInfo,rulebook,setRulebook,athletes,addAthlete,updA
         <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
           <div style={{...secTit,marginBottom:0}}>Athletes ({athletes.length})</div>
           <div style={{flex:1}}/>
-          <button onClick={onImport} style={{...btn(C.card,'7px 12px',12),border:`1px solid ${C.border}`,marginRight:6}}>Import</button>
+          <button onClick={onPhotoImport} style={{...btn(C.card,'7px 12px',12),border:`1px solid ${C.border}`,marginRight:6}} title="Scan a photo of a start list">📷 Scan</button>
+          <button onClick={onImport} style={{...btn(C.card,'7px 12px',12),border:`1px solid ${C.border}`,marginRight:6}}>CSV</button>
           <button onClick={addAthlete} style={btn(C.success,'7px 14px',13)}>+ Add</button>
         </div>
         <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Type directly in each row. <strong style={{color:C.text}}>Edit</strong> for advanced options (affiliation, photo). <strong style={{color:C.text}}>↑↓</strong> jumping order. <strong style={{color:C.text}}>☰</strong> drag to reorder. <strong style={{color:C.text}}>✕</strong> delete.</div>
@@ -2275,6 +2466,7 @@ function VaultDeskApp(){
   const[sc,setSc]=useState(()=>{if(!saved_.sc)return null;const s=saved_.sc;return{...s,athletes:Array.isArray(s.athletes)?s.athletes:[],heights:Array.isArray(s.heights)?s.heights:[]};});
   const[showEdit,setShowEdit]=useState(false);
   const[showImport,setShowImport]=useState(false);
+  const[showPhotoImport,setShowPhotoImport]=useState(false);
   const[showSave,setShowSave]=useState(false);
   const[showShare,setShowShare]=useState(false);
   const[liveCompKey,setLiveCompKey]=useState(null);
@@ -2594,6 +2786,7 @@ function VaultDeskApp(){
   const setCurH=useCallback(i=>updSc({curH:i,curA:firstEligible(scRef.current?.athletes||[],i)}),[]);
   const setCurA=useCallback(i=>updSc({curA:i}),[]);
   const onImport=useCallback(rows=>{const newAthletes=rows.map((r,i)=>({...mkAthlete(suRef.current.athletes.length+i+1),...r}));updSu({athletes:[...suRef.current.athletes,...newAthletes]});setShowImport(false);},[]);
+  const onPhotoImport=useCallback(rows=>{const newAthletes=rows.map((r,i)=>({...mkAthlete(suRef.current.athletes.length+i+1),...r}));updSu({athletes:[...suRef.current.athletes,...newAthletes]});setShowPhotoImport(false);},[]);
 
   const sc_ranked=sc?calcPlacements(sc.athletes||[],sc.heights||[]):[];
   const live=sc?sc.curA:-1;
@@ -2695,6 +2888,7 @@ function VaultDeskApp(){
             startComp={startComp}
             dirEmail={su.dirEmail} setDirEmail={setDirEmail}
             onImport={()=>setShowImport(true)}
+            onPhotoImport={()=>setShowPhotoImport(true)}
           />
         )}
         {screen==='live'&&(
@@ -2728,6 +2922,7 @@ function VaultDeskApp(){
       {/* MODALS */}
       {showEdit&&sc&&<EditOverlay sc={sc} updSc={updSc} onClose={()=>setShowEdit(false)}/>}
       {showImport&&<ImportDialog onImport={onImport} onClose={()=>setShowImport(false)} existingAthletes={su.athletes}/>}
+      {showPhotoImport&&<PhotoImportDialog onImport={onPhotoImport} onClose={()=>setShowPhotoImport(false)} existingAthletes={su.athletes}/>}
       {showSave&&sc&&<SaveResultsDialog athletes={sc.athletes} heights={sc.heights} ranked={sc_ranked} info={sc.info} primaryMetric={primaryMetric} onClose={()=>setShowSave(false)}/>}
       {showShare&&sc&&<SharePanel sc={sc} onClose={()=>setShowShare(false)}/>}
     </div>
