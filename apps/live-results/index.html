@@ -2935,6 +2935,7 @@ function VaultDeskApp(){
             onEditSetup={()=>setShowEdit(true)} onRestart={restartComp} updSc={updSc}
           />
         )}
+        {screen==='display'&&sc&&<DisplayScreen sc={sc} primaryMetric={primaryMetric} updSc={updSc}/>}
         {screen==='rules'&&<RulesTab/>}
         {screen==='admin'&&isSuperAdmin&&<SuperAdminScreen/>}
         {screen==='history'&&(
