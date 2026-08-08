@@ -1285,30 +1285,33 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
   },[athletes,ranked,curH,isActive]);
   const getCellContent=(ath,hIdx)=>{
     const m=ath.attempts[hIdx]||[];
-    if(ath.status==='dns')return{text:'- -',color:C.muted,bg:'transparent'};
+    if(ath.status==='dns')return{text:'—',color:C.muted,bg:'transparent'};
     if(!m.length)return{text:'',color:C.muted,bg:'transparent'};
     const text=m.join('');
-    if(hasCleared(m))return{text,color:'#4ade80',bg:C.cleared};
-    if(countMisses(m)>=3&&!hasCleared(m))return{text,color:'#f87171',bg:C.missed};
-    if(hasPassed(m)&&!hasCleared(m))return{text,color:'#d97706',bg:'rgba(217,119,6,.15)'};
-    return{text,color:C.muted,bg:'transparent'};
+    if(hasCleared(m))return{text,color:'#4ade80',bg:'rgba(34,197,94,.08)'};
+    if(countMisses(m)>=3&&!hasCleared(m))return{text,color:'#f87171',bg:'rgba(239,68,68,.08)'};
+    if(hasPassed(m)&&!hasCleared(m))return{text,color:'#d97706',bg:'rgba(217,119,6,.08)'};
+    return{text,color:'#93c5fd',bg:'transparent'};
   };
   const bestResult=ath=>{const idx=highestClearedIdx(ath,n);return idx>=0?heights[idx]:null};
   return(
     <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(360,280+n*52)+'px'}}>
+      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(360,280+n*56)+'px'}}>
         <thead>
           <tr style={{background:C.surface,borderBottom:`2px solid ${C.border}`}}>
-            <th style={{position:'sticky',left:0,background:C.surface,padding:'7px 5px',textAlign:'center',color:C.muted,width:30,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>#</th>
-            <th style={{position:'sticky',left:30,background:C.surface,padding:'7px 6px',textAlign:'center',color:C.muted,width:36,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>PL</th>
-            <th style={{position:'sticky',left:66,background:C.surface,padding:'7px 10px',textAlign:'left',color:C.muted,minWidth:155,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
-            <th style={{position:'sticky',left:221,background:C.surface,padding:'7px 5px',textAlign:'center',color:C.muted,width:60,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>BEST</th>
-            {heights.map((h,i)=>(
-              <th key={i} style={{padding:'7px 4px',textAlign:'center',minWidth:52,color:i===curH&&isActive?C.accent:C.muted,fontWeight:i===curH&&isActive?800:600,fontSize:9,letterSpacing:.3,background:i===curH&&isActive?`${C.accent}18`:C.surface}}>
-                <div>{fmtH(h,primaryMetric)}</div>
-                <div style={{fontSize:8,color:C.muted,marginTop:1,opacity:.7}}>{fmtH(h,!primaryMetric)}</div>
+            <th style={{position:'sticky',left:0,background:C.surface,padding:'8px 5px',textAlign:'center',color:C.muted,width:30,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>#</th>
+            <th style={{position:'sticky',left:30,background:C.surface,padding:'8px 6px',textAlign:'center',color:C.muted,width:36,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>PL</th>
+            <th style={{position:'sticky',left:66,background:C.surface,padding:'8px 10px',textAlign:'left',color:C.muted,minWidth:160,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
+            <th style={{position:'sticky',left:226,background:C.surface,padding:'8px 5px',textAlign:'center',color:C.muted,width:62,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>BEST</th>
+            {heights.map((h,i)=>{
+              const isCH=i===curH&&isActive;
+              return(
+              <th key={i} style={{padding:'8px 4px',textAlign:'center',minWidth:56,color:isCH?C.accent:C.muted,fontWeight:isCH?900:600,fontSize:9,letterSpacing:.3,background:isCH?`${C.accent}1a`:C.surface,borderLeft:isCH?`2px solid ${C.accent}`:undefined,borderRight:isCH?`2px solid ${C.accent}`:undefined}}>
+                <div style={{whiteSpace:'nowrap'}}>{fmtH(h,primaryMetric)}</div>
+                <div style={{fontSize:8,color:isCH?`${C.accent}bb`:C.muted,marginTop:1}}>{fmtH(h,!primaryMetric)}</div>
               </th>
-            ))}
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -1328,7 +1331,7 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
                     ?<span style={{color:C.muted,fontSize:11}}>{plInfo.pl}{plInfo.tied?'=':''}</span>
                     :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
                 </td>
-                <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px',minWidth:155}}>
+                <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px',minWidth:160}}>
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
                     <FlagCell athlete={ath} size={18}/>
                     <div style={{minWidth:0}}>
@@ -1348,18 +1351,19 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
                     </div>
                   </div>
                 </td>
-                <td style={{position:'sticky',left:221,background:rowBg,padding:'7px 5px',textAlign:'center',width:60}}>
+                <td style={{position:'sticky',left:226,background:rowBg,padding:'7px 5px',textAlign:'center',width:62}}>
                   {best?<DualH cm={best} primaryMetric={primaryMetric} pSize={11} sSize={9} style={{alignItems:'center'}}/>
                        :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
                 </td>
                 {heights.map((h,hIdx)=>{
                   const{text,color,bg}=getCellContent(ath,hIdx);
-                  const isCurCell=isActive&&hIdx===curH&&origIdx===curA;
+                  const isCH=isActive&&hIdx===curH;
+                  const isCurCell=isCH&&origIdx===curA;
                   const clickable=ath.status!=='dns'&&ath.status!=='nh';
                   return(
                     <td key={hIdx}
                       onClick={()=>{if(setCurH)setCurH(hIdx);if(clickable&&isActive&&setCurA)setCurA(origIdx);}}
-                      style={{padding:'7px 4px',textAlign:'center',fontWeight:700,fontSize:11,letterSpacing:.3,color,background:isCurCell?bg||`${C.accent}0d`:bg,cursor:clickable&&isActive&&setCurA?'pointer':'default',outline:isCurCell?`2px inset ${C.accent}55`:'none'}}>
+                      style={{padding:'7px 4px',textAlign:'center',fontWeight:800,fontSize:compact?11:12,letterSpacing:.2,color,background:isCurCell?bg||`${C.accent}0d`:bg,cursor:clickable&&isActive&&setCurA?'pointer':'default',borderLeft:isCH?`2px solid ${C.accent}44`:undefined,borderRight:isCH?`2px solid ${C.accent}44`:undefined,outline:isCurCell?`2px inset ${C.accent}55`:'none'}}>
                       {text}
                     </td>
                   );
@@ -1748,7 +1752,7 @@ function DisplayScreen({sc,primaryMetric,updSc}){
     <div style={{paddingBottom:30}}>
 
       {/* ── COMPETITION BANNER ── */}
-      <div style={{background:'linear-gradient(135deg,#080f1c 0%,#0c1628 60%,#080f1c 100%)',borderBottom:`1px solid rgba(79,124,255,.22)`,padding:'14px 16px'}}>
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'12px 16px'}}>
         <div style={{display:'flex',alignItems:'center',gap:14}}>
 
           {/* Logo slot */}
@@ -1787,27 +1791,30 @@ function DisplayScreen({sc,primaryMetric,updSc}){
       </div>
 
       {/* ── DISPLAY SUB-TABS ── */}
-      <div style={{display:'flex',gap:2,background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'6px 10px'}}>
-        <button onClick={()=>setDispSubTab('live')} style={{...btn(dispSubTab==='live'?C.accent:C.card,'5px 0',12),flex:1,borderRadius:7,border:dispSubTab==='live'?`1px solid ${C.accent}55`:`1px solid ${C.border}`}}>Live View</button>
-        <button onClick={()=>setDispSubTab('leaderboard')} style={{...btn(dispSubTab==='leaderboard'?C.accent:C.card,'5px 0',12),flex:1,borderRadius:7,border:dispSubTab==='leaderboard'?`1px solid ${C.accent}55`:`1px solid ${C.border}`}}>Leaderboard</button>
+      <div style={{display:'flex',background:C.bg,borderBottom:`1px solid ${C.border}`}}>
+        {[['live','Live View'],['leaderboard','Leaderboard']].map(([k,label])=>(
+          <button key={k} onClick={()=>setDispSubTab(k)} style={{flex:1,padding:'9px 0',fontSize:12,fontWeight:700,color:dispSubTab===k?C.accent:C.muted,background:'transparent',border:'none',borderBottom:dispSubTab===k?`2px solid ${C.accent}`:'2px solid transparent',cursor:'pointer',letterSpacing:.3}}>
+            {label}
+          </button>
+        ))}
       </div>
 
       {dispSubTab==='live'&&<>
       {/* ── HERO (read-only mirror of Score tab) ── */}
       {isActive&&(
-        <div style={{background:'linear-gradient(135deg,#0b1829 0%,#0e1e38 55%,#0d1520 100%)',borderBottom:`1px solid rgba(79,124,255,.25)`,padding:'16px 16px 14px'}}>
-          <div style={{fontSize:10,color:sc.isJumpOff?'rgba(245,158,11,.85)':'rgba(79,124,255,.7)',fontWeight:700,letterSpacing:.9,textTransform:'uppercase',marginBottom:12}}>
-            {curAth?`${sc.isJumpOff?'⚡ JUMP-OFF · ':''}Now vaulting · Attempt ${attemptNum}${curMarks.length>0?' · '+curMarks.join(''):''}`:isActive?'Waiting…':''}
+        <div style={{background:C.card,borderLeft:`4px solid ${C.accent}`,borderBottom:`1px solid ${C.border}`,padding:'14px 16px 12px'}}>
+          <div style={{fontSize:11,color:sc.isJumpOff?C.warn:C.accent,fontWeight:800,letterSpacing:.8,textTransform:'uppercase',marginBottom:10}}>
+            {curAth?`${sc.isJumpOff?'⚡ JUMP-OFF · ':''}NOW VAULTING · ATT. ${attemptNum}${curMarks.length>0?' · '+curMarks.join(''):''}`:isActive?'Waiting…':''}
           </div>
           <div style={{display:'flex',alignItems:'flex-start',gap:0}}>
             {/* Height */}
-            <div style={{textAlign:'center',flexShrink:0,paddingRight:16,minWidth:96}}>
+            <div style={{textAlign:'center',flexShrink:0,paddingRight:18,minWidth:100}}>
               {curHt?(<>
-                <div style={{fontSize:40,fontWeight:900,color:'#ffffff',letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
-                <div style={{fontSize:16,color:'rgba(136,136,170,.8)',fontWeight:700,marginTop:5}}>{fmtH(curHt,!primaryMetric)}</div>
+                <div style={{fontSize:44,fontWeight:900,color:'#ffffff',letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
+                <div style={{fontSize:14,color:C.muted,fontWeight:600,marginTop:6}}>{fmtH(curHt,!primaryMetric)}</div>
               </>):<div style={{fontSize:14,color:C.muted,paddingTop:16}}>—</div>}
             </div>
-            <div style={{width:1,alignSelf:'stretch',background:'rgba(79,124,255,.3)',flexShrink:0,marginRight:16,minHeight:56}}/>
+            <div style={{width:1,alignSelf:'stretch',background:C.border,flexShrink:0,marginRight:18,minHeight:56}}/>
             {/* Athlete */}
             {curAth?(
               <div style={{flex:1,minWidth:0}}>
@@ -1857,19 +1864,21 @@ function DisplayScreen({sc,primaryMetric,updSc}){
         </div>
       )}
 
-      {/* ── ON DECK / ON HOLD ── */}
+      {/* ── ON DECK / IN HOLE ── */}
       {isActive&&onDeckIdx>=0&&(
-        <div style={{padding:'7px 14px',background:C.surface,borderBottom:`1px solid ${C.border}`}}>
-          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
-            {onDeckIdx>=0&&athletes[onDeckIdx]&&<div style={{fontSize:11,color:C.warn,background:`${C.warn}10`,borderRadius:7,padding:'3px 9px',border:`1px solid ${C.warn}30`}}>On deck: {athletes[onDeckIdx].firstName} {athletes[onDeckIdx].lastName}</div>}
-            {inHoleIdx>=0&&athletes[inHoleIdx]&&<div style={{fontSize:11,color:'#f87171',background:'rgba(248,113,113,.1)',borderRadius:7,padding:'3px 9px',border:'1px solid rgba(248,113,113,.28)'}}>On hold: {athletes[inHoleIdx].firstName} {athletes[inHoleIdx].lastName}</div>}
-          </div>
+        <div style={{display:'flex',gap:0,background:C.surface,borderBottom:`1px solid ${C.border}`}}>
+          {onDeckIdx>=0&&athletes[onDeckIdx]&&<div style={{flex:1,padding:'6px 14px',fontSize:11,color:C.warn,fontWeight:700,borderRight:`1px solid ${C.border}`}}>
+            <span style={{opacity:.6,fontWeight:500,marginRight:6}}>NEXT</span>{athletes[onDeckIdx].lastName}, {athletes[onDeckIdx].firstName}
+          </div>}
+          {inHoleIdx>=0&&athletes[inHoleIdx]&&<div style={{flex:1,padding:'6px 14px',fontSize:11,color:C.muted,fontWeight:600}}>
+            <span style={{opacity:.6,fontWeight:500,marginRight:6}}>ON HOLD</span>{athletes[inHoleIdx].lastName}, {athletes[inHoleIdx].firstName}
+          </div>}
         </div>
       )}
 
       {/* ── WINNER HERO (when competition finished) ── */}
       {!isActive&&winners.length>0&&(
-        <div style={{background:'linear-gradient(135deg,#0b1829 0%,#0e1e38 55%,#0d1520 100%)',borderBottom:`1px solid rgba(251,191,36,.3)`,padding:'16px 16px 14px'}}>
+        <div style={{background:C.card,borderLeft:`4px solid #fbbf24`,borderBottom:`1px solid ${C.border}`,padding:'14px 16px 12px'}}>
           <div style={{fontSize:10,color:'rgba(251,191,36,.8)',fontWeight:700,letterSpacing:.9,textTransform:'uppercase',marginBottom:12}}>
             🏆 {winners.length>1?'Co-Champions':'Champion'}
           </div>
@@ -1909,7 +1918,7 @@ function DisplayScreen({sc,primaryMetric,updSc}){
       )}
 
       {/* ── RESULTS TABLE (rolling sort when active) ── */}
-      <div style={{padding:'12px 14px 0'}}>
+      <div style={{paddingBottom:0}}>
         <ResultsTable athletes={athletes} ranked={ranked} heights={heights} curH={curH} curA={isActive?curA:-1} primaryMetric={primaryMetric} isActive={isActive}/>
       </div>
       </>}
@@ -2501,6 +2510,7 @@ function VaultDeskApp(){
   const[liveSubTab,setLiveSubTab]=useState('score');
   const[savedComps,setSavedComps]=useState(loadSaved);
   const[sbLoading,setSbLoading]=useState(ROUTE.mode!=='admin');
+  const[routeSlug,setRouteSlug]=useState(ROUTE.slug||'');
   // Auth
   const[authUser,setAuthUser]=useState(null);
   const[authLoading,setAuthLoading]=useState(ROUTE.mode==='admin');
@@ -2514,18 +2524,27 @@ function VaultDeskApp(){
   // Auto-set primaryMetric when rulebook changes
   useEffect(()=>{setPrimaryMetric(su.rulebook!=='NFHS');},[su.rulebook]);
 
-  // Scorer / Display: load competition from Supabase on mount
+  // Scorer / Display: load competition from Supabase on mount, and re-load when hash changes
   useEffect(()=>{
-    if(ROUTE.mode==='admin')return;
+    if(ROUTE.mode==='admin'||!routeSlug)return;
+    setSbLoading(true);setSbError(null);
     (async()=>{
       try{
-        const{sc:loaded}=await loadCompFromSupabase(ROUTE.slug);
-        if(ROUTE.mode==='scorer'&&ROUTE.token)loaded.scorerToken=ROUTE.token;
+        const r=parseRoute();
+        const{sc:loaded}=await loadCompFromSupabase(routeSlug);
+        if(r.mode==='scorer'&&r.token)loaded.scorerToken=r.token;
         setSc(loaded);
-        setScreen(ROUTE.mode==='scorer'?'scoring':'display');
+        if(r.mode==='scorer'){setScreen('live');setLiveSubTab('score');}else{setScreen('display');}
       }catch(e){setSbError(e.message||'Failed to load competition');}
       finally{setSbLoading(false);}
     })();
+  },[routeSlug]);
+  // Listen for hash changes (display/scorer: navigating to a different competition link)
+  useEffect(()=>{
+    if(ROUTE.mode==='admin')return;
+    const onHash=()=>{const r=parseRoute();setRouteSlug(r.slug||'');};
+    window.addEventListener('hashchange',onHash);
+    return()=>window.removeEventListener('hashchange',onHash);
   },[]);
 
   // Display: subscribe to realtime updates
@@ -2533,7 +2552,7 @@ function VaultDeskApp(){
     if(ROUTE.mode!=='display'||!sc?.supabaseCompId)return;
     const compId=sc.supabaseCompId;
     const reload=async()=>{
-      try{const{sc:f}=await loadCompFromSupabase(ROUTE.slug);setSc(f);}
+      try{const{sc:f}=await loadCompFromSupabase(sc.compId);setSc(f);}
       catch(e){console.warn('Realtime reload failed:',e);}
     };
     const ch=sb.channel(`comp:${compId}`)
