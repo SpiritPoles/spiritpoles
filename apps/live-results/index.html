@@ -28,6 +28,37 @@
     .vd-drag-over::before{content:'';position:absolute;top:-5px;left:10px;right:10px;height:3px;background:#4f7cff;border-radius:3px;z-index:20}
     input[type=number]{-moz-appearance:textfield}
     input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+    /* ── VaultDesk Display ── */
+    @keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(79,124,255,.5)}70%{box-shadow:0 0 0 8px rgba(79,124,255,0)}100%{box-shadow:0 0 0 0 rgba(79,124,255,0)}}
+    .vd-now-bar{background:linear-gradient(135deg,rgba(79,124,255,.18) 0%,rgba(79,124,255,.06) 100%);border-bottom:1px solid rgba(79,124,255,.25)}
+    .vd-hero-ht{font-size:56px;font-weight:900;color:#fff;letter-spacing:-3px;line-height:1;font-variant-numeric:tabular-nums}
+    .vd-hero-ht-alt{font-size:14px;font-weight:600;color:var(--muted);margin-top:4px}
+    .vd-hero-name{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.5px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .vd-hero-lastname{text-transform:uppercase;letter-spacing:.5px}
+    .vd-attempt-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;display:inline-block}
+    .vd-tbl-row{transition:background .12s}
+    .vd-tbl-row:hover{background:rgba(79,124,255,.07)!important}
+    .vd-mark{font-size:13px;font-weight:900;letter-spacing:.5px}
+    .vd-mark-o{color:#22c55e}
+    .vd-mark-x{color:#f87171}
+    .vd-mark-p{color:#f59e0b}
+    .vd-mark-ip{color:#93c5fd}
+    .vd-lb-card{border-radius:12px;overflow:hidden;margin-bottom:7px;transition:transform .1s}
+    .vd-lb-card:active{transform:scale(.99)}
+    /* Mobile */
+    @media (max-width:520px){
+      .vd-hero-ht{font-size:38px!important;letter-spacing:-2px!important}
+      .vd-hero-ht-alt{font-size:11px!important}
+      .vd-hero-name{font-size:19px!important}
+      .vd-hide-mobile{display:none!important}
+      .vd-tbl-wrap{font-size:10.5px!important}
+      .vd-banner-title{font-size:15px!important;white-space:normal!important}
+      .vd-sub-tab{padding:10px 0!important;font-size:11px!important}
+      .vd-ondeck{font-size:11px!important}
+    }
+    @media (min-width:521px) and (max-width:768px){
+      .vd-hero-ht{font-size:46px!important}
+    }
   </style>
 </head>
 <body>
@@ -1294,21 +1325,30 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
     return{text,color:'#93c5fd',bg:'transparent'};
   };
   const bestResult=ath=>{const idx=highestClearedIdx(ath,n);return idx>=0?heights[idx]:null};
+  const HDR='#0d0d18';
+  const HDR2='#111120';
+  const markClass=text=>{
+    if(!text)return'';
+    if(text==='O'||text.endsWith('O'))return'vd-mark vd-mark-o';
+    if(/^X+$/.test(text))return'vd-mark vd-mark-x';
+    if(text.includes('P'))return'vd-mark vd-mark-p';
+    return'vd-mark vd-mark-ip';
+  };
   return(
-    <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(360,280+n*56)+'px'}}>
+    <div className="vd-tbl-wrap" style={{overflowX:'auto',WebkitOverflowScrolling:'touch',borderTop:`1px solid ${C.border}`}}>
+      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(340,266+n*54)+'px'}}>
         <thead>
-          <tr style={{background:C.surface,borderBottom:`2px solid ${C.border}`}}>
-            <th style={{position:'sticky',left:0,background:C.surface,padding:'8px 5px',textAlign:'center',color:C.muted,width:30,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>#</th>
-            <th style={{position:'sticky',left:30,background:C.surface,padding:'8px 6px',textAlign:'center',color:C.muted,width:36,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>PL</th>
-            <th style={{position:'sticky',left:66,background:C.surface,padding:'8px 10px',textAlign:'left',color:C.muted,minWidth:160,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
-            <th style={{position:'sticky',left:226,background:C.surface,padding:'8px 5px',textAlign:'center',color:C.muted,width:62,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>BEST</th>
+          <tr style={{background:HDR,borderBottom:`1px solid rgba(255,255,255,.1)`}}>
+            <th style={{position:'sticky',left:0,background:HDR,padding:'10px 5px',textAlign:'center',color:'rgba(255,255,255,.35)',width:28,fontSize:8,fontWeight:700,letterSpacing:.8,zIndex:10,textTransform:'uppercase'}}>#</th>
+            <th style={{position:'sticky',left:28,background:HDR,padding:'10px 5px',textAlign:'center',color:'rgba(255,255,255,.5)',width:34,fontSize:8,fontWeight:700,letterSpacing:.8,zIndex:10,textTransform:'uppercase'}}>PL</th>
+            <th style={{position:'sticky',left:62,background:HDR,padding:'10px 10px',textAlign:'left',color:'rgba(255,255,255,.5)',minWidth:162,fontSize:8,fontWeight:700,letterSpacing:.8,zIndex:10,textTransform:'uppercase'}}>ATHLETE</th>
+            <th style={{position:'sticky',left:224,background:HDR,padding:'10px 5px',textAlign:'center',color:'rgba(255,255,255,.5)',width:62,fontSize:8,fontWeight:700,letterSpacing:.8,zIndex:10,textTransform:'uppercase'}}>BEST</th>
             {heights.map((h,i)=>{
               const isCH=i===curH&&isActive;
               return(
-              <th key={i} style={{padding:'8px 4px',textAlign:'center',minWidth:56,color:isCH?C.accent:C.muted,fontWeight:isCH?900:600,fontSize:9,letterSpacing:.3,background:isCH?`${C.accent}1a`:C.surface,borderLeft:isCH?`2px solid ${C.accent}`:undefined,borderRight:isCH?`2px solid ${C.accent}`:undefined}}>
-                <div style={{whiteSpace:'nowrap'}}>{fmtH(h,primaryMetric)}</div>
-                <div style={{fontSize:8,color:isCH?`${C.accent}bb`:C.muted,marginTop:1}}>{fmtH(h,!primaryMetric)}</div>
+              <th key={i} style={{padding:'8px 4px',textAlign:'center',minWidth:54,background:isCH?`rgba(79,124,255,.2)`:HDR,borderLeft:isCH?`2px solid ${C.accent}`:'none',borderRight:isCH?`2px solid ${C.accent}`:'none'}}>
+                <div style={{color:isCH?'#c7d7ff':'rgba(255,255,255,.5)',fontWeight:isCH?800:600,fontSize:9,whiteSpace:'nowrap',letterSpacing:.2}}>{fmtH(h,primaryMetric)}</div>
+                <div style={{fontSize:7.5,color:isCH?`rgba(199,215,255,.6)`:'rgba(255,255,255,.22)',marginTop:1}}>{fmtH(h,!primaryMetric)}</div>
               </th>
               );
             })}
@@ -1321,39 +1361,39 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
             const plInfo=placementOf[ath.id]||{pl:null,tied:false};
             const best=bestResult(ath);
             const isOut=isEliminatedFromComp(ath);
-            const rowBg=isCur?`${C.accent}12`:rowIdx%2===0?'transparent':`${C.surface}60`;
+            const rowBg=isCur?'rgba(79,124,255,.09)':rowIdx%2===0?C.bg:`rgba(26,26,36,.6)`;
             const isDoneHere=isDone(ath.attempts[curH]||[],ath.status);
             return(
-              <tr key={ath.id} style={{background:rowBg,borderBottom:`1px solid ${C.border}`,borderLeft:isCur?`3px solid ${C.accent}`:'3px solid transparent'}}>
-                <td style={{position:'sticky',left:0,background:rowBg,padding:'7px 5px',textAlign:'center',fontWeight:700,fontSize:12,color:isDoneHere?C.muted:C.text}}>{ath.order}</td>
-                <td style={{position:'sticky',left:30,background:rowBg,padding:'7px 6px',textAlign:'center',fontWeight:800,fontSize:compact?13:14}}>
+              <tr key={ath.id} className="vd-tbl-row" style={{background:rowBg,borderBottom:`1px solid rgba(46,46,61,.7)`,borderLeft:isCur?`3px solid ${C.accent}`:'3px solid transparent'}}>
+                <td style={{position:'sticky',left:0,background:rowBg,padding:'8px 5px',textAlign:'center',fontWeight:600,fontSize:11,color:isDoneHere?'rgba(136,136,170,.4)':'rgba(136,136,170,.7)'}}>{ath.order}</td>
+                <td style={{position:'sticky',left:28,background:rowBg,padding:'8px 5px',textAlign:'center',fontWeight:800,fontSize:compact?13:15,lineHeight:1}}>
                   {plInfo.pl===1?'🥇':plInfo.pl===2?'🥈':plInfo.pl===3?'🥉':plInfo.pl
-                    ?<span style={{color:C.muted,fontSize:11}}>{plInfo.pl}{plInfo.tied?'=':''}</span>
-                    :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
+                    ?<span style={{color:C.muted,fontSize:11,fontWeight:700}}>{plInfo.pl}{plInfo.tied?'=':''}</span>
+                    :<span style={{fontSize:8,color:'rgba(136,136,170,.4)',letterSpacing:.3}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
                 </td>
-                <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px',minWidth:160}}>
-                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <td style={{position:'sticky',left:62,background:rowBg,padding:'7px 10px',minWidth:162}}>
+                  <div style={{display:'flex',alignItems:'center',gap:7}}>
                     <FlagCell athlete={ath} size={18}/>
                     <div style={{minWidth:0}}>
-                      <div style={{fontWeight:isCur?800:600,fontSize:13,color:isCur?C.accent:isOut?C.muted:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130,textDecoration:ath.status==='dns'?'line-through':'none'}}>
-                        {isCur&&<span style={{fontSize:9,marginRight:3}}>▶</span>}
-                        {ath.firstName} {ath.lastName}
+                      <div style={{fontWeight:isCur?800:700,fontSize:13,color:isCur?'#ffffff':isOut?'rgba(136,136,170,.5)':C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:132,textDecoration:ath.status==='dns'?'line-through':'none',display:'flex',alignItems:'center',gap:4}}>
+                        {isCur&&<span style={{width:5,height:5,borderRadius:'50%',background:C.accent,display:'inline-block',flexShrink:0,animation:'pulse-ring 1.5s ease-out infinite'}}/>}
+                        <span>{ath.firstName} <span style={{textTransform:'uppercase',letterSpacing:.2}}>{ath.lastName}</span></span>
                       </div>
-                      <div style={{fontSize:9,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130}}>
+                      <div style={{fontSize:9,color:'rgba(136,136,170,.55)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:132,marginTop:1}}>
                         {ath.affiliation&&<span>{ath.affiliation}</span>}
                         {(ath.pb||ath.sb)&&<span style={{marginLeft:ath.affiliation?4:0}}>
-                          {ath.pb&&<span style={{color:C.accent}}>PB {ath.pb}</span>}
-                          {ath.pb&&ath.sb&&<span style={{color:C.muted}}> · </span>}
-                          {ath.sb&&<span style={{color:C.success}}>SB {ath.sb}</span>}
+                          {ath.pb&&<span style={{color:'rgba(147,197,253,.7)'}}>PB {ath.pb}</span>}
+                          {ath.pb&&ath.sb&&<span> · </span>}
+                          {ath.sb&&<span style={{color:'rgba(74,222,128,.7)'}}>SB {ath.sb}</span>}
                         </span>}
                         {ath.status==='retired'&&<span style={{color:C.warn}}> RET</span>}
                       </div>
                     </div>
                   </div>
                 </td>
-                <td style={{position:'sticky',left:226,background:rowBg,padding:'7px 5px',textAlign:'center',width:62}}>
-                  {best?<DualH cm={best} primaryMetric={primaryMetric} pSize={11} sSize={9} style={{alignItems:'center'}}/>
-                       :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
+                <td style={{position:'sticky',left:224,background:rowBg,padding:'8px 5px',textAlign:'center',width:62}}>
+                  {best?<DualH cm={best} primaryMetric={primaryMetric} pSize={12} sSize={9} style={{alignItems:'center'}}/>
+                       :<span style={{fontSize:9,color:'rgba(136,136,170,.4)'}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
                 </td>
                 {heights.map((h,hIdx)=>{
                   const{text,color,bg}=getCellContent(ath,hIdx);
@@ -1363,8 +1403,8 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
                   return(
                     <td key={hIdx}
                       onClick={()=>{if(setCurH)setCurH(hIdx);if(clickable&&isActive&&setCurA)setCurA(origIdx);}}
-                      style={{padding:'7px 4px',textAlign:'center',fontWeight:800,fontSize:compact?11:12,letterSpacing:.2,color,background:isCurCell?bg||`${C.accent}0d`:bg,cursor:clickable&&isActive&&setCurA?'pointer':'default',borderLeft:isCH?`2px solid ${C.accent}44`:undefined,borderRight:isCH?`2px solid ${C.accent}44`:undefined,outline:isCurCell?`2px inset ${C.accent}55`:'none'}}>
-                      {text}
+                      style={{padding:'8px 3px',textAlign:'center',background:isCH?`rgba(79,124,255,.07)`:isCurCell?`rgba(79,124,255,.14)`:'transparent',cursor:clickable&&isActive&&setCurA?'pointer':'default',borderLeft:isCH?`2px solid rgba(79,124,255,.4)`:'none',borderRight:isCH?`2px solid rgba(79,124,255,.4)`:'none'}}>
+                      <span className={markClass(text)} style={{color:!text?undefined:color}}>{text||''}</span>
                     </td>
                   );
                 })}
@@ -1752,48 +1792,52 @@ function DisplayScreen({sc,primaryMetric,updSc}){
     <div style={{paddingBottom:30}}>
 
       {/* ── COMPETITION BANNER ── */}
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'12px 16px'}}>
+      <div style={{background:'linear-gradient(135deg,#0f0f1e 0%,#141425 100%)',borderBottom:`1px solid rgba(79,124,255,.18)`,padding:'14px 16px'}}>
         <div style={{display:'flex',alignItems:'center',gap:14}}>
 
           {/* Logo slot */}
           <div style={{flexShrink:0,position:'relative'}}>
             {info.logoUrl
-              ?<img src={info.logoUrl} alt="logo" style={{width:58,height:58,objectFit:'contain',borderRadius:10,border:`1px solid rgba(79,124,255,.3)`}}/>
-              :<div style={{width:58,height:58,borderRadius:10,border:`1px dashed rgba(79,124,255,.28)`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'rgba(79,124,255,.05)'}}>
-                <span style={{fontSize:22,opacity:.35}}>🏆</span>
+              ?<img src={info.logoUrl} alt="logo" style={{width:52,height:52,objectFit:'contain',borderRadius:10,border:`1px solid rgba(79,124,255,.25)`}}/>
+              :<div style={{width:52,height:52,borderRadius:10,border:`1px dashed rgba(79,124,255,.22)`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'rgba(79,124,255,.04)'}}>
+                <span style={{fontSize:20,opacity:.3}}>🏆</span>
               </div>
             }
-            <label title="Upload logo" style={{position:'absolute',bottom:-5,right:-5,cursor:'pointer',background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 5px',fontSize:9,color:C.muted,lineHeight:1}}>
+            <label title="Upload logo" style={{position:'absolute',bottom:-5,right:-5,cursor:'pointer',background:'#1a1a2e',border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 5px',fontSize:9,color:C.muted,lineHeight:1}}>
               📷<input type="file" accept="image/*" onChange={handleLogo} style={{display:'none'}}/>
             </label>
           </div>
 
           {/* Name + meta */}
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontWeight:900,fontSize:19,color:'#ffffff',lineHeight:1.1,marginBottom:5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{info.name||'Competition'}</div>
-            <div style={{display:'flex',flexWrap:'wrap',gap:'3px 10px',fontSize:11,color:'rgba(136,136,170,.75)'}}>
-              {info.date&&<span>{info.date}</span>}
-              {info.startTime&&<span>· {info.startTime}</span>}
+            <div className="vd-banner-title" style={{fontWeight:900,fontSize:18,color:'#ffffff',lineHeight:1.1,marginBottom:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{info.name||'Competition'}</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:'2px 8px',fontSize:10.5,color:'rgba(136,136,170,.65)'}}>
+              {genderLabel&&<span style={{color:'rgba(199,215,255,.7)',fontWeight:600}}>{genderLabel}</span>}
               {info.venue&&<span>· {info.venue}</span>}
+              {info.date&&<span>· {info.date}</span>}
               {rbLabel&&<span>· {rbLabel}</span>}
-              {genderLabel&&<span>· {genderLabel}</span>}
             </div>
           </div>
 
           {/* Live / status badge */}
           <div style={{flexShrink:0}}>
-            <div style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:20,background:isActive?`${C.success}1a`:`${C.muted}18`,border:`1px solid ${isActive?C.success:C.muted}44`}}>
-              <span className={isActive?'live-dot':''} style={{width:6,height:6,borderRadius:'50%',background:isActive?C.success:C.muted,display:'inline-block',flexShrink:0}}/>
-              <span style={{fontSize:10,fontWeight:700,letterSpacing:.6,color:isActive?C.success:C.muted}}>{isActive?'LIVE':compStatus==='complete-pending'?'PENDING':'OFFICIAL'}</span>
-            </div>
+            {isActive
+              ?<div style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:20,background:'rgba(239,68,68,.12)',border:'1px solid rgba(239,68,68,.4)'}}>
+                 <span className="live-dot" style={{width:7,height:7,borderRadius:'50%',background:'#ef4444',display:'inline-block',flexShrink:0}}/>
+                 <span style={{fontSize:10,fontWeight:800,letterSpacing:1,color:'#ef4444'}}>LIVE</span>
+               </div>
+              :<div style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:20,background:'rgba(136,136,170,.1)',border:'1px solid rgba(136,136,170,.25)'}}>
+                 <span style={{fontSize:10,fontWeight:700,letterSpacing:.7,color:'rgba(136,136,170,.7)'}}>{compStatus==='complete-pending'?'PENDING':'OFFICIAL'}</span>
+               </div>
+            }
           </div>
         </div>
       </div>
 
       {/* ── DISPLAY SUB-TABS ── */}
-      <div style={{display:'flex',background:C.bg,borderBottom:`1px solid ${C.border}`}}>
-        {[['live','Live View'],['leaderboard','Leaderboard']].map(([k,label])=>(
-          <button key={k} onClick={()=>setDispSubTab(k)} style={{flex:1,padding:'9px 0',fontSize:12,fontWeight:700,color:dispSubTab===k?C.accent:C.muted,background:'transparent',border:'none',borderBottom:dispSubTab===k?`2px solid ${C.accent}`:'2px solid transparent',cursor:'pointer',letterSpacing:.3}}>
+      <div style={{display:'flex',background:'#0a0a14',borderBottom:`1px solid rgba(255,255,255,.07)`}}>
+        {[['live','▶ Live View'],['leaderboard','☰ Leaderboard']].map(([k,label])=>(
+          <button key={k} onClick={()=>setDispSubTab(k)} className="vd-sub-tab" style={{flex:1,padding:'11px 0',fontSize:12,fontWeight:700,color:dispSubTab===k?'#ffffff':C.muted,background:'transparent',border:'none',borderBottom:dispSubTab===k?`2px solid ${C.accent}`:'2px solid transparent',cursor:'pointer',letterSpacing:.3,transition:'color .15s'}}>
             {label}
           </button>
         ))}
@@ -1802,116 +1846,130 @@ function DisplayScreen({sc,primaryMetric,updSc}){
       {dispSubTab==='live'&&<>
       {/* ── HERO (read-only mirror of Score tab) ── */}
       {isActive&&(
-        <div style={{background:C.card,borderLeft:`4px solid ${C.accent}`,borderBottom:`1px solid ${C.border}`,padding:'14px 16px 12px'}}>
-          <div style={{fontSize:11,color:sc.isJumpOff?C.warn:C.accent,fontWeight:800,letterSpacing:.8,textTransform:'uppercase',marginBottom:10}}>
-            {curAth?`${sc.isJumpOff?'⚡ JUMP-OFF · ':''}NOW VAULTING · ATT. ${attemptNum}${curMarks.length>0?' · '+curMarks.join(''):''}`:isActive?'Waiting…':''}
+        <div className="vd-now-bar" style={{borderBottom:`1px solid rgba(79,124,255,.2)`,padding:'14px 16px 14px'}}>
+          {/* Header label row */}
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+            <span style={{width:8,height:8,borderRadius:'50%',background:sc.isJumpOff?C.warn:C.accent,display:'inline-block',animation:'pulse-ring 1.5s ease-out infinite',flexShrink:0}}/>
+            <span style={{fontSize:10,color:sc.isJumpOff?C.warn:'rgba(147,197,253,.85)',fontWeight:800,letterSpacing:1,textTransform:'uppercase'}}>
+              {sc.isJumpOff?'⚡ Jump-Off · ':''}{curAth?'Now Vaulting':'Waiting…'}
+            </span>
+            {curAth&&attemptNum>0&&(
+              <span style={{marginLeft:'auto',fontSize:10,color:'rgba(136,136,170,.6)',fontWeight:600,letterSpacing:.4}}>
+                Attempt&nbsp;
+                {[...Array(3)].map((_,i)=>(
+                  <span key={i} className="vd-attempt-dot" style={{background:i<curMarks.length?(curMarks[i]==='O'?'#4ade80':curMarks[i]==='P'?'#f59e0b':'#f87171'):'rgba(136,136,170,.2)',marginLeft:3}}/>
+                ))}
+              </span>
+            )}
           </div>
-          <div style={{display:'flex',alignItems:'flex-start',gap:0}}>
-            {/* Height */}
-            <div style={{textAlign:'center',flexShrink:0,paddingRight:18,minWidth:100}}>
+
+          <div style={{display:'flex',alignItems:'stretch',gap:0}}>
+            {/* Height block */}
+            <div style={{flexShrink:0,paddingRight:20,minWidth:106,display:'flex',flexDirection:'column',justifyContent:'center'}}>
               {curHt?(<>
-                <div style={{fontSize:44,fontWeight:900,color:'#ffffff',letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
-                <div style={{fontSize:14,color:C.muted,fontWeight:600,marginTop:6}}>{fmtH(curHt,!primaryMetric)}</div>
-              </>):<div style={{fontSize:14,color:C.muted,paddingTop:16}}>—</div>}
+                <div className="vd-hero-ht">{fmtH(curHt,primaryMetric)}</div>
+                <div className="vd-hero-ht-alt">{fmtH(curHt,!primaryMetric)}</div>
+              </>):<div style={{fontSize:14,color:C.muted}}>—</div>}
             </div>
-            <div style={{width:1,alignSelf:'stretch',background:C.border,flexShrink:0,marginRight:18,minHeight:56}}/>
-            {/* Athlete */}
+            <div style={{width:1,alignSelf:'stretch',background:'rgba(79,124,255,.2)',flexShrink:0,marginRight:18,minHeight:60}}/>
+
+            {/* Athlete block */}
             {curAth?(
               <div style={{flex:1,minWidth:0}}>
-                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8,marginBottom:6}}>
-                  <div style={{display:'flex',alignItems:'center',gap:9,minWidth:0}}>
-                    <FlagCell athlete={curAth} size={28}/>
-                    <span style={{fontWeight:900,fontSize:24,color:'#ffffff',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',letterSpacing:-.5,lineHeight:1.1}}>{curAth.firstName} {curAth.lastName}</span>
-                  </div>
-                  <div style={{flexShrink:0,background:'rgba(0,0,0,.5)',border:`1px solid rgba(79,124,255,.3)`,borderRadius:8,padding:'4px 10px',textAlign:'center',minWidth:40}}>
-                    <div style={{fontSize:8,color:'rgba(136,136,170,.65)',fontWeight:700,letterSpacing:.5,textTransform:'uppercase',lineHeight:1,marginBottom:2}}>Att.</div>
-                    <div style={{fontSize:20,fontWeight:900,color:'#ffffff',lineHeight:1}}>{attemptNum}</div>
+                <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:5,minWidth:0}}>
+                  <FlagCell athlete={curAth} size={26}/>
+                  <div className="vd-hero-name">
+                    {curAth.firstName}&nbsp;<span className="vd-hero-lastname">{curAth.lastName}</span>
                   </div>
                 </div>
-                {/* Standing + affiliation row */}
-                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:5}}>
-                  {curPlaceD&&<div style={{display:'inline-flex',alignItems:'center',background:'rgba(251,191,36,.12)',border:'1px solid rgba(251,191,36,.35)',borderRadius:6,padding:'2px 8px',fontSize:10,fontWeight:800,color:'#fbbf24',whiteSpace:'nowrap',flexShrink:0}}>{curTiedD?'T-':''}{plLabel(curPlaceD)}</div>}
-                  {curAth.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)'}}>{curAth.affiliation}</div>}
+                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:7,flexWrap:'wrap'}}>
+                  {curPlaceD&&<div style={{display:'inline-flex',alignItems:'center',background:'rgba(251,191,36,.12)',border:'1px solid rgba(251,191,36,.3)',borderRadius:5,padding:'2px 8px',fontSize:9,fontWeight:800,color:'#fbbf24',letterSpacing:.4,flexShrink:0}}>{curTiedD?'T-':''}{plLabel(curPlaceD)}</div>}
+                  {curAth.affiliation&&<div style={{fontSize:10.5,color:'rgba(136,136,170,.6)'}}>{curAth.affiliation}</div>}
+                  {curAth.pb&&<div style={{fontSize:10,color:'rgba(147,197,253,.6)',flexShrink:0}}>PB <span style={{fontWeight:800,color:'rgba(147,197,253,.85)'}}>{curAth.pb}</span></div>}
+                  {curAth.sb&&<div style={{fontSize:10,color:'rgba(74,222,128,.6)',flexShrink:0}}>SB <span style={{fontWeight:800,color:'rgba(74,222,128,.8)'}}>{curAth.sb}</span></div>}
                 </div>
-                <div style={{display:'flex',alignItems:'center',gap:8,overflowX:'auto',WebkitOverflowScrolling:'touch',paddingBottom:2}}>
-                  {(curAth.pb||curAth.sb)&&(
-                    <div style={{display:'flex',gap:10,fontSize:11,flexShrink:0}}>
-                      {curAth.pb&&<span style={{color:'rgba(136,136,170,.75)',whiteSpace:'nowrap'}}>PB <span style={{color:'#93c5fd',fontWeight:800}}>{curAth.pb}</span></span>}
-                      {curAth.sb&&<span style={{color:'rgba(136,136,170,.75)',whiteSpace:'nowrap'}}>SB <span style={{color:C.success,fontWeight:800}}>{curAth.sb}</span></span>}
-                    </div>
-                  )}
-                  {heights.length>0&&(
-                    <div style={{display:'flex',gap:4,flexShrink:0}}>
-                      {heights.map((h,i)=>{
-                        const m=curAth.attempts[i]||[];
-                        const isCurH=i===curH;
-                        const cleared=hasCleared(m);
-                        const missed3=countMisses(m)>=3&&!cleared;
-                        const markStr=m.join('');
-                        return(
-                          <div key={i} style={{textAlign:'center',padding:'3px 6px',borderRadius:6,flexShrink:0,background:isCurH?'rgba(79,124,255,.28)':cleared?'rgba(74,222,128,.13)':missed3?'rgba(248,113,113,.13)':'rgba(255,255,255,.04)',border:isCurH?'1px solid rgba(79,124,255,.6)':cleared?'1px solid rgba(74,222,128,.28)':missed3?'1px solid rgba(248,113,113,.25)':'1px solid rgba(255,255,255,.07)',boxShadow:isCurH?'0 0 8px rgba(79,124,255,.18)':'none'}}>
-                            <div style={{fontSize:8,fontWeight:700,color:isCurH?'rgba(147,197,253,.85)':cleared?'rgba(74,222,128,.7)':missed3?'rgba(248,113,113,.7)':'rgba(136,136,170,.4)',whiteSpace:'nowrap'}}>{fmtH(h,primaryMetric)}</div>
-                            <div style={{fontSize:11,fontWeight:900,color:cleared?'#4ade80':missed3?'#f87171':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.35)':'rgba(136,136,170,.2)'}}>{markStr||(isCurH?'…':'—')}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                {/* Height chips */}
+                {heights.length>0&&(
+                  <div style={{display:'flex',gap:4,overflowX:'auto',WebkitOverflowScrolling:'touch',paddingBottom:2}}>
+                    {heights.map((h,i)=>{
+                      const m=curAth.attempts[i]||[];
+                      const isCurH=i===curH;
+                      const cleared=hasCleared(m);
+                      const missed3=countMisses(m)>=3&&!cleared;
+                      const passed=hasPassed(m)&&!cleared&&!missed3;
+                      const markStr=m.join('');
+                      if(!isCurH&&m.length===0)return null;
+                      return(
+                        <div key={i} style={{textAlign:'center',padding:'3px 7px',borderRadius:6,flexShrink:0,
+                          background:isCurH?'rgba(79,124,255,.25)':cleared?'rgba(74,222,128,.12)':missed3?'rgba(248,113,113,.12)':passed?'rgba(245,158,11,.1)':'rgba(255,255,255,.04)',
+                          border:isCurH?'1px solid rgba(79,124,255,.55)':cleared?'1px solid rgba(74,222,128,.25)':missed3?'1px solid rgba(248,113,113,.22)':passed?'1px solid rgba(245,158,11,.22)':'1px solid rgba(255,255,255,.06)',
+                          boxShadow:isCurH?'0 0 10px rgba(79,124,255,.15)':'none'}}>
+                          <div style={{fontSize:8,fontWeight:700,color:isCurH?'rgba(147,197,253,.8)':cleared?'rgba(74,222,128,.65)':missed3?'rgba(248,113,113,.65)':passed?'rgba(245,158,11,.6)':'rgba(136,136,170,.4)',whiteSpace:'nowrap',letterSpacing:.3}}>{fmtH(h,primaryMetric)}</div>
+                          <div style={{fontSize:11,fontWeight:900,color:cleared?'#4ade80':missed3?'#f87171':passed?'#f59e0b':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.3)':'rgba(136,136,170,.2)'}}>{markStr||(isCurH?'…':'—')}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            ):<div style={{flex:1,color:C.muted,fontSize:13,paddingTop:10}}>No active vaulter</div>}
+            ):<div style={{flex:1,color:C.muted,fontSize:13,display:'flex',alignItems:'center'}}>No active vaulter</div>}
           </div>
         </div>
       )}
 
       {/* ── ON DECK / IN HOLE ── */}
       {isActive&&onDeckIdx>=0&&(
-        <div style={{display:'flex',gap:0,background:C.surface,borderBottom:`1px solid ${C.border}`}}>
-          {onDeckIdx>=0&&athletes[onDeckIdx]&&<div style={{flex:1,padding:'6px 14px',fontSize:11,color:C.warn,fontWeight:700,borderRight:`1px solid ${C.border}`}}>
-            <span style={{opacity:.6,fontWeight:500,marginRight:6}}>NEXT</span>{athletes[onDeckIdx].lastName}, {athletes[onDeckIdx].firstName}
-          </div>}
-          {inHoleIdx>=0&&athletes[inHoleIdx]&&<div style={{flex:1,padding:'6px 14px',fontSize:11,color:C.muted,fontWeight:600}}>
-            <span style={{opacity:.6,fontWeight:500,marginRight:6}}>ON HOLD</span>{athletes[inHoleIdx].lastName}, {athletes[inHoleIdx].firstName}
-          </div>}
+        <div style={{display:'flex',background:'rgba(10,10,20,.8)',borderBottom:`1px solid rgba(255,255,255,.06)`}}>
+          {athletes[onDeckIdx]&&(
+            <div className="vd-ondeck" style={{flex:1,padding:'7px 14px',fontSize:11.5,borderRight:`1px solid rgba(255,255,255,.06)`,display:'flex',alignItems:'center',gap:7}}>
+              <span style={{background:'rgba(245,158,11,.18)',border:'1px solid rgba(245,158,11,.35)',color:'#f59e0b',fontSize:8,fontWeight:800,letterSpacing:.8,padding:'2px 6px',borderRadius:4,flexShrink:0}}>NEXT</span>
+              <span style={{color:'rgba(245,158,11,.9)',fontWeight:700}}><span style={{textTransform:'uppercase',letterSpacing:.3}}>{athletes[onDeckIdx].lastName}</span> {athletes[onDeckIdx].firstName}</span>
+            </div>
+          )}
+          {inHoleIdx>=0&&athletes[inHoleIdx]&&(
+            <div className="vd-ondeck" style={{flex:1,padding:'7px 14px',fontSize:11.5,display:'flex',alignItems:'center',gap:7}}>
+              <span style={{background:'rgba(136,136,170,.1)',border:'1px solid rgba(136,136,170,.25)',color:'rgba(136,136,170,.7)',fontSize:8,fontWeight:800,letterSpacing:.8,padding:'2px 6px',borderRadius:4,flexShrink:0}}>ON HOLD</span>
+              <span style={{color:'rgba(136,136,170,.75)',fontWeight:600}}><span style={{textTransform:'uppercase',letterSpacing:.3}}>{athletes[inHoleIdx].lastName}</span> {athletes[inHoleIdx].firstName}</span>
+            </div>
+          )}
         </div>
       )}
 
       {/* ── WINNER HERO (when competition finished) ── */}
       {!isActive&&winners.length>0&&(
-        <div style={{background:C.card,borderLeft:`4px solid #fbbf24`,borderBottom:`1px solid ${C.border}`,padding:'14px 16px 12px'}}>
-          <div style={{fontSize:10,color:'rgba(251,191,36,.8)',fontWeight:700,letterSpacing:.9,textTransform:'uppercase',marginBottom:12}}>
-            🏆 {winners.length>1?'Co-Champions':'Champion'}
+        <div style={{background:'linear-gradient(135deg,rgba(251,191,36,.09) 0%,rgba(251,191,36,.04) 100%)',borderBottom:`1px solid rgba(251,191,36,.2)`,padding:'16px 16px 14px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:13}}>
+            <span style={{fontSize:14}}>🏆</span>
+            <span style={{fontSize:10,color:'rgba(251,191,36,.8)',fontWeight:800,letterSpacing:1,textTransform:'uppercase'}}>{winners.length>1?'Co-Champions':'Champion'}</span>
           </div>
-          <div style={{display:'flex',alignItems:'flex-start',gap:0}}>
+          <div style={{display:'flex',alignItems:'stretch',gap:0}}>
             {/* Winning height */}
-            <div style={{textAlign:'center',flexShrink:0,paddingRight:16,minWidth:96}}>
+            <div style={{flexShrink:0,paddingRight:18,minWidth:106,display:'flex',flexDirection:'column',justifyContent:'center'}}>
               {winnerBestH?(
                 <>
-                  <div style={{fontSize:40,fontWeight:900,color:'#fbbf24',letterSpacing:-2,lineHeight:1}}>{fmtH(winnerBestH,primaryMetric)}</div>
-                  <div style={{fontSize:16,color:'rgba(251,191,36,.55)',fontWeight:700,marginTop:5}}>{fmtH(winnerBestH,!primaryMetric)}</div>
+                  <div className="vd-hero-ht" style={{color:'#fbbf24'}}>{fmtH(winnerBestH,primaryMetric)}</div>
+                  <div className="vd-hero-ht-alt" style={{color:'rgba(251,191,36,.4)'}}>{fmtH(winnerBestH,!primaryMetric)}</div>
                 </>
-              ):<div style={{fontSize:14,color:C.muted,paddingTop:16}}>NH</div>}
+              ):<div style={{fontSize:14,color:C.muted}}>NH</div>}
             </div>
-            <div style={{width:1,alignSelf:'stretch',background:'rgba(251,191,36,.3)',flexShrink:0,marginRight:16,minHeight:56}}/>
+            <div style={{width:1,alignSelf:'stretch',background:'rgba(251,191,36,.25)',flexShrink:0,marginRight:18,minHeight:60}}/>
             {/* Winner(s) */}
             <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:10}}>
-              {winners.map(w=>{
-                return(
-                  <div key={w.id}>
-                    <div style={{display:'flex',alignItems:'center',gap:9,minWidth:0,marginBottom:3}}>
-                      <FlagCell athlete={w} size={28}/>
-                      <span style={{fontWeight:900,fontSize:24,color:'#ffffff',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',letterSpacing:-.5,lineHeight:1.1}}>{w.firstName} {w.lastName}</span>
+              {winners.map(w=>(
+                <div key={w.id}>
+                  <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:3,minWidth:0}}>
+                    <FlagCell athlete={w} size={26}/>
+                    <div className="vd-hero-name">
+                      {w.firstName}&nbsp;<span className="vd-hero-lastname">{w.lastName}</span>
                     </div>
-                    {w.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)',marginLeft:1}}>{w.affiliation}</div>}
-                    {(w.pb||w.sb)&&(
-                      <div style={{display:'flex',gap:10,fontSize:11,marginLeft:1,marginTop:2}}>
-                        {w.pb&&<span style={{color:'rgba(136,136,170,.75)'}}>PB <span style={{color:'#93c5fd',fontWeight:800}}>{w.pb}</span></span>}
-                        {w.sb&&<span style={{color:'rgba(136,136,170,.75)'}}>SB <span style={{color:C.success,fontWeight:800}}>{w.sb}</span></span>}
-                      </div>
-                    )}
                   </div>
-                );
-              })}
+                  <div style={{display:'flex',gap:8,fontSize:10.5,flexWrap:'wrap'}}>
+                    {w.affiliation&&<span style={{color:'rgba(136,136,170,.6)'}}>{w.affiliation}</span>}
+                    {w.pb&&<span style={{color:'rgba(147,197,253,.6)'}}>PB <span style={{fontWeight:800,color:'rgba(147,197,253,.85)'}}>{w.pb}</span></span>}
+                    {w.sb&&<span style={{color:'rgba(74,222,128,.6)'}}>SB <span style={{fontWeight:800,color:'rgba(74,222,128,.8)'}}>{w.sb}</span></span>}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -1927,7 +1985,7 @@ function DisplayScreen({sc,primaryMetric,updSc}){
       {dispSubTab==='leaderboard'&&(
         <div style={{padding:'10px 12px 30px'}}>
           {ranked.length===0&&<div style={{padding:40,textAlign:'center',color:C.muted,fontSize:13}}>No results yet — competition hasn't started.</div>}
-          {ranked.map(ath=>{
+          {ranked.map((ath,rowI)=>{
             const isCV=ath.id===curAth?.id;
             const bestIdx=highestClearedIdx(ath,heights.length);
             const bestH=bestIdx>=0?heights[bestIdx]:null;
@@ -1935,57 +1993,57 @@ function DisplayScreen({sc,primaryMetric,updSc}){
             const tied=ath.tied;
             const medal=pl===1?'🥇':pl===2?'🥈':pl===3?'🥉':null;
             const plStr=pl?(tied?`T-${plLabel(pl)}`:plLabel(pl)):ath.status==='dns'?'DNS':'NH';
-            const plColor=pl===1?'#fbbf24':pl===2?'#9ca3af':pl===3?'#f97316':C.muted;
+            const plColor=pl===1?'#fbbf24':pl===2?'rgba(209,213,219,.8)':pl===3?'#f97316':C.muted;
             const chipHeights=heights.map((h,i)=>({h,i,m:ath.attempts[i]||[]})).filter(({m,i})=>m.length>0||(isCV&&i===curH));
             return(
-              <div key={ath.id} style={{
-                background:isCV?'rgba(79,124,255,.1)':C.card,
-                border:`1px solid ${isCV?'rgba(79,124,255,.45)':C.border}`,
-                borderRadius:10,padding:'9px 11px',marginBottom:6,
-                boxShadow:isCV?'0 0 14px rgba(79,124,255,.12)':'none'
+              <div key={ath.id} className="vd-lb-card" style={{
+                background:isCV?'rgba(79,124,255,.1)':pl===1?'rgba(251,191,36,.05)':C.card,
+                border:`1px solid ${isCV?'rgba(79,124,255,.45)':pl===1?'rgba(251,191,36,.2)':C.border}`,
+                boxShadow:isCV?'0 0 18px rgba(79,124,255,.12)':pl===1?'0 2px 12px rgba(251,191,36,.06)':'none'
               }}>
-                <div style={{display:'flex',alignItems:'center',gap:9}}>
+                {/* Top row */}
+                <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px 0'}}>
                   {/* Place / medal */}
-                  <div style={{flexShrink:0,minWidth:34,textAlign:'center'}}>
+                  <div style={{flexShrink:0,width:32,textAlign:'center'}}>
                     {medal
-                      ?<span style={{fontSize:20,lineHeight:1}}>{medal}</span>
-                      :<span style={{fontSize:12,fontWeight:800,color:plColor}}>{plStr}</span>
+                      ?<span style={{fontSize:22,lineHeight:1}}>{medal}</span>
+                      :<span style={{fontSize:13,fontWeight:800,color:plColor,fontVariantNumeric:'tabular-nums'}}>{plStr}</span>
                     }
                   </div>
                   <FlagCell athlete={ath} size={22}/>
-                  {/* Name + affiliation */}
+                  {/* Name */}
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:'flex',alignItems:'center',gap:5,minWidth:0}}>
-                      <span style={{fontWeight:800,fontSize:14,color:isCV?'#ffffff':C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ath.firstName} {ath.lastName}</span>
-                      {isCV&&<span style={{fontSize:8,fontWeight:700,color:C.accent,background:`${C.accent}22`,borderRadius:4,padding:'1px 5px',flexShrink:0,letterSpacing:.5}}>NOW</span>}
+                    <div style={{fontWeight:800,fontSize:14,color:isCV?'#ffffff':C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:5}}>
+                      <span>{ath.firstName} <span style={{textTransform:'uppercase',letterSpacing:.2}}>{ath.lastName}</span></span>
+                      {isCV&&<span style={{fontSize:8,fontWeight:800,color:C.accent,background:`${C.accent}22`,borderRadius:4,padding:'1px 5px',flexShrink:0,letterSpacing:.6,border:`1px solid ${C.accent}44`}}>NOW</span>}
                     </div>
-                    {ath.affiliation&&<div style={{fontSize:10,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ath.affiliation}</div>}
+                    {ath.affiliation&&<div style={{fontSize:9.5,color:'rgba(136,136,170,.5)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ath.affiliation}</div>}
                   </div>
                   {/* Best height */}
                   <div style={{flexShrink:0,textAlign:'right'}}>
                     {bestH?(
                       <>
-                        <div style={{fontSize:15,fontWeight:900,color:C.success,letterSpacing:-.5}}>{fmtH(bestH,primaryMetric)}</div>
-                        <div style={{fontSize:9,color:C.muted}}>{fmtH(bestH,!primaryMetric)}</div>
+                        <div style={{fontSize:16,fontWeight:900,color:pl===1?'#fbbf24':C.success,letterSpacing:-.5,lineHeight:1}}>{fmtH(bestH,primaryMetric)}</div>
+                        <div style={{fontSize:9,color:'rgba(136,136,170,.45)',marginTop:1}}>{fmtH(bestH,!primaryMetric)}</div>
                       </>
-                    ):<span style={{fontSize:11,color:C.muted}}>{ath.status==='dns'?'DNS':'NH'}</span>}
+                    ):<span style={{fontSize:11,color:'rgba(136,136,170,.4)'}}>{ath.status==='dns'?'DNS':'NH'}</span>}
                   </div>
                 </div>
-                {/* Height chips — only attempted heights + current vaulter's current height */}
+                {/* Height chips */}
                 {chipHeights.length>0&&(
-                  <div style={{display:'flex',gap:3,marginTop:7,overflowX:'auto',paddingBottom:1}}>
+                  <div style={{display:'flex',gap:3,padding:'7px 12px 10px',overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
                     {chipHeights.map(({h,i,m})=>{
                       const cleared=hasCleared(m);
                       const miss3=countMisses(m)>=3&&!cleared;
-                      const pas=hasPassed(m)&&!cleared;
+                      const pas=hasPassed(m)&&!cleared&&!miss3;
                       const isCurH=isCV&&i===curH;
                       const markStr=m.join('');
                       return(
-                        <div key={i} style={{textAlign:'center',padding:'2px 5px',borderRadius:5,flexShrink:0,
-                          background:isCurH?'rgba(79,124,255,.22)':cleared?'rgba(74,222,128,.12)':miss3?'rgba(248,113,113,.12)':pas?'rgba(217,119,6,.12)':'rgba(255,255,255,.04)',
-                          border:isCurH?'1px solid rgba(79,124,255,.5)':cleared?'1px solid rgba(74,222,128,.25)':miss3?'1px solid rgba(248,113,113,.22)':pas?'1px solid rgba(217,119,6,.25)':'1px solid rgba(255,255,255,.07)'}}>
-                          <div style={{fontSize:7,fontWeight:700,whiteSpace:'nowrap',color:isCurH?'rgba(147,197,253,.8)':cleared?'rgba(74,222,128,.7)':miss3?'rgba(248,113,113,.7)':pas?'#d97706':C.muted}}>{fmtH(h,primaryMetric)}</div>
-                          <div style={{fontSize:10,fontWeight:900,color:cleared?'#4ade80':miss3?'#f87171':pas?'#d97706':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.3)':'rgba(136,136,170,.2)'}}>{markStr||(isCurH?'…':'—')}</div>
+                        <div key={i} style={{textAlign:'center',padding:'3px 6px',borderRadius:5,flexShrink:0,
+                          background:isCurH?'rgba(79,124,255,.2)':cleared?'rgba(74,222,128,.1)':miss3?'rgba(248,113,113,.1)':pas?'rgba(245,158,11,.1)':'rgba(255,255,255,.03)',
+                          border:isCurH?'1px solid rgba(79,124,255,.45)':cleared?'1px solid rgba(74,222,128,.2)':miss3?'1px solid rgba(248,113,113,.2)':pas?'1px solid rgba(245,158,11,.22)':'1px solid rgba(255,255,255,.06)'}}>
+                          <div style={{fontSize:7.5,fontWeight:700,whiteSpace:'nowrap',letterSpacing:.2,color:isCurH?'rgba(147,197,253,.75)':cleared?'rgba(74,222,128,.65)':miss3?'rgba(248,113,113,.65)':pas?'rgba(245,158,11,.6)':'rgba(136,136,170,.35)'}}>{fmtH(h,primaryMetric)}</div>
+                          <div style={{fontSize:10.5,fontWeight:900,color:cleared?'#4ade80':miss3?'#f87171':pas?'#f59e0b':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.3)':'rgba(136,136,170,.18)'}}>{markStr||(isCurH?'…':'—')}</div>
                         </div>
                       );
                     })}
