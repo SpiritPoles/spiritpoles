@@ -117,12 +117,57 @@ const publishCompetition=async(su,sc)=>{
 const syncMark=async(sc,athLocalId,hIdx,marks)=>{
   if(!sc?.supabaseCompId||!sc?.scorerToken)return;
   const athId=sc.athIds?.[athLocalId];const hId=sc.heightIds?.[hIdx];
-  if(!athId||!hId)return;
+  if(!athId||!hId){
+    console.warn('[VaultDesk] Mark NOT synced — athlete or height missing from Supabase. Open Edit Fields → Resync to Supabase.');
+    window.__vd_unsyncedAthletes=window.__vd_unsyncedAthletes||new Set();
+    if(!athId)window.__vd_unsyncedAthletes.add(athLocalId);
+    return;
+  }
   const{error}=await sb.rpc('record_mark',{
     p_comp_id:sc.supabaseCompId,p_athlete_id:athId,p_height_id:hId,
     p_marks:marks,p_scorer_token:sc.scorerToken,
   });
   if(error)throw error;
+};
+
+const syncNewAthletesToSupabase=async(sc,updSc)=>{
+  const{data:{session}}=await sb.auth.getSession();
+  if(!session)throw new Error('Sign in first');
+  const missing=sc.athletes.filter(a=>!sc.athIds?.[a.id]);
+  if(missing.length===0)return{added:0};
+  const{data:inserted,error}=await sb.from('athletes').insert(
+    missing.map((a,i)=>({
+      comp_id:sc.supabaseCompId,athlete_key:a.id,
+      first_name:a.firstName||'',last_name:a.lastName||'',
+      country:a.country||'',pb:a.pb||'',sb:a.sb||'',
+      status:a.status||'competing',
+      sort_order:(sc.athletes.length-missing.length)+i,
+    }))
+  ).select();
+  if(error)throw error;
+  const missingHIdxs=new Set();
+  missing.forEach(a=>a.attempts?.forEach((_,i)=>{if(!sc.heightIds?.[i])missingHIdxs.add(i);}));
+  const newHeightIds={...sc.heightIds};
+  for(const hIdx of missingHIdxs){
+    const cm=sc.heights[hIdx];if(!cm)continue;
+    const{data:hRow,error:hErr}=await sb.from('heights').insert({comp_id:sc.supabaseCompId,height_cm:cm,sort_order:hIdx}).select().single();
+    if(!hErr&&hRow)newHeightIds[hIdx]=hRow.id;
+  }
+  const newAthIds={...sc.athIds};
+  for(const row of inserted){
+    newAthIds[row.athlete_key]=row.id;
+    const localAth=missing.find(a=>a.id===row.athlete_key);
+    if(!localAth)continue;
+    for(let hIdx=0;hIdx<(localAth.attempts||[]).length;hIdx++){
+      const marks=localAth.attempts[hIdx];
+      if(!marks||marks.length===0)continue;
+      const hId=newHeightIds[hIdx];if(!hId)continue;
+      await sb.rpc('record_mark',{p_comp_id:sc.supabaseCompId,p_athlete_id:row.id,p_height_id:hId,p_marks:marks,p_scorer_token:sc.scorerToken});
+    }
+  }
+  updSc({athIds:newAthIds,heightIds:newHeightIds});
+  window.__vd_unsyncedAthletes=new Set();
+  return{added:inserted.length};
 };
 
 // Sync competition state (curH, curA, status) via SECURITY DEFINER RPC
@@ -2233,6 +2278,28 @@ function EditOverlay({sc,updSc,onClose}){
   const setHeights=h=>updSc({heights:h});
   const updateHeight=(i,v)=>{const cm=Math.round(parseFloat(v)*100);if(!isNaN(cm))updSc({heights:heights.map((h,j)=>j===i?cm:h)});};
   const primaryMetric=rulebook!=='NFHS';
+  const[syncState2,setSyncState2]=React.useState('idle');
+  const[syncMsg,setSyncMsg]=React.useState('');
+  const[showSignIn,setShowSignIn]=React.useState(false);
+  const[signEmail,setSignEmail]=React.useState('');
+  const[signPw,setSignPw]=React.useState('');
+  const unsyncedCount=(window.__vd_unsyncedAthletes?.size||0)+athletes.filter(a=>!sc.athIds?.[a.id]).length;
+  const doResync=async()=>{
+    setSyncState2('loading');setSyncMsg('');
+    try{
+      const{data:{session}}=await sb.auth.getSession();
+      if(!session){setShowSignIn(true);setSyncState2('idle');return;}
+      const r=await syncNewAthletesToSupabase(sc,updSc);
+      setSyncState2('ok');setSyncMsg(`✅ Synced ${r.added} athlete${r.added===1?'':'s'} to Supabase`);
+      setTimeout(()=>{setSyncState2('idle');setSyncMsg('');},4000);
+    }catch(e){setSyncState2('error');setSyncMsg('❌ '+e.message);}
+  };
+  const doSignIn=async()=>{
+    setSyncState2('loading');
+    const{error}=await sb.auth.signInWithPassword({email:signEmail,password:signPw});
+    if(error){setSyncState2('error');setSyncMsg('❌ '+error.message);}
+    else{setShowSignIn(false);doResync();}
+  };
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.85)',zIndex:500,display:'flex',flexDirection:'column'}}>
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'12px 16px',display:'flex',alignItems:'center',gap:10}}>
@@ -2240,6 +2307,21 @@ function EditOverlay({sc,updSc,onClose}){
         <button onClick={onClose} style={btn(C.accent,'7px 16px',13)}>Done</button>
       </div>
       <div style={{flex:1,overflowY:'auto',padding:14,paddingBottom:30}}>
+        {(unsyncedCount>0||syncState2==='ok'||syncState2==='error'||syncMsg)&&<div style={{background:syncState2==='ok'?'#14532d22':syncState2==='error'?'#7f1d1d22':'#78350f22',border:`1px solid ${syncState2==='ok'?C.success:syncState2==='error'?C.danger:C.warn}`,borderRadius:8,padding:'10px 14px',marginBottom:12,display:'flex',flexDirection:'column',gap:6}}>
+          {syncMsg
+            ?<div style={{fontSize:13,fontWeight:600}}>{syncMsg}</div>
+            :<><div style={{fontSize:13,fontWeight:600,color:C.warn}}>{unsyncedCount} athlete{unsyncedCount===1?'':'s'} not yet visible on the Display screen.</div>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginTop:4}}>
+              {(syncState2==='idle'||syncState2==='error')&&<button onClick={doResync} style={btn(C.warn,'6px 14px',12)}>🔄 Resync to Supabase</button>}
+              {syncState2==='loading'&&<span style={{fontSize:12,color:C.muted}}>Syncing…</span>}
+            </div></>}
+          {showSignIn&&<div style={{marginTop:8,display:'flex',flexDirection:'column',gap:6}}>
+            <div style={{fontSize:12,color:C.muted}}>Sign in to push athletes to Supabase:</div>
+            <input value={signEmail} onChange={e=>setSignEmail(e.target.value)} placeholder="Email" style={{...inputSt,fontSize:12}} type="email"/>
+            <input value={signPw} onChange={e=>setSignPw(e.target.value)} placeholder="Password" style={{...inputSt,fontSize:12}} type="password"/>
+            <button onClick={doSignIn} style={btn(C.accent,'6px 14px',12)} disabled={syncState2==='loading'}>Sign In & Sync</button>
+          </div>}
+        </div>}
         <div style={sec}>
           <div style={secTit}>Athletes</div>
           <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Edit inline. ▼ for advanced options. Drag ☰ to reorder.</div>
@@ -2678,19 +2760,37 @@ function VaultDeskApp(){
     return()=>window.removeEventListener('hashchange',onHash);
   },[]);
 
-  // Display: subscribe to realtime updates
+  // Display: subscribe to realtime updates with reconnect + polling fallback
   useEffect(()=>{
     if(ROUTE.mode!=='display'||!sc?.supabaseCompId)return;
     const compId=sc.supabaseCompId;
+    const compSlug=sc.compId;
+    let ch=null;let pollTimer=null;let reconnectTimer=null;let destroyed=false;
     const reload=async()=>{
-      try{const{sc:f}=await loadCompFromSupabase(sc.compId);setSc(f);}
+      try{const{sc:f}=await loadCompFromSupabase(compSlug);if(!destroyed)setSc(f);}
       catch(e){console.warn('Realtime reload failed:',e);}
     };
-    const ch=sb.channel(`comp:${compId}`)
-      .on('postgres_changes',{event:'*',schema:'public',table:'attempts',filter:`comp_id=eq.${compId}`},reload)
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'competitions',filter:`id=eq.${compId}`},reload)
-      .subscribe();
-    return()=>{sb.removeChannel(ch);};
+    const startSub=()=>{
+      if(destroyed)return;
+      if(ch){try{sb.removeChannel(ch);}catch(_){} ch=null;}
+      ch=sb.channel(`comp:${compId}`)
+        .on('postgres_changes',{event:'*',schema:'public',table:'attempts',filter:`comp_id=eq.${compId}`},reload)
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'competitions',filter:`id=eq.${compId}`},reload)
+        .subscribe(status=>{
+          if((status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')&&!destroyed){
+            console.warn('[VaultDesk] Realtime channel lost ('+status+'), reconnecting in 5s…');
+            clearTimeout(reconnectTimer);
+            reconnectTimer=setTimeout(()=>{startSub();reload();},5000);
+          }
+        });
+    };
+    startSub();
+    pollTimer=setInterval(reload,30000);
+    return()=>{
+      destroyed=true;
+      clearInterval(pollTimer);clearTimeout(reconnectTimer);
+      if(ch){try{sb.removeChannel(ch);}catch(_){}}
+    };
   },[sc?.supabaseCompId]);
 
   const updSu=useCallback(patch=>setSu(p=>({...p,...patch})),[]);
