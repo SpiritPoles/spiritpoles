@@ -2551,6 +2551,79 @@ function SuperAdminScreen(){
   );
 }
 
+// ─── MY COMPETITIONS (remote access for any logged-in admin) ──────────────────
+function MyCompsScreen({authUser}){
+  const[comps,setComps]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[refreshAt,setRefreshAt]=useState(0);
+  const[confirmDel,setConfirmDel]=useState(null);
+  const doDelete=async(slug)=>{
+    try{await sb.from('competitions').delete().eq('slug',slug);setComps(p=>p.filter(c=>c.slug!==slug));}
+    catch(e){console.warn('Delete failed:',e);}
+    setConfirmDel(null);
+  };
+  useEffect(()=>{
+    if(!authUser?.id)return;
+    setLoading(true);
+    sb.from('competitions')
+      .select('slug,name,date,venue,rulebook,status,scorer_token,created_at')
+      .eq('owner_id',authUser.id)
+      .order('created_at',{ascending:false})
+      .then(({data})=>{setComps(data||[]);setLoading(false);})
+      .catch(()=>setLoading(false));
+  },[authUser?.id,refreshAt]);
+  const base=`${window.location.origin}${window.location.pathname}`;
+  const mkUrls=c=>({
+    disp:`${base}#/display/${c.slug}`,
+    score:c.scorer_token?`${base}#/score/${c.slug}/${c.scorer_token}`:null,
+  });
+  if(loading)return<div style={{padding:32,textAlign:'center',color:C.muted,fontSize:13}}>Loading…</div>;
+  return(
+    <div style={{padding:14}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+        <div style={{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:1,fontWeight:700,flex:1}}>My Competitions ({comps.length})</div>
+        <button onClick={()=>setRefreshAt(Date.now())} style={{...btn(C.card,'5px 10px',11),border:`1px solid ${C.border}`,color:C.muted}}>↻ Refresh</button>
+      </div>
+      {comps.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:'center',padding:32}}>No competitions yet. Create one in Setup.</div>}
+      {comps.map(c=>{
+        const{disp,score}=mkUrls(c);
+        const isLive=c.status==='active';
+        const isOfficial=c.status==='official';
+        return(
+          <div key={c.slug} style={{background:C.surface,borderRadius:10,border:`1px solid ${isLive?C.success+'55':C.border}`,padding:14,marginBottom:10}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:5}}>
+              {isLive&&<span className="live-dot" style={{width:7,height:7,borderRadius:'50%',background:C.success,flexShrink:0,display:'inline-block'}}/>}
+              <span style={{fontWeight:700,fontSize:14,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name||'Untitled'}</span>
+              <span style={{fontSize:10,fontWeight:700,color:isLive?C.success:isOfficial?C.accent:C.muted,background:isLive?`${C.success}22`:isOfficial?`${C.accent}22`:C.card,padding:'2px 8px',borderRadius:5,textTransform:'uppercase',flexShrink:0}}>{c.status}</span>
+              {confirmDel===c.slug?(
+                <><span style={{fontSize:11,color:C.danger,fontWeight:700,flexShrink:0}}>Delete?</span>
+                <button onClick={()=>doDelete(c.slug)} style={btn(C.danger,'3px 8px',11)}>Yes</button>
+                <button onClick={()=>setConfirmDel(null)} style={{...btn(C.card,'3px 8px',11),border:`1px solid ${C.border}`}}>No</button></>
+              ):(
+                <button onClick={()=>setConfirmDel(c.slug)} style={{...btn(C.card,'3px 7px',11),border:`1px solid ${C.danger}44`,color:C.danger,flexShrink:0}} title="Delete">🗑</button>
+              )}
+            </div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:10}}>{[c.date,c.venue,c.rulebook].filter(Boolean).join(' · ')}</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
+              {score&&<button onClick={()=>window.open(score,'_blank')} style={btn(C.accent,'7px 14px',13)}>📊 Remote Score</button>}
+              <button onClick={()=>window.open(disp,'_blank')} style={{...btn(C.card,'7px 14px',13),border:`1px solid ${C.border}`}}>📺 Display</button>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:4}}>
+              {[{label:'📺 Display',url:disp},{label:'📊 Scorer',url:score}].filter(r=>r.url).map(r=>(
+                <div key={r.label} style={{display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{fontSize:9,color:C.muted,width:54,flexShrink:0}}>{r.label}</span>
+                  <span style={{fontSize:9,fontFamily:'monospace',background:C.card,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.border}`,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.url}</span>
+                  <button onClick={()=>navigator.clipboard.writeText(r.url).catch(()=>{})} style={{...btn(C.card,'2px 8px',9),border:`1px solid ${C.border}`,flexShrink:0}}>Copy</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function VaultDeskApp(){
   const saved_=useMemo(()=>{try{const s=JSON.parse(localStorage.getItem(LS_CUR)||'{}');return s;}catch{return{}};},[]);
   const[screen,setScreen]=useState(()=>{const s=saved_.screen;return(s==='scoring'||s==='display')?'live':s||'setup';});
@@ -2902,6 +2975,7 @@ function VaultDeskApp(){
     {id:'setup',label:'Setup',icon:'⚙️'},
     {id:'live',label:'Live',icon:'📡'},
     {id:'history',label:'History',icon:'🕐'},
+    ...(authUser?[{id:'mycomps',label:'My Comps',icon:'🗂️'}]:[]),
     {id:'rules',label:'Rules',icon:'📋'},
     ...(isSuperAdmin?[{id:'admin',label:'Admin',icon:'🔐'}]:[]),
   ];
@@ -3014,6 +3088,7 @@ function VaultDeskApp(){
         )}
         {screen==='display'&&sc&&<DisplayScreen sc={sc} primaryMetric={primaryMetric} updSc={updSc}/>}
         {screen==='rules'&&<RulesTab/>}
+        {screen==='mycomps'&&authUser&&<MyCompsScreen authUser={authUser}/>}
         {screen==='admin'&&isSuperAdmin&&<SuperAdminScreen/>}
         {screen==='history'&&(
           <HistoryScreen
