@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VaultDesk v1.23</title>
+  <title>VaultDesk v1.24</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -28,6 +28,54 @@
     .vd-drag-over::before{content:'';position:absolute;top:-5px;left:10px;right:10px;height:3px;background:#4f7cff;border-radius:3px;z-index:20}
     input[type=number]{-moz-appearance:textfield}
     input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+    /* ── VaultDesk Display ── */
+    @keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(79,124,255,.5)}70%{box-shadow:0 0 0 8px rgba(79,124,255,0)}100%{box-shadow:0 0 0 0 rgba(79,124,255,0)}}
+    .vd-now-bar{background:linear-gradient(135deg,rgba(79,124,255,.18) 0%,rgba(79,124,255,.06) 100%);border-bottom:1px solid rgba(79,124,255,.25)}
+    .vd-hero-ht{font-size:56px;font-weight:900;color:#fff;letter-spacing:-3px;line-height:1;font-variant-numeric:tabular-nums}
+    .vd-hero-ht-alt{font-size:14px;font-weight:600;color:var(--muted);margin-top:4px}
+    .vd-hero-name{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.5px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .vd-hero-lastname{text-transform:uppercase;letter-spacing:.5px}
+    .vd-attempt-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;display:inline-block}
+    .vd-tbl-row{transition:background .12s}
+    .vd-tbl-row:hover{background:rgba(79,124,255,.07)!important}
+    .vd-mark{font-size:13px;font-weight:900;letter-spacing:.5px}
+    .vd-mark-o{color:#22c55e}
+    .vd-mark-x{color:#f87171}
+    .vd-mark-p{color:#f59e0b}
+    .vd-mark-ip{color:#93c5fd}
+    .vd-lb-card{border-radius:12px;overflow:hidden;margin-bottom:7px;transition:transform .1s}
+    .vd-lb-card:active{transform:scale(.99)}
+    /* ── Mobile / Responsive ── */
+    @media (max-width:640px){
+      .vd-hero-ht{font-size:38px!important;letter-spacing:-2px!important}
+      .vd-hero-ht-alt{font-size:11px!important}
+      .vd-hero-name{font-size:19px!important}
+      .vd-hide-mobile{display:none!important}
+      .vd-tbl-wrap{font-size:10.5px!important}
+      .vd-banner-title{font-size:15px!important;white-space:normal!important}
+      .vd-sub-tab{padding:10px 0!important;font-size:11px!important}
+      .vd-ondeck{font-size:11px!important}
+      /* Bottom nav on mobile */
+      .vd-top-nav{display:none!important}
+      .vd-bottom-nav{display:flex!important}
+      /* Content padding above bottom nav */
+      .vd-content{padding-bottom:72px}
+      /* Full-width cards */
+      .vd-card-row{flex-direction:column!important}
+      /* Larger touch targets */
+      button{min-height:36px}
+    }
+    @media (min-width:641px){
+      .vd-bottom-nav{display:none!important}
+      .vd-top-nav{display:flex!important}
+    }
+    @media (min-width:521px) and (max-width:768px){
+      .vd-hero-ht{font-size:46px!important}
+    }
+    /* Bottom nav safe area (notch phones) */
+    .vd-bottom-nav{padding-bottom:env(safe-area-inset-bottom,0px)}
+    /* Prevent content scroll bleed on iOS */
+    .vd-content{-webkit-overflow-scrolling:touch}
   </style>
 </head>
 <body>
@@ -86,12 +134,62 @@ const publishCompetition=async(su,sc)=>{
 const syncMark=async(sc,athLocalId,hIdx,marks)=>{
   if(!sc?.supabaseCompId||!sc?.scorerToken)return;
   const athId=sc.athIds?.[athLocalId];const hId=sc.heightIds?.[hIdx];
-  if(!athId||!hId)return;
+  if(!athId||!hId){
+    // Athlete/height was added after publish — mark stays local only.
+    // Use "Resync to Supabase" in Edit Fields to push missing athletes to display.
+    console.warn('[VaultDesk] Mark NOT synced — athlete or height missing from Supabase. Open Edit Fields → Resync to Supabase.');
+    window.__vd_unsyncedAthletes=window.__vd_unsyncedAthletes||new Set();
+    if(!athId)window.__vd_unsyncedAthletes.add(athLocalId);
+    return;
+  }
   const{error}=await sb.rpc('record_mark',{
     p_comp_id:sc.supabaseCompId,p_athlete_id:athId,p_height_id:hId,
     p_marks:marks,p_scorer_token:sc.scorerToken,
   });
   if(error)throw error;
+};
+
+ // Sync athletes/heights added after publish back to Supabase (requires auth)
+const syncNewAthletesToSupabase=async(sc,updSc)=>{
+  const{data:{session}}=await sb.auth.getSession();
+  if(!session)throw new Error('Sign in first');
+  const missing=sc.athletes.filter(a=>!sc.athIds?.[a.id]);
+  if(missing.length===0)return{added:0};
+  const{data:inserted,error}=await sb.from('athletes').insert(
+    missing.map((a,i)=>({
+      comp_id:sc.supabaseCompId,athlete_key:a.id,
+      first_name:a.firstName||'',last_name:a.lastName||'',
+      country:a.country||'',pb:a.pb||'',sb:a.sb||'',
+      status:a.status||'competing',
+      sort_order:(sc.athletes.length-missing.length)+i,
+    }))
+  ).select();
+  if(error)throw error;
+  // Sync their heights that may be missing too
+  const missingHIdxs=new Set();
+  missing.forEach(a=>a.attempts?.forEach((_,i)=>{if(!sc.heightIds?.[i])missingHIdxs.add(i);}));
+  const newHeightIds={...sc.heightIds};
+  for(const hIdx of missingHIdxs){
+    const cm=sc.heights[hIdx];if(!cm)continue;
+    const{data:hRow,error:hErr}=await sb.from('heights').insert({comp_id:sc.supabaseCompId,height_cm:cm,sort_order:hIdx}).select().single();
+    if(!hErr&&hRow)newHeightIds[hIdx]=hRow.id;
+  }
+  // Build updated athIds and sync their marks
+  const newAthIds={...sc.athIds};
+  for(const row of inserted){
+    newAthIds[row.athlete_key]=row.id;
+    const localAth=missing.find(a=>a.id===row.athlete_key);
+    if(!localAth)continue;
+    for(let hIdx=0;hIdx<(localAth.attempts||[]).length;hIdx++){
+      const marks=localAth.attempts[hIdx];
+      if(!marks||marks.length===0)continue;
+      const hId=newHeightIds[hIdx];if(!hId)continue;
+      await sb.rpc('record_mark',{p_comp_id:sc.supabaseCompId,p_athlete_id:row.id,p_height_id:hId,p_marks:marks,p_scorer_token:sc.scorerToken});
+    }
+  }
+  updSc({athIds:newAthIds,heightIds:newHeightIds});
+  window.__vd_unsyncedAthletes=new Set();
+  return{added:inserted.length};
 };
 
 // Sync competition state (curH, curA, status) via SECURITY DEFINER RPC
@@ -279,6 +377,73 @@ const SEARCH_LABEL={WA:'World Athletics',NCAA:'TFRRS',NFHS:'MileSplit'};
 
 const C={bg:'#0f0f14',surface:'#1a1a24',card:'#22222e',border:'#2e2e3d',accent:'#4f7cff',success:'#22c55e',danger:'#ef4444',warn:'#f59e0b',text:'#f0f0f0',muted:'#8888aa',cleared:'#0a2b0a',missed:'#2b0a0a'};
 
+// ─── COUNTRY NAME → IOC CODE LOOKUP ──────────────────────────────────────────
+// Keys are lowercase; longest match wins so "south africa" beats "africa"
+const COUNTRY_MAP={
+  'afghanistan':'AFG','albania':'ALB','algeria':'ALG','andorra':'AND','angola':'ANG',
+  'antigua':'ANT','argentina':'ARG','armenia':'ARM','aruba':'ARU','australia':'AUS',
+  'austria':'AUT','azerbaijan':'AZE','bahamas':'BAH','bahrain':'BRN','bangladesh':'BAN',
+  'barbados':'BAR','belarus':'BLR','belgium':'BEL','belize':'BIZ','benin':'BEN',
+  'bermuda':'BER','bhutan':'BHU','bolivia':'BOL','bosnia':'BIH','botswana':'BOT',
+  'brazil':'BRA','brunei':'BRU','bulgaria':'BUL','burkina':'BUR','burundi':'BDI',
+  'cambodia':'CAM','cameroon':'CMR','canada':'CAN','cape verde':'CPV','cayman':'CAY',
+  'central african':'CAF','chad':'CHA','chile':'CHI','china':'CHN','colombia':'COL',
+  'comoros':'COM','congo':'CGO','cook islands':'COK','costa rica':'CRC','croatia':'CRO',
+  'cuba':'CUB','cyprus':'CYP','czech':'CZE','denmark':'DEN','djibouti':'DJI',
+  'dominica':'DMA','dominican':'DOM','ecuador':'ECU','egypt':'EGY','el salvador':'ESA',
+  'equatorial':'GEQ','eritrea':'ERI','estonia':'EST','eswatini':'SWZ','ethiopia':'ETH',
+  'fiji':'FIJ','finland':'FIN','france':'FRA','gabon':'GAB','gambia':'GAM',
+  'georgia':'GEO','germany':'GER','ghana':'GHA','great britain':'GBR','britain':'GBR',
+  'united kingdom':'GBR','england':'GBR','scotland':'GBR','wales':'GBR',
+  'greece':'GRE','grenada':'GRN','guam':'GUM','guatemala':'GUA','guinea-bissau':'GBS',
+  'guinea':'GUI','guyana':'GUY','haiti':'HAI','honduras':'HON','hong kong':'HKG',
+  'hungary':'HUN','iceland':'ISL','india':'IND','indonesia':'INA','iran':'IRI',
+  'iraq':'IRQ','ireland':'IRL','israel':'ISR','italy':'ITA','jamaica':'JAM',
+  'japan':'JPN','jordan':'JOR','kazakhstan':'KAZ','kenya':'KEN','kiribati':'KIR',
+  'kosovo':'KOS','kuwait':'KUW','kyrgyzstan':'KGZ','laos':'LAO','latvia':'LAT',
+  'lebanon':'LIB','lesotho':'LES','liberia':'LBR','libya':'LBA','liechtenstein':'LIE',
+  'lithuania':'LTU','luxembourg':'LUX','madagascar':'MAD','malawi':'MAW',
+  'malaysia':'MAS','maldives':'MDV','mali':'MLI','malta':'MLT','mauritania':'MTN',
+  'mauritius':'MRI','mexico':'MEX','moldova':'MDA','monaco':'MON','mongolia':'MGL',
+  'montenegro':'MNE','morocco':'MAR','mozambique':'MOZ','myanmar':'MYA','namibia':'NAM',
+  'nauru':'NRU','nepal':'NEP','netherlands':'NED','holland':'NED','new zealand':'NZL',
+  'nicaragua':'NCA','niger':'NIG','nigeria':'NGR','north korea':'PRK',
+  'north macedonia':'MKD','norway':'NOR','oman':'OMA','pakistan':'PAK','palau':'PLW',
+  'palestine':'PLE','panama':'PAN','papua':'PNG','paraguay':'PAR','peru':'PER',
+  'philippines':'PHI','poland':'POL','portugal':'POR','puerto rico':'PUR','qatar':'QAT',
+  'romania':'ROU','russia':'RUS','rwanda':'RWA','saint kitts':'SKN','saint lucia':'LCA',
+  'saint vincent':'VIN','samoa':'SAM','san marino':'SMR','saudi arabia':'KSA',
+  'saudi':'KSA','senegal':'SEN','serbia':'SRB','seychelles':'SEY',
+  'sierra leone':'SLE','singapore':'SGP','slovakia':'SVK','slovenia':'SLO',
+  'solomon':'SOL','somalia':'SOM','south africa':'RSA','south korea':'KOR',
+  'south sudan':'SSD','spain':'ESP','sri lanka':'SRI','sudan':'SUD','suriname':'SUR',
+  'sweden':'SWE','switzerland':'SUI','syria':'SYR','taiwan':'TPE','tajikistan':'TJK',
+  'tanzania':'TAN','thailand':'THA','timor':'TLS','togo':'TOG','tonga':'TGA',
+  'trinidad':'TTO','tobago':'TTO','tunisia':'TUN','turkey':'TUR','turkmenistan':'TKM',
+  'uganda':'UGA','ukraine':'UKR','united arab':'UAE','uae':'UAE',
+  'united states':'USA','u.s.a.':'USA','u.s.':'USA','america':'USA',
+  'uruguay':'URU','uzbekistan':'UZB','vanuatu':'VAN','venezuela':'VEN','vietnam':'VIE',
+  'virgin islands':'ISV','yemen':'YEM','zambia':'ZAM','zimbabwe':'ZIM',
+  // Neutral / refugee
+  'ain':'AIN','neutral':'AIN','authorized neutral':'AIN',
+  'refugee':'EOR','olympic refugee':'EOR',
+};
+// Also accept clean 3-letter IOC codes that aren't result codes
+const CC_SKIP=new Set(['DNF','DNS','DSQ','SCR','RET','ABD','NMR','WDR','DQS']);
+function detectCountry(rawLine){
+  // 1. Fast path: standalone 3-letter ALL-CAPS code
+  for(const m of rawLine.matchAll(/\b([A-Z]{3})\b/g)){
+    if(!CC_SKIP.has(m[1]))return{code:m[1],matched:null};
+  }
+  // 2. Fallback: find longest matching country name (case-insensitive)
+  const lower=rawLine.toLowerCase();
+  let best='',bestCode='';
+  for(const[name,code]of Object.entries(COUNTRY_MAP)){
+    if(name.length>best.length&&lower.includes(name)){best=name;bestCode=code;}
+  }
+  return best?{code:bestCode,matched:best}:{code:'',matched:null};
+}
+
 const IOC_ISO={AFG:'af',ALB:'al',ALG:'dz',AND:'ad',ANG:'ao',ANT:'ag',ARG:'ar',ARM:'am',ARU:'aw',ASA:'as',AUS:'au',AUT:'at',AZE:'az',BAH:'bs',BAN:'bd',BAR:'bb',BDI:'bi',BEL:'be',BEN:'bj',BER:'bm',BHU:'bt',BIH:'ba',BIZ:'bz',BLR:'by',BOL:'bo',BOT:'bw',BRA:'br',BRN:'bh',BRU:'bn',BUL:'bg',BUR:'bf',CAF:'cf',CAM:'kh',CAN:'ca',CAY:'ky',CGO:'cg',CHA:'td',CHI:'cl',CHN:'cn',CIV:'ci',CMR:'cm',COD:'cd',COK:'ck',COL:'co',COM:'km',CPV:'cv',CRC:'cr',CRO:'hr',CUB:'cu',CYP:'cy',CZE:'cz',DEN:'dk',DJI:'dj',DMA:'dm',DOM:'do',ECU:'ec',EGY:'eg',ERI:'er',ESA:'sv',ESP:'es',EST:'ee',ETH:'et',FIJ:'fj',FIN:'fi',FRA:'fr',FSM:'fm',GAB:'ga',GAM:'gm',GBR:'gb',GBS:'gw',GEO:'ge',GEQ:'gq',GER:'de',GHA:'gh',GRE:'gr',GRN:'gd',GUA:'gt',GUI:'gn',GUM:'gu',GUY:'gy',HAI:'ht',HKG:'hk',HON:'hn',HUN:'hu',INA:'id',IND:'in',IRI:'ir',IRL:'ie',IRQ:'iq',ISL:'is',ISR:'il',ISV:'vi',ITA:'it',IVB:'vg',JAM:'jm',JOR:'jo',JPN:'jp',KAZ:'kz',KEN:'ke',KGZ:'kg',KIR:'ki',KOR:'kr',KSA:'sa',KUW:'kw',LAO:'la',LAT:'lv',LBA:'ly',LBN:'lb',LBR:'lr',LCA:'lc',LES:'ls',LIE:'li',LTU:'lt',LUX:'lu',MAD:'mg',MAR:'ma',MAS:'my',MAW:'mw',MDA:'md',MEX:'mx',MGL:'mn',MKD:'mk',MLI:'ml',MLT:'mt',MNE:'me',MON:'mc',MOZ:'mz',MRI:'mu',MRT:'mr',MYA:'mm',NAM:'na',NCA:'ni',NED:'nl',NEP:'np',NGR:'ng',NIG:'ne',NOR:'no',NRU:'nr',NZL:'nz',OMA:'om',PAK:'pk',PAN:'pa',PAR:'py',PER:'pe',PHI:'ph',PLE:'ps',PLW:'pw',PNG:'pg',POL:'pl',POR:'pt',PRK:'kp',PUR:'pr',QAT:'qa',ROC:'tw',RSA:'za',ROU:'ro',RUS:'ru',RWA:'rw',SAM:'ws',SEN:'sn',SEY:'sc',SGP:'sg',SKN:'kn',SLE:'sl',SLO:'si',SMR:'sm',SOL:'sb',SOM:'so',SRB:'rs',SRI:'lk',SSD:'ss',STP:'st',SUD:'sd',SUI:'ch',SUR:'sr',SVK:'sk',SWE:'se',SWZ:'sz',SYR:'sy',TAN:'tz',TGA:'to',THA:'th',TJK:'tj',TKM:'tm',TLS:'tl',TOG:'tg',TPE:'tw',TTO:'tt',TUN:'tn',TUR:'tr',TUV:'tv',UAE:'ae',UGA:'ug',UKR:'ua',URU:'uy',USA:'us',UZB:'uz',VAN:'vu',VEN:'ve',VIE:'vn',VIN:'vc',YEM:'ye',ZAM:'zm',ZIM:'zw'};
 
 const COUNTRY_NAMES={'afghanistan':'AFG','albania':'ALB','algeria':'ALG','andorra':'AND','angola':'ANG','antigua':'ANT','antigua and barbuda':'ANT','argentina':'ARG','armenia':'ARM','aruba':'ARU','american samoa':'ASA','australia':'AUS','austria':'AUT','azerbaijan':'AZE','bahamas':'BAH','bangladesh':'BAN','barbados':'BAR','burundi':'BDI','belgium':'BEL','benin':'BEN','bermuda':'BER','bhutan':'BHU','bosnia':'BIH','bosnia and herzegovina':'BIH','belize':'BIZ','belarus':'BLR','bolivia':'BOL','botswana':'BOT','brazil':'BRA','bahrain':'BRN','brunei':'BRU','bulgaria':'BUL','burkina faso':'BUR','central african republic':'CAF','cambodia':'CAM','canada':'CAN','cayman islands':'CAY','congo':'CGO','republic of congo':'CGO','chad':'CHA','chile':'CHI','china':'CHN',"cote d'ivoire":'CIV','ivory coast':'CIV','cameroon':'CMR','dr congo':'COD','democratic republic of congo':'COD','cook islands':'COK','colombia':'COL','comoros':'COM','cape verde':'CPV','costa rica':'CRC','croatia':'CRO','cuba':'CUB','cyprus':'CYP','czech republic':'CZE','czechia':'CZE','denmark':'DEN','djibouti':'DJI','dominica':'DMA','dominican republic':'DOM','ecuador':'ECU','egypt':'EGY','eritrea':'ERI','el salvador':'ESA','spain':'ESP','estonia':'EST','ethiopia':'ETH','fiji':'FIJ','finland':'FIN','france':'FRA','micronesia':'FSM','gabon':'GAB','gambia':'GAM','great britain':'GBR','united kingdom':'GBR','uk':'GBR','guinea-bissau':'GBS','georgia':'GEO','equatorial guinea':'GEQ','germany':'GER','ghana':'GHA','greece':'GRE','grenada':'GRN','guatemala':'GUA','guinea':'GUI','guam':'GUM','guyana':'GUY','haiti':'HAI','hong kong':'HKG','honduras':'HON','hungary':'HUN','indonesia':'INA','india':'IND','iran':'IRI','ireland':'IRL','iraq':'IRQ','iceland':'ISL','israel':'ISR','us virgin islands':'ISV','italy':'ITA','british virgin islands':'IVB','jamaica':'JAM','jordan':'JOR','japan':'JPN','kazakhstan':'KAZ','kenya':'KEN','kyrgyzstan':'KGZ','kiribati':'KIR','south korea':'KOR','korea':'KOR','saudi arabia':'KSA','kuwait':'KUW','laos':'LAO','latvia':'LAT','libya':'LBA','lebanon':'LBN','liberia':'LBR','saint lucia':'LCA','lesotho':'LES','liechtenstein':'LIE','lithuania':'LTU','luxembourg':'LUX','madagascar':'MAD','morocco':'MAR','malaysia':'MAS','malawi':'MAW','moldova':'MDA','mexico':'MEX','mongolia':'MGL','north macedonia':'MKD','macedonia':'MKD','mali':'MLI','malta':'MLT','montenegro':'MNE','monaco':'MON','mozambique':'MOZ','mauritius':'MRI','mauritania':'MRT','myanmar':'MYA','namibia':'NAM','nicaragua':'NCA','netherlands':'NED','holland':'NED','nepal':'NEP','nigeria':'NGR','niger':'NIG','norway':'NOR','nauru':'NRU','new zealand':'NZL','oman':'OMA','pakistan':'PAK','panama':'PAN','paraguay':'PAR','peru':'PER','philippines':'PHI','palestine':'PLE','palau':'PLW','papua new guinea':'PNG','poland':'POL','portugal':'POR','north korea':'PRK','puerto rico':'PUR','qatar':'QAT','chinese taipei':'ROC','taiwan':'ROC','south africa':'RSA','romania':'ROU','russia':'RUS','rwanda':'RWA','samoa':'SAM','senegal':'SEN','seychelles':'SEY','singapore':'SGP','saint kitts':'SKN','saint kitts and nevis':'SKN','sierra leone':'SLE','slovenia':'SLO','san marino':'SMR','solomon islands':'SOL','somalia':'SOM','serbia':'SRB','sri lanka':'SRI','south sudan':'SSD','sao tome and principe':'STP','sudan':'SUD','switzerland':'SUI','suriname':'SUR','slovakia':'SVK','sweden':'SWE','eswatini':'SWZ','swaziland':'SWZ','syria':'SYR','tanzania':'TAN','tonga':'TGA','thailand':'THA','tajikistan':'TJK','turkmenistan':'TKM','east timor':'TLS','timor-leste':'TLS','togo':'TOG','tuvalu':'TUV','trinidad':'TTO','trinidad and tobago':'TTO','tunisia':'TUN','turkey':'TUR','uae':'UAE','united arab emirates':'UAE','uganda':'UGA','ukraine':'UKR','uruguay':'URU','usa':'USA','united states':'USA','us':'USA','united states of america':'USA','uzbekistan':'UZB','vanuatu':'VAN','venezuela':'VEN','vietnam':'VIE','saint vincent':'VIN','saint vincent and the grenadines':'VIN','yemen':'YEM','zambia':'ZAM','zimbabwe':'ZIM'};
@@ -418,9 +583,58 @@ const buildResultsCSV=(athletes,heights,ranked,info,primaryMetric)=>{
 const LS_CUR='vaultdesk_current_v15';
 const LS_ALL='vaultdesk_saved_v14';
 const loadSaved=()=>{try{return JSON.parse(localStorage.getItem(LS_ALL)||'[]');}catch{return[]}};
-const saveAll=comps=>{try{localStorage.setItem(LS_ALL,JSON.stringify(comps.slice(0,20)));}catch{}};
+const saveAll=comps=>{try{localStorage.setItem(LS_ALL,JSON.stringify(comps.slice(0,50)));}catch{}};
 const saveCurrent=state=>{try{localStorage.setItem(LS_CUR,JSON.stringify(state));}catch{}};
 const deleteComp=id=>saveAll(loadSaved().filter(c=>(c.id||c.compId)!==id));
+
+// ─── CLOUD SYNC ───────────────────────────────────────────────────────────────
+// Upsert one competition's full state to Supabase (fire-and-forget)
+const saveCompToCloud=async(comp,userId)=>{
+  if(!comp?.compId||!userId)return;
+  try{
+    await sb.from('competitions').upsert({
+      slug:comp.compId,
+      owner_id:userId,
+      name:comp.info?.name||'Untitled',
+      status:comp.compStatus||'active',
+      scorer_token:comp.scorerToken||null,
+      state_json:{...comp,_cloudSavedAt:new Date().toISOString()},
+    },{onConflict:'slug'});
+  }catch(e){console.warn('[VaultDesk] cloud save failed:',e);}
+};
+
+// Pull all competitions for a user from Supabase, sorted newest-first
+const loadCompsFromCloud=async(userId)=>{
+  try{
+    const{data,error}=await sb.from('competitions')
+      .select('slug,state_json,updated_at,status')
+      .eq('owner_id',userId)
+      .not('state_json','is',null)
+      .order('updated_at',{ascending:false});
+    if(error||!data)return[];
+    return data.map(r=>r.state_json).filter(Boolean);
+  }catch(e){console.warn('[VaultDesk] cloud load failed:',e);return[];}
+};
+
+// Merge cloud comps into local storage (cloud wins on same compId)
+const mergeCloudComps=(cloudComps,currentSc)=>{
+  const local=loadSaved();
+  const cloudById=Object.fromEntries(cloudComps.map(c=>[c.compId,c]).filter(([k])=>k));
+  // Replace local entries that have a newer cloud version; append cloud-only entries
+  const merged=local.map(c=>{const id=c.compId||c.id;return cloudById[id]??(c);});
+  const localIds=new Set(local.map(c=>c.compId||c.id).filter(Boolean));
+  const cloudOnly=cloudComps.filter(c=>c.compId&&!localIds.has(c.compId));
+  const all=[...merged,...cloudOnly];
+  saveAll(all);
+  // Return updated sc if cloud has a newer version of it
+  if(currentSc?.compId&&cloudById[currentSc.compId]){
+    const cs=cloudById[currentSc.compId];
+    const localTs=currentSc._cloudSavedAt||'';
+    const cloudTs=cs._cloudSavedAt||'';
+    if(cloudTs>localTs)return{comps:loadSaved(),sc:cs};
+  }
+  return{comps:loadSaved(),sc:null};
+};
 
 let _ctr=0;
 const mkAthlete=order=>({id:`a${++_ctr}_${Date.now().toString(36)}`,order,firstName:'',lastName:'',country:'',affiliation:'',pb:'',sb:'',logoUrl:'',attempts:Array.from({length:10},()=>[]),status:'competing'});
@@ -567,25 +781,42 @@ function PhotoImportDialog({onImport,onClose,existingAthletes=[]}){
   const toTitle=s=>s?s.toLowerCase().replace(/(?:^|\s|-|')\S/g,c=>c.toUpperCase()):'';
 
   const parseLine=line=>{
-    // Strip leading bib/rank numbers
-    let clean=line.replace(/^\s*\d+\.?\s+/,'').trim();
-    // Strip trailing marks, heights, times
-    clean=clean.replace(/\s+\d[\d.,:/'½¼¾\s]*(m|ft|cm|s|min)?.*$/i,'').trim();
-    // Strip isolated 3-letter IOC country codes
-    clean=clean.replace(/\b[A-Z]{3}\b/g,'').replace(/\s{2,}/g,' ').trim();
-    if(clean.length<3)return null;
+    const raw=line;
+
+    // ── Extract PB / SB before stripping ──────────────────────────────────────
+    // Handles: "5.80 PB", "5.80m PB", "PB 5.80", "(PB)", plain "PB" with no mark
+    const markRe='([0-9]+(?:[.:][0-9]+)?(?:m|ft)?)';
+    const pbFrontM=raw.match(new RegExp('\\bPB\\b[\\s:]*'+markRe,'i'));
+    const pbBackM =raw.match(new RegExp(markRe+'\\s*\\(?\\bPB\\b\\)?','i'));
+    const sbFrontM=raw.match(new RegExp('\\bSB\\b[\\s:]*'+markRe,'i'));
+    const sbBackM =raw.match(new RegExp(markRe+'\\s*\\(?\\bSB\\b\\)?','i'));
+    const pb=(pbFrontM||pbBackM||[])[1]?.replace(/m$|ft$/i,'').trim()||'';
+    const sb=(sbFrontM||sbBackM||[])[1]?.replace(/m$|ft$/i,'').trim()||'';
+
+    // ── Extract country (3-letter code or full country name) ──────────────────
+    const{code:country,matched:countryName}=detectCountry(raw);
+
+    // ── Clean name portion ─────────────────────────────────────────────────────
+    let clean=line.replace(/^\s*\d+\.?\s+/,'').trim();               // strip rank/bib
+    clean=clean.replace(/\b(PB|SB)\b/gi,'').trim();                  // strip PB/SB labels
+    clean=clean.replace(/\s+[0-9][\d.,:/'½¼¾\s]*(m|ft|cm|s|min)?.*$/i,'').trim(); // strip marks
+    clean=clean.replace(/\b[A-Z]{3}\b/g,'').replace(/\s{2,}/g,' ').trim(); // strip 3-letter codes
+    // Strip matched country name if it came from the name lookup (not a 3-letter code)
+    if(countryName)clean=clean.replace(new RegExp(countryName,'gi'),'').replace(/\s{2,}/g,' ').trim();
+    if(clean.length<2)return null;
     const parts=clean.split(/\s+/).filter(Boolean);
     if(!parts.length)return null;
+
     // "SMITH, John" — comma format
     const commaM=clean.match(/^([A-Z][A-Z'\-\s]+),\s*(.+)$/);
-    if(commaM)return{firstName:toTitle(commaM[2].trim()),lastName:toTitle(commaM[1].trim())};
+    if(commaM)return{firstName:toTitle(commaM[2].trim()),lastName:toTitle(commaM[1].trim()),country,pb,sb};
     // "SMITH John" — all-caps surname first
     if(parts.length>=2&&parts[0]===parts[0].toUpperCase()&&/^[A-Z'-]+$/.test(parts[0])&&parts[0].length>1){
-      return{firstName:toTitle(parts.slice(1).join(' ')),lastName:toTitle(parts[0])};
+      return{firstName:toTitle(parts.slice(1).join(' ')),lastName:toTitle(parts[0]),country,pb,sb};
     }
     // "John Smith" — normal order
-    if(parts.length===1)return{firstName:toTitle(parts[0]),lastName:''};
-    return{firstName:toTitle(parts[0]),lastName:toTitle(parts.slice(1).join(' '))};
+    if(parts.length===1)return{firstName:toTitle(parts[0]),lastName:'',country,pb,sb};
+    return{firstName:toTitle(parts[0]),lastName:toTitle(parts.slice(1).join(' ')),country,pb,sb};
   };
 
   const handleFile=e=>{
@@ -612,7 +843,7 @@ function PhotoImportDialog({onImport,onClose,existingAthletes=[]}){
         .filter(l=>{const ws=l.toLowerCase().split(/\s+/);return!ws.every(w=>SKIP.has(w));});
       const parsed=lines.map((line,i)=>{
         const r=parseLine(line);if(!r)return null;
-        return{id:i,raw:line,firstName:r.firstName,lastName:r.lastName,affiliation:'',checked:!!(r.firstName||r.lastName)};
+        return{id:i,raw:line,firstName:r.firstName,lastName:r.lastName,country:r.country||'',pb:r.pb||'',sb:r.sb||'',affiliation:'',checked:!!(r.firstName||r.lastName)};
       }).filter(Boolean);
       setCandidates(parsed);setStep('review');
     }catch(e){setProgressMsg('Scan failed: '+(e.message||'Unknown error'));setStep('error');}
@@ -628,7 +859,7 @@ function PhotoImportDialog({onImport,onClose,existingAthletes=[]}){
   const fresh=selected.filter(a=>!exKeys.has(nameKey(a)));
   const dupes=selected.length-fresh.length;
 
-  const confirm=()=>onImport(fresh.map(c=>({firstName:c.firstName,lastName:c.lastName,affiliation:c.affiliation})));
+  const confirm=()=>onImport(fresh.map(c=>({firstName:c.firstName,lastName:c.lastName,affiliation:c.affiliation||'',country:c.country||'',pb:c.pb||'',sb:c.sb||''})));
 
   const overlayStyle={position:'fixed',inset:0,background:'rgba(0,0,0,.85)',zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px 10px'};
   const panelStyle={background:C.surface,borderRadius:16,padding:20,width:'100%',maxWidth:520,maxHeight:'92vh',overflowY:'auto',border:`1px solid ${C.border}`};
@@ -706,19 +937,44 @@ function PhotoImportDialog({onImport,onClose,existingAthletes=[]}){
               <div style={{flex:1}}>Last Name</div>
               <div style={{width:22}}/>
             </div>
-            <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden',maxHeight:340,overflowY:'auto',marginBottom:12}}>
+            <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden',maxHeight:380,overflowY:'auto',marginBottom:12}}>
               {candidates.length===0&&(
                 <div style={{padding:24,textAlign:'center',color:C.muted,fontSize:13}}>No text detected — try a clearer or higher-contrast photo.</div>
               )}
               {candidates.map((c,i)=>{
                 const isDupe=exKeys.has(nameKey(c));
+                const hasExtra=c.country||c.pb||c.sb;
+                const borderB=i<candidates.length-1?`1px solid ${C.border}`:'none';
                 return(
-                  <div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px',borderBottom:i<candidates.length-1?`1px solid ${C.border}`:'none',background:c.checked?'transparent':C.card+'66',opacity:c.checked?1:.5,transition:'opacity .15s'}}>
-                    <input type="checkbox" checked={c.checked} onChange={()=>toggle(c.id)} style={{width:16,height:16,flexShrink:0,accentColor:C.accent,cursor:'pointer'}}/>
-                    <input value={c.firstName} onChange={e=>upd(c.id,'firstName',e.target.value)} placeholder="First" style={{...inp,padding:'5px 8px',fontSize:13,flex:1,minWidth:0}}/>
-                    <input value={c.lastName} onChange={e=>upd(c.id,'lastName',e.target.value)} placeholder="Last" style={{...inp,padding:'5px 8px',fontSize:13,flex:1,minWidth:0}}/>
-                    {isDupe&&c.checked&&<span style={{fontSize:9,color:C.warn,flexShrink:0,fontWeight:700}}>DUP</span>}
-                    <button onClick={()=>rem(c.id)} style={{...btn(C.card,'3px 7px',11),flexShrink:0,color:C.muted,border:`1px solid ${C.border}`}}>✕</button>
+                  <div key={c.id} style={{background:c.checked?'transparent':C.card+'66',opacity:c.checked?1:.5,transition:'opacity .15s',borderBottom:borderB}}>
+                    {/* Name row */}
+                    <div style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px'}}>
+                      <input type="checkbox" checked={c.checked} onChange={()=>toggle(c.id)} style={{width:16,height:16,flexShrink:0,accentColor:C.accent,cursor:'pointer'}}/>
+                      <input value={c.firstName} onChange={e=>upd(c.id,'firstName',e.target.value)} placeholder="First" style={{...inp,padding:'5px 8px',fontSize:13,flex:1,minWidth:0}}/>
+                      <input value={c.lastName} onChange={e=>upd(c.id,'lastName',e.target.value)} placeholder="Last" style={{...inp,padding:'5px 8px',fontSize:13,flex:1,minWidth:0}}/>
+                      {isDupe&&c.checked&&<span style={{fontSize:9,color:C.warn,flexShrink:0,fontWeight:700}}>DUP</span>}
+                      <button onClick={()=>rem(c.id)} style={{...btn(C.card,'3px 7px',11),flexShrink:0,color:C.muted,border:`1px solid ${C.border}`}}>✕</button>
+                    </div>
+                    {/* Country / PB / SB sub-row — shown if anything detected */}
+                    {(hasExtra||c.checked)&&(
+                      <div style={{display:'flex',alignItems:'center',gap:6,padding:'3px 10px 6px 36px',flexWrap:'wrap'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:4}}>
+                          <span style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:'uppercase'}}>CTY</span>
+                          <input value={c.country} onChange={e=>upd(c.id,'country',e.target.value.toUpperCase().slice(0,3))} placeholder="---" maxLength={3}
+                            style={{...inp,padding:'2px 5px',fontSize:11,width:34,textAlign:'center',textTransform:'uppercase',letterSpacing:1}}/>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:4}}>
+                          <span style={{fontSize:9,color:C.success,fontWeight:700}}>PB</span>
+                          <input value={c.pb} onChange={e=>upd(c.id,'pb',e.target.value)} placeholder="—"
+                            style={{...inp,padding:'2px 5px',fontSize:11,width:50}}/>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:4}}>
+                          <span style={{fontSize:9,color:C.accent,fontWeight:700}}>SB</span>
+                          <input value={c.sb} onChange={e=>upd(c.id,'sb',e.target.value)} placeholder="—"
+                            style={{...inp,padding:'2px 5px',fontSize:11,width:50}}/>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1294,21 +1550,30 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
     return{text,color:'#93c5fd',bg:'transparent'};
   };
   const bestResult=ath=>{const idx=highestClearedIdx(ath,n);return idx>=0?heights[idx]:null};
+  const HDR='#0d0d18';
+  const HDR2='#111120';
+  const markClass=text=>{
+    if(!text)return'';
+    if(text==='O'||text.endsWith('O'))return'vd-mark vd-mark-o';
+    if(/^X+$/.test(text))return'vd-mark vd-mark-x';
+    if(text.includes('P'))return'vd-mark vd-mark-p';
+    return'vd-mark vd-mark-ip';
+  };
   return(
-    <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(360,280+n*56)+'px'}}>
+    <div className="vd-tbl-wrap" style={{overflowX:'auto',WebkitOverflowScrolling:'touch',borderTop:`1px solid ${C.border}`}}>
+      <table style={{borderCollapse:'collapse',fontSize:compact?11:12,width:'100%',minWidth:Math.max(340,266+n*54)+'px'}}>
         <thead>
-          <tr style={{background:C.surface,borderBottom:`2px solid ${C.border}`}}>
-            <th style={{position:'sticky',left:0,background:C.surface,padding:'8px 5px',textAlign:'center',color:C.muted,width:30,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>#</th>
-            <th style={{position:'sticky',left:30,background:C.surface,padding:'8px 6px',textAlign:'center',color:C.muted,width:36,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>PL</th>
-            <th style={{position:'sticky',left:66,background:C.surface,padding:'8px 10px',textAlign:'left',color:C.muted,minWidth:160,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>ATHLETE</th>
-            <th style={{position:'sticky',left:226,background:C.surface,padding:'8px 5px',textAlign:'center',color:C.muted,width:62,fontSize:9,fontWeight:800,letterSpacing:.5,zIndex:10}}>BEST</th>
+          <tr style={{background:HDR,borderBottom:`1px solid rgba(255,255,255,.1)`}}>
+            <th style={{position:'sticky',left:0,background:HDR,padding:'10px 5px',textAlign:'center',color:'rgba(255,255,255,.35)',width:28,fontSize:8,fontWeight:700,letterSpacing:.8,zIndex:10,textTransform:'uppercase'}}>#</th>
+            <th style={{position:'sticky',left:28,background:HDR,padding:'10px 5px',textAlign:'center',color:'rgba(255,255,255,.5)',width:34,fontSize:8,fontWeight:700,letterSpacing:.8,zIndex:10,textTransform:'uppercase'}}>PL</th>
+            <th style={{position:'sticky',left:62,background:HDR,padding:'10px 10px',textAlign:'left',color:'rgba(255,255,255,.5)',minWidth:162,fontSize:8,fontWeight:700,letterSpacing:.8,zIndex:10,textTransform:'uppercase'}}>ATHLETE</th>
+            <th style={{position:'sticky',left:224,background:HDR,padding:'10px 5px',textAlign:'center',color:'rgba(255,255,255,.5)',width:62,fontSize:8,fontWeight:700,letterSpacing:.8,zIndex:10,textTransform:'uppercase'}}>BEST</th>
             {heights.map((h,i)=>{
               const isCH=i===curH&&isActive;
               return(
-              <th key={i} style={{padding:'8px 4px',textAlign:'center',minWidth:56,color:isCH?C.accent:C.muted,fontWeight:isCH?900:600,fontSize:9,letterSpacing:.3,background:isCH?`${C.accent}1a`:C.surface,borderLeft:isCH?`2px solid ${C.accent}`:undefined,borderRight:isCH?`2px solid ${C.accent}`:undefined}}>
-                <div style={{whiteSpace:'nowrap'}}>{fmtH(h,primaryMetric)}</div>
-                <div style={{fontSize:8,color:isCH?`${C.accent}bb`:C.muted,marginTop:1}}>{fmtH(h,!primaryMetric)}</div>
+              <th key={i} style={{padding:'8px 4px',textAlign:'center',minWidth:54,background:isCH?`rgba(79,124,255,.2)`:HDR,borderLeft:isCH?`2px solid ${C.accent}`:'none',borderRight:isCH?`2px solid ${C.accent}`:'none'}}>
+                <div style={{color:isCH?'#c7d7ff':'rgba(255,255,255,.5)',fontWeight:isCH?800:600,fontSize:9,whiteSpace:'nowrap',letterSpacing:.2}}>{fmtH(h,primaryMetric)}</div>
+                <div style={{fontSize:7.5,color:isCH?`rgba(199,215,255,.6)`:'rgba(255,255,255,.22)',marginTop:1}}>{fmtH(h,!primaryMetric)}</div>
               </th>
               );
             })}
@@ -1321,39 +1586,39 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
             const plInfo=placementOf[ath.id]||{pl:null,tied:false};
             const best=bestResult(ath);
             const isOut=isEliminatedFromComp(ath);
-            const rowBg=isCur?`${C.accent}12`:rowIdx%2===0?'transparent':`${C.surface}60`;
+            const rowBg=isCur?'rgba(79,124,255,.09)':rowIdx%2===0?C.bg:`rgba(26,26,36,.6)`;
             const isDoneHere=isDone(ath.attempts[curH]||[],ath.status);
             return(
-              <tr key={ath.id} style={{background:rowBg,borderBottom:`1px solid ${C.border}`,borderLeft:isCur?`3px solid ${C.accent}`:'3px solid transparent'}}>
-                <td style={{position:'sticky',left:0,background:rowBg,padding:'7px 5px',textAlign:'center',fontWeight:700,fontSize:12,color:isDoneHere?C.muted:C.text}}>{ath.order}</td>
-                <td style={{position:'sticky',left:30,background:rowBg,padding:'7px 6px',textAlign:'center',fontWeight:800,fontSize:compact?13:14}}>
+              <tr key={ath.id} className="vd-tbl-row" style={{background:rowBg,borderBottom:`1px solid rgba(46,46,61,.7)`,borderLeft:isCur?`3px solid ${C.accent}`:'3px solid transparent'}}>
+                <td style={{position:'sticky',left:0,background:rowBg,padding:'8px 5px',textAlign:'center',fontWeight:600,fontSize:11,color:isDoneHere?'rgba(136,136,170,.4)':'rgba(136,136,170,.7)'}}>{ath.order}</td>
+                <td style={{position:'sticky',left:28,background:rowBg,padding:'8px 5px',textAlign:'center',fontWeight:800,fontSize:compact?13:15,lineHeight:1}}>
                   {plInfo.pl===1?'🥇':plInfo.pl===2?'🥈':plInfo.pl===3?'🥉':plInfo.pl
-                    ?<span style={{color:C.muted,fontSize:11}}>{plInfo.pl}{plInfo.tied?'=':''}</span>
-                    :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
+                    ?<span style={{color:C.muted,fontSize:11,fontWeight:700}}>{plInfo.pl}{plInfo.tied?'=':''}</span>
+                    :<span style={{fontSize:8,color:'rgba(136,136,170,.4)',letterSpacing:.3}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
                 </td>
-                <td style={{position:'sticky',left:66,background:rowBg,padding:'7px 10px',minWidth:160}}>
-                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <td style={{position:'sticky',left:62,background:rowBg,padding:'7px 10px',minWidth:162}}>
+                  <div style={{display:'flex',alignItems:'center',gap:7}}>
                     <FlagCell athlete={ath} size={18}/>
                     <div style={{minWidth:0}}>
-                      <div style={{fontWeight:isCur?800:600,fontSize:13,color:isCur?C.accent:isOut?C.muted:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130,textDecoration:ath.status==='dns'?'line-through':'none'}}>
-                        {isCur&&<span style={{fontSize:9,marginRight:3}}>▶</span>}
-                        {ath.firstName} {ath.lastName}
+                      <div style={{fontWeight:isCur?800:700,fontSize:13,color:isCur?'#ffffff':isOut?'rgba(136,136,170,.5)':C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:132,textDecoration:ath.status==='dns'?'line-through':'none',display:'flex',alignItems:'center',gap:4}}>
+                        {isCur&&<span style={{width:5,height:5,borderRadius:'50%',background:C.accent,display:'inline-block',flexShrink:0,animation:'pulse-ring 1.5s ease-out infinite'}}/>}
+                        <span>{ath.firstName} <span style={{textTransform:'uppercase',letterSpacing:.2}}>{ath.lastName}</span></span>
                       </div>
-                      <div style={{fontSize:9,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130}}>
+                      <div style={{fontSize:9,color:'rgba(136,136,170,.55)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:132,marginTop:1}}>
                         {ath.affiliation&&<span>{ath.affiliation}</span>}
                         {(ath.pb||ath.sb)&&<span style={{marginLeft:ath.affiliation?4:0}}>
-                          {ath.pb&&<span style={{color:C.accent}}>PB {ath.pb}</span>}
-                          {ath.pb&&ath.sb&&<span style={{color:C.muted}}> · </span>}
-                          {ath.sb&&<span style={{color:C.success}}>SB {ath.sb}</span>}
+                          {ath.pb&&<span style={{color:'rgba(147,197,253,.7)'}}>PB {ath.pb}</span>}
+                          {ath.pb&&ath.sb&&<span> · </span>}
+                          {ath.sb&&<span style={{color:'rgba(74,222,128,.7)'}}>SB {ath.sb}</span>}
                         </span>}
                         {ath.status==='retired'&&<span style={{color:C.warn}}> RET</span>}
                       </div>
                     </div>
                   </div>
                 </td>
-                <td style={{position:'sticky',left:226,background:rowBg,padding:'7px 5px',textAlign:'center',width:62}}>
-                  {best?<DualH cm={best} primaryMetric={primaryMetric} pSize={11} sSize={9} style={{alignItems:'center'}}/>
-                       :<span style={{fontSize:9,color:C.muted}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
+                <td style={{position:'sticky',left:224,background:rowBg,padding:'8px 5px',textAlign:'center',width:62}}>
+                  {best?<DualH cm={best} primaryMetric={primaryMetric} pSize={12} sSize={9} style={{alignItems:'center'}}/>
+                       :<span style={{fontSize:9,color:'rgba(136,136,170,.4)'}}>{ath.status==='dns'?'DNS':isOut&&!best?'NH':''}</span>}
                 </td>
                 {heights.map((h,hIdx)=>{
                   const{text,color,bg}=getCellContent(ath,hIdx);
@@ -1363,8 +1628,8 @@ function ResultsTable({athletes,ranked,heights,curH,curA,primaryMetric,setCurA,s
                   return(
                     <td key={hIdx}
                       onClick={()=>{if(setCurH)setCurH(hIdx);if(clickable&&isActive&&setCurA)setCurA(origIdx);}}
-                      style={{padding:'7px 4px',textAlign:'center',fontWeight:800,fontSize:compact?11:12,letterSpacing:.2,color,background:isCurCell?bg||`${C.accent}0d`:bg,cursor:clickable&&isActive&&setCurA?'pointer':'default',borderLeft:isCH?`2px solid ${C.accent}44`:undefined,borderRight:isCH?`2px solid ${C.accent}44`:undefined,outline:isCurCell?`2px inset ${C.accent}55`:'none'}}>
-                      {text}
+                      style={{padding:'8px 3px',textAlign:'center',background:isCH?`rgba(79,124,255,.07)`:isCurCell?`rgba(79,124,255,.14)`:'transparent',cursor:clickable&&isActive&&setCurA?'pointer':'default',borderLeft:isCH?`2px solid rgba(79,124,255,.4)`:'none',borderRight:isCH?`2px solid rgba(79,124,255,.4)`:'none'}}>
+                      <span className={markClass(text)} style={{color:!text?undefined:color}}>{text||''}</span>
                     </td>
                   );
                 })}
@@ -1752,48 +2017,52 @@ function DisplayScreen({sc,primaryMetric,updSc}){
     <div style={{paddingBottom:30}}>
 
       {/* ── COMPETITION BANNER ── */}
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'12px 16px'}}>
+      <div style={{background:'linear-gradient(135deg,#0f0f1e 0%,#141425 100%)',borderBottom:`1px solid rgba(79,124,255,.18)`,padding:'14px 16px'}}>
         <div style={{display:'flex',alignItems:'center',gap:14}}>
 
           {/* Logo slot */}
           <div style={{flexShrink:0,position:'relative'}}>
             {info.logoUrl
-              ?<img src={info.logoUrl} alt="logo" style={{width:58,height:58,objectFit:'contain',borderRadius:10,border:`1px solid rgba(79,124,255,.3)`}}/>
-              :<div style={{width:58,height:58,borderRadius:10,border:`1px dashed rgba(79,124,255,.28)`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'rgba(79,124,255,.05)'}}>
-                <span style={{fontSize:22,opacity:.35}}>🏆</span>
+              ?<img src={info.logoUrl} alt="logo" style={{width:52,height:52,objectFit:'contain',borderRadius:10,border:`1px solid rgba(79,124,255,.25)`}}/>
+              :<div style={{width:52,height:52,borderRadius:10,border:`1px dashed rgba(79,124,255,.22)`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'rgba(79,124,255,.04)'}}>
+                <span style={{fontSize:20,opacity:.3}}>🏆</span>
               </div>
             }
-            <label title="Upload logo" style={{position:'absolute',bottom:-5,right:-5,cursor:'pointer',background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 5px',fontSize:9,color:C.muted,lineHeight:1}}>
+            <label title="Upload logo" style={{position:'absolute',bottom:-5,right:-5,cursor:'pointer',background:'#1a1a2e',border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 5px',fontSize:9,color:C.muted,lineHeight:1}}>
               📷<input type="file" accept="image/*" onChange={handleLogo} style={{display:'none'}}/>
             </label>
           </div>
 
           {/* Name + meta */}
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontWeight:900,fontSize:19,color:'#ffffff',lineHeight:1.1,marginBottom:5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{info.name||'Competition'}</div>
-            <div style={{display:'flex',flexWrap:'wrap',gap:'3px 10px',fontSize:11,color:'rgba(136,136,170,.75)'}}>
-              {info.date&&<span>{info.date}</span>}
-              {info.startTime&&<span>· {info.startTime}</span>}
+            <div className="vd-banner-title" style={{fontWeight:900,fontSize:18,color:'#ffffff',lineHeight:1.1,marginBottom:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{info.name||'Competition'}</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:'2px 8px',fontSize:10.5,color:'rgba(136,136,170,.65)'}}>
+              {genderLabel&&<span style={{color:'rgba(199,215,255,.7)',fontWeight:600}}>{genderLabel}</span>}
               {info.venue&&<span>· {info.venue}</span>}
+              {info.date&&<span>· {info.date}</span>}
               {rbLabel&&<span>· {rbLabel}</span>}
-              {genderLabel&&<span>· {genderLabel}</span>}
             </div>
           </div>
 
           {/* Live / status badge */}
           <div style={{flexShrink:0}}>
-            <div style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:20,background:isActive?`${C.success}1a`:`${C.muted}18`,border:`1px solid ${isActive?C.success:C.muted}44`}}>
-              <span className={isActive?'live-dot':''} style={{width:6,height:6,borderRadius:'50%',background:isActive?C.success:C.muted,display:'inline-block',flexShrink:0}}/>
-              <span style={{fontSize:10,fontWeight:700,letterSpacing:.6,color:isActive?C.success:C.muted}}>{isActive?'LIVE':compStatus==='complete-pending'?'PENDING':'OFFICIAL'}</span>
-            </div>
+            {isActive
+              ?<div style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:20,background:'rgba(239,68,68,.12)',border:'1px solid rgba(239,68,68,.4)'}}>
+                 <span className="live-dot" style={{width:7,height:7,borderRadius:'50%',background:'#ef4444',display:'inline-block',flexShrink:0}}/>
+                 <span style={{fontSize:10,fontWeight:800,letterSpacing:1,color:'#ef4444'}}>LIVE</span>
+               </div>
+              :<div style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:20,background:'rgba(136,136,170,.1)',border:'1px solid rgba(136,136,170,.25)'}}>
+                 <span style={{fontSize:10,fontWeight:700,letterSpacing:.7,color:'rgba(136,136,170,.7)'}}>{compStatus==='complete-pending'?'PENDING':'OFFICIAL'}</span>
+               </div>
+            }
           </div>
         </div>
       </div>
 
       {/* ── DISPLAY SUB-TABS ── */}
-      <div style={{display:'flex',background:C.bg,borderBottom:`1px solid ${C.border}`}}>
-        {[['live','Live View'],['leaderboard','Leaderboard']].map(([k,label])=>(
-          <button key={k} onClick={()=>setDispSubTab(k)} style={{flex:1,padding:'9px 0',fontSize:12,fontWeight:700,color:dispSubTab===k?C.accent:C.muted,background:'transparent',border:'none',borderBottom:dispSubTab===k?`2px solid ${C.accent}`:'2px solid transparent',cursor:'pointer',letterSpacing:.3}}>
+      <div style={{display:'flex',background:'#0a0a14',borderBottom:`1px solid rgba(255,255,255,.07)`}}>
+        {[['live','▶ Live View'],['leaderboard','☰ Leaderboard']].map(([k,label])=>(
+          <button key={k} onClick={()=>setDispSubTab(k)} className="vd-sub-tab" style={{flex:1,padding:'11px 0',fontSize:12,fontWeight:700,color:dispSubTab===k?'#ffffff':C.muted,background:'transparent',border:'none',borderBottom:dispSubTab===k?`2px solid ${C.accent}`:'2px solid transparent',cursor:'pointer',letterSpacing:.3,transition:'color .15s'}}>
             {label}
           </button>
         ))}
@@ -1802,116 +2071,130 @@ function DisplayScreen({sc,primaryMetric,updSc}){
       {dispSubTab==='live'&&<>
       {/* ── HERO (read-only mirror of Score tab) ── */}
       {isActive&&(
-        <div style={{background:C.card,borderLeft:`4px solid ${C.accent}`,borderBottom:`1px solid ${C.border}`,padding:'14px 16px 12px'}}>
-          <div style={{fontSize:11,color:sc.isJumpOff?C.warn:C.accent,fontWeight:800,letterSpacing:.8,textTransform:'uppercase',marginBottom:10}}>
-            {curAth?`${sc.isJumpOff?'⚡ JUMP-OFF · ':''}NOW VAULTING · ATT. ${attemptNum}${curMarks.length>0?' · '+curMarks.join(''):''}`:isActive?'Waiting…':''}
+        <div className="vd-now-bar" style={{borderBottom:`1px solid rgba(79,124,255,.2)`,padding:'14px 16px 14px'}}>
+          {/* Header label row */}
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+            <span style={{width:8,height:8,borderRadius:'50%',background:sc.isJumpOff?C.warn:C.accent,display:'inline-block',animation:'pulse-ring 1.5s ease-out infinite',flexShrink:0}}/>
+            <span style={{fontSize:10,color:sc.isJumpOff?C.warn:'rgba(147,197,253,.85)',fontWeight:800,letterSpacing:1,textTransform:'uppercase'}}>
+              {sc.isJumpOff?'⚡ Jump-Off · ':''}{curAth?'Now Vaulting':'Waiting…'}
+            </span>
+            {curAth&&attemptNum>0&&(
+              <span style={{marginLeft:'auto',fontSize:10,color:'rgba(136,136,170,.6)',fontWeight:600,letterSpacing:.4}}>
+                Attempt&nbsp;
+                {[...Array(3)].map((_,i)=>(
+                  <span key={i} className="vd-attempt-dot" style={{background:i<curMarks.length?(curMarks[i]==='O'?'#4ade80':curMarks[i]==='P'?'#f59e0b':'#f87171'):'rgba(136,136,170,.2)',marginLeft:3}}/>
+                ))}
+              </span>
+            )}
           </div>
-          <div style={{display:'flex',alignItems:'flex-start',gap:0}}>
-            {/* Height */}
-            <div style={{textAlign:'center',flexShrink:0,paddingRight:18,minWidth:100}}>
+
+          <div style={{display:'flex',alignItems:'stretch',gap:0}}>
+            {/* Height block */}
+            <div style={{flexShrink:0,paddingRight:20,minWidth:106,display:'flex',flexDirection:'column',justifyContent:'center'}}>
               {curHt?(<>
-                <div style={{fontSize:44,fontWeight:900,color:'#ffffff',letterSpacing:-2,lineHeight:1}}>{fmtH(curHt,primaryMetric)}</div>
-                <div style={{fontSize:14,color:C.muted,fontWeight:600,marginTop:6}}>{fmtH(curHt,!primaryMetric)}</div>
-              </>):<div style={{fontSize:14,color:C.muted,paddingTop:16}}>—</div>}
+                <div className="vd-hero-ht">{fmtH(curHt,primaryMetric)}</div>
+                <div className="vd-hero-ht-alt">{fmtH(curHt,!primaryMetric)}</div>
+              </>):<div style={{fontSize:14,color:C.muted}}>—</div>}
             </div>
-            <div style={{width:1,alignSelf:'stretch',background:C.border,flexShrink:0,marginRight:18,minHeight:56}}/>
-            {/* Athlete */}
+            <div style={{width:1,alignSelf:'stretch',background:'rgba(79,124,255,.2)',flexShrink:0,marginRight:18,minHeight:60}}/>
+
+            {/* Athlete block */}
             {curAth?(
               <div style={{flex:1,minWidth:0}}>
-                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8,marginBottom:6}}>
-                  <div style={{display:'flex',alignItems:'center',gap:9,minWidth:0}}>
-                    <FlagCell athlete={curAth} size={28}/>
-                    <span style={{fontWeight:900,fontSize:24,color:'#ffffff',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',letterSpacing:-.5,lineHeight:1.1}}>{curAth.firstName} {curAth.lastName}</span>
-                  </div>
-                  <div style={{flexShrink:0,background:'rgba(0,0,0,.5)',border:`1px solid rgba(79,124,255,.3)`,borderRadius:8,padding:'4px 10px',textAlign:'center',minWidth:40}}>
-                    <div style={{fontSize:8,color:'rgba(136,136,170,.65)',fontWeight:700,letterSpacing:.5,textTransform:'uppercase',lineHeight:1,marginBottom:2}}>Att.</div>
-                    <div style={{fontSize:20,fontWeight:900,color:'#ffffff',lineHeight:1}}>{attemptNum}</div>
+                <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:5,minWidth:0}}>
+                  <FlagCell athlete={curAth} size={26}/>
+                  <div className="vd-hero-name">
+                    {curAth.firstName}&nbsp;<span className="vd-hero-lastname">{curAth.lastName}</span>
                   </div>
                 </div>
-                {/* Standing + affiliation row */}
-                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:5}}>
-                  {curPlaceD&&<div style={{display:'inline-flex',alignItems:'center',background:'rgba(251,191,36,.12)',border:'1px solid rgba(251,191,36,.35)',borderRadius:6,padding:'2px 8px',fontSize:10,fontWeight:800,color:'#fbbf24',whiteSpace:'nowrap',flexShrink:0}}>{curTiedD?'T-':''}{plLabel(curPlaceD)}</div>}
-                  {curAth.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)'}}>{curAth.affiliation}</div>}
+                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:7,flexWrap:'wrap'}}>
+                  {curPlaceD&&<div style={{display:'inline-flex',alignItems:'center',background:'rgba(251,191,36,.12)',border:'1px solid rgba(251,191,36,.3)',borderRadius:5,padding:'2px 8px',fontSize:9,fontWeight:800,color:'#fbbf24',letterSpacing:.4,flexShrink:0}}>{curTiedD?'T-':''}{plLabel(curPlaceD)}</div>}
+                  {curAth.affiliation&&<div style={{fontSize:10.5,color:'rgba(136,136,170,.6)'}}>{curAth.affiliation}</div>}
+                  {curAth.pb&&<div style={{fontSize:10,color:'rgba(147,197,253,.6)',flexShrink:0}}>PB <span style={{fontWeight:800,color:'rgba(147,197,253,.85)'}}>{curAth.pb}</span></div>}
+                  {curAth.sb&&<div style={{fontSize:10,color:'rgba(74,222,128,.6)',flexShrink:0}}>SB <span style={{fontWeight:800,color:'rgba(74,222,128,.8)'}}>{curAth.sb}</span></div>}
                 </div>
-                <div style={{display:'flex',alignItems:'center',gap:8,overflowX:'auto',WebkitOverflowScrolling:'touch',paddingBottom:2}}>
-                  {(curAth.pb||curAth.sb)&&(
-                    <div style={{display:'flex',gap:10,fontSize:11,flexShrink:0}}>
-                      {curAth.pb&&<span style={{color:'rgba(136,136,170,.75)',whiteSpace:'nowrap'}}>PB <span style={{color:'#93c5fd',fontWeight:800}}>{curAth.pb}</span></span>}
-                      {curAth.sb&&<span style={{color:'rgba(136,136,170,.75)',whiteSpace:'nowrap'}}>SB <span style={{color:C.success,fontWeight:800}}>{curAth.sb}</span></span>}
-                    </div>
-                  )}
-                  {heights.length>0&&(
-                    <div style={{display:'flex',gap:4,flexShrink:0}}>
-                      {heights.map((h,i)=>{
-                        const m=curAth.attempts[i]||[];
-                        const isCurH=i===curH;
-                        const cleared=hasCleared(m);
-                        const missed3=countMisses(m)>=3&&!cleared;
-                        const markStr=m.join('');
-                        return(
-                          <div key={i} style={{textAlign:'center',padding:'3px 6px',borderRadius:6,flexShrink:0,background:isCurH?'rgba(79,124,255,.28)':cleared?'rgba(74,222,128,.13)':missed3?'rgba(248,113,113,.13)':'rgba(255,255,255,.04)',border:isCurH?'1px solid rgba(79,124,255,.6)':cleared?'1px solid rgba(74,222,128,.28)':missed3?'1px solid rgba(248,113,113,.25)':'1px solid rgba(255,255,255,.07)',boxShadow:isCurH?'0 0 8px rgba(79,124,255,.18)':'none'}}>
-                            <div style={{fontSize:8,fontWeight:700,color:isCurH?'rgba(147,197,253,.85)':cleared?'rgba(74,222,128,.7)':missed3?'rgba(248,113,113,.7)':'rgba(136,136,170,.4)',whiteSpace:'nowrap'}}>{fmtH(h,primaryMetric)}</div>
-                            <div style={{fontSize:11,fontWeight:900,color:cleared?'#4ade80':missed3?'#f87171':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.35)':'rgba(136,136,170,.2)'}}>{markStr||(isCurH?'…':'—')}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                {/* Height chips */}
+                {heights.length>0&&(
+                  <div style={{display:'flex',gap:4,overflowX:'auto',WebkitOverflowScrolling:'touch',paddingBottom:2}}>
+                    {heights.map((h,i)=>{
+                      const m=curAth.attempts[i]||[];
+                      const isCurH=i===curH;
+                      const cleared=hasCleared(m);
+                      const missed3=countMisses(m)>=3&&!cleared;
+                      const passed=hasPassed(m)&&!cleared&&!missed3;
+                      const markStr=m.join('');
+                      if(!isCurH&&m.length===0)return null;
+                      return(
+                        <div key={i} style={{textAlign:'center',padding:'3px 7px',borderRadius:6,flexShrink:0,
+                          background:isCurH?'rgba(79,124,255,.25)':cleared?'rgba(74,222,128,.12)':missed3?'rgba(248,113,113,.12)':passed?'rgba(245,158,11,.1)':'rgba(255,255,255,.04)',
+                          border:isCurH?'1px solid rgba(79,124,255,.55)':cleared?'1px solid rgba(74,222,128,.25)':missed3?'1px solid rgba(248,113,113,.22)':passed?'1px solid rgba(245,158,11,.22)':'1px solid rgba(255,255,255,.06)',
+                          boxShadow:isCurH?'0 0 10px rgba(79,124,255,.15)':'none'}}>
+                          <div style={{fontSize:8,fontWeight:700,color:isCurH?'rgba(147,197,253,.8)':cleared?'rgba(74,222,128,.65)':missed3?'rgba(248,113,113,.65)':passed?'rgba(245,158,11,.6)':'rgba(136,136,170,.4)',whiteSpace:'nowrap',letterSpacing:.3}}>{fmtH(h,primaryMetric)}</div>
+                          <div style={{fontSize:11,fontWeight:900,color:cleared?'#4ade80':missed3?'#f87171':passed?'#f59e0b':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.3)':'rgba(136,136,170,.2)'}}>{markStr||(isCurH?'…':'—')}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            ):<div style={{flex:1,color:C.muted,fontSize:13,paddingTop:10}}>No active vaulter</div>}
+            ):<div style={{flex:1,color:C.muted,fontSize:13,display:'flex',alignItems:'center'}}>No active vaulter</div>}
           </div>
         </div>
       )}
 
       {/* ── ON DECK / IN HOLE ── */}
       {isActive&&onDeckIdx>=0&&(
-        <div style={{display:'flex',gap:0,background:C.surface,borderBottom:`1px solid ${C.border}`}}>
-          {onDeckIdx>=0&&athletes[onDeckIdx]&&<div style={{flex:1,padding:'6px 14px',fontSize:11,color:C.warn,fontWeight:700,borderRight:`1px solid ${C.border}`}}>
-            <span style={{opacity:.6,fontWeight:500,marginRight:6}}>NEXT</span>{athletes[onDeckIdx].lastName}, {athletes[onDeckIdx].firstName}
-          </div>}
-          {inHoleIdx>=0&&athletes[inHoleIdx]&&<div style={{flex:1,padding:'6px 14px',fontSize:11,color:C.muted,fontWeight:600}}>
-            <span style={{opacity:.6,fontWeight:500,marginRight:6}}>ON HOLD</span>{athletes[inHoleIdx].lastName}, {athletes[inHoleIdx].firstName}
-          </div>}
+        <div style={{display:'flex',background:'rgba(10,10,20,.8)',borderBottom:`1px solid rgba(255,255,255,.06)`}}>
+          {athletes[onDeckIdx]&&(
+            <div className="vd-ondeck" style={{flex:1,padding:'7px 14px',fontSize:11.5,borderRight:`1px solid rgba(255,255,255,.06)`,display:'flex',alignItems:'center',gap:7}}>
+              <span style={{background:'rgba(245,158,11,.18)',border:'1px solid rgba(245,158,11,.35)',color:'#f59e0b',fontSize:8,fontWeight:800,letterSpacing:.8,padding:'2px 6px',borderRadius:4,flexShrink:0}}>NEXT</span>
+              <span style={{color:'rgba(245,158,11,.9)',fontWeight:700}}><span style={{textTransform:'uppercase',letterSpacing:.3}}>{athletes[onDeckIdx].lastName}</span> {athletes[onDeckIdx].firstName}</span>
+            </div>
+          )}
+          {inHoleIdx>=0&&athletes[inHoleIdx]&&(
+            <div className="vd-ondeck" style={{flex:1,padding:'7px 14px',fontSize:11.5,display:'flex',alignItems:'center',gap:7}}>
+              <span style={{background:'rgba(136,136,170,.1)',border:'1px solid rgba(136,136,170,.25)',color:'rgba(136,136,170,.7)',fontSize:8,fontWeight:800,letterSpacing:.8,padding:'2px 6px',borderRadius:4,flexShrink:0}}>ON HOLD</span>
+              <span style={{color:'rgba(136,136,170,.75)',fontWeight:600}}><span style={{textTransform:'uppercase',letterSpacing:.3}}>{athletes[inHoleIdx].lastName}</span> {athletes[inHoleIdx].firstName}</span>
+            </div>
+          )}
         </div>
       )}
 
       {/* ── WINNER HERO (when competition finished) ── */}
       {!isActive&&winners.length>0&&(
-        <div style={{background:C.card,borderLeft:`4px solid #fbbf24`,borderBottom:`1px solid ${C.border}`,padding:'14px 16px 12px'}}>
-          <div style={{fontSize:10,color:'rgba(251,191,36,.8)',fontWeight:700,letterSpacing:.9,textTransform:'uppercase',marginBottom:12}}>
-            🏆 {winners.length>1?'Co-Champions':'Champion'}
+        <div style={{background:'linear-gradient(135deg,rgba(251,191,36,.09) 0%,rgba(251,191,36,.04) 100%)',borderBottom:`1px solid rgba(251,191,36,.2)`,padding:'16px 16px 14px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:13}}>
+            <span style={{fontSize:14}}>🏆</span>
+            <span style={{fontSize:10,color:'rgba(251,191,36,.8)',fontWeight:800,letterSpacing:1,textTransform:'uppercase'}}>{winners.length>1?'Co-Champions':'Champion'}</span>
           </div>
-          <div style={{display:'flex',alignItems:'flex-start',gap:0}}>
+          <div style={{display:'flex',alignItems:'stretch',gap:0}}>
             {/* Winning height */}
-            <div style={{textAlign:'center',flexShrink:0,paddingRight:16,minWidth:96}}>
+            <div style={{flexShrink:0,paddingRight:18,minWidth:106,display:'flex',flexDirection:'column',justifyContent:'center'}}>
               {winnerBestH?(
                 <>
-                  <div style={{fontSize:40,fontWeight:900,color:'#fbbf24',letterSpacing:-2,lineHeight:1}}>{fmtH(winnerBestH,primaryMetric)}</div>
-                  <div style={{fontSize:16,color:'rgba(251,191,36,.55)',fontWeight:700,marginTop:5}}>{fmtH(winnerBestH,!primaryMetric)}</div>
+                  <div className="vd-hero-ht" style={{color:'#fbbf24'}}>{fmtH(winnerBestH,primaryMetric)}</div>
+                  <div className="vd-hero-ht-alt" style={{color:'rgba(251,191,36,.4)'}}>{fmtH(winnerBestH,!primaryMetric)}</div>
                 </>
-              ):<div style={{fontSize:14,color:C.muted,paddingTop:16}}>NH</div>}
+              ):<div style={{fontSize:14,color:C.muted}}>NH</div>}
             </div>
-            <div style={{width:1,alignSelf:'stretch',background:'rgba(251,191,36,.3)',flexShrink:0,marginRight:16,minHeight:56}}/>
+            <div style={{width:1,alignSelf:'stretch',background:'rgba(251,191,36,.25)',flexShrink:0,marginRight:18,minHeight:60}}/>
             {/* Winner(s) */}
             <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:10}}>
-              {winners.map(w=>{
-                return(
-                  <div key={w.id}>
-                    <div style={{display:'flex',alignItems:'center',gap:9,minWidth:0,marginBottom:3}}>
-                      <FlagCell athlete={w} size={28}/>
-                      <span style={{fontWeight:900,fontSize:24,color:'#ffffff',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',letterSpacing:-.5,lineHeight:1.1}}>{w.firstName} {w.lastName}</span>
+              {winners.map(w=>(
+                <div key={w.id}>
+                  <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:3,minWidth:0}}>
+                    <FlagCell athlete={w} size={26}/>
+                    <div className="vd-hero-name">
+                      {w.firstName}&nbsp;<span className="vd-hero-lastname">{w.lastName}</span>
                     </div>
-                    {w.affiliation&&<div style={{fontSize:11,color:'rgba(136,136,170,.65)',marginLeft:1}}>{w.affiliation}</div>}
-                    {(w.pb||w.sb)&&(
-                      <div style={{display:'flex',gap:10,fontSize:11,marginLeft:1,marginTop:2}}>
-                        {w.pb&&<span style={{color:'rgba(136,136,170,.75)'}}>PB <span style={{color:'#93c5fd',fontWeight:800}}>{w.pb}</span></span>}
-                        {w.sb&&<span style={{color:'rgba(136,136,170,.75)'}}>SB <span style={{color:C.success,fontWeight:800}}>{w.sb}</span></span>}
-                      </div>
-                    )}
                   </div>
-                );
-              })}
+                  <div style={{display:'flex',gap:8,fontSize:10.5,flexWrap:'wrap'}}>
+                    {w.affiliation&&<span style={{color:'rgba(136,136,170,.6)'}}>{w.affiliation}</span>}
+                    {w.pb&&<span style={{color:'rgba(147,197,253,.6)'}}>PB <span style={{fontWeight:800,color:'rgba(147,197,253,.85)'}}>{w.pb}</span></span>}
+                    {w.sb&&<span style={{color:'rgba(74,222,128,.6)'}}>SB <span style={{fontWeight:800,color:'rgba(74,222,128,.8)'}}>{w.sb}</span></span>}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -1927,7 +2210,7 @@ function DisplayScreen({sc,primaryMetric,updSc}){
       {dispSubTab==='leaderboard'&&(
         <div style={{padding:'10px 12px 30px'}}>
           {ranked.length===0&&<div style={{padding:40,textAlign:'center',color:C.muted,fontSize:13}}>No results yet — competition hasn't started.</div>}
-          {ranked.map(ath=>{
+          {ranked.map((ath,rowI)=>{
             const isCV=ath.id===curAth?.id;
             const bestIdx=highestClearedIdx(ath,heights.length);
             const bestH=bestIdx>=0?heights[bestIdx]:null;
@@ -1935,57 +2218,57 @@ function DisplayScreen({sc,primaryMetric,updSc}){
             const tied=ath.tied;
             const medal=pl===1?'🥇':pl===2?'🥈':pl===3?'🥉':null;
             const plStr=pl?(tied?`T-${plLabel(pl)}`:plLabel(pl)):ath.status==='dns'?'DNS':'NH';
-            const plColor=pl===1?'#fbbf24':pl===2?'#9ca3af':pl===3?'#f97316':C.muted;
+            const plColor=pl===1?'#fbbf24':pl===2?'rgba(209,213,219,.8)':pl===3?'#f97316':C.muted;
             const chipHeights=heights.map((h,i)=>({h,i,m:ath.attempts[i]||[]})).filter(({m,i})=>m.length>0||(isCV&&i===curH));
             return(
-              <div key={ath.id} style={{
-                background:isCV?'rgba(79,124,255,.1)':C.card,
-                border:`1px solid ${isCV?'rgba(79,124,255,.45)':C.border}`,
-                borderRadius:10,padding:'9px 11px',marginBottom:6,
-                boxShadow:isCV?'0 0 14px rgba(79,124,255,.12)':'none'
+              <div key={ath.id} className="vd-lb-card" style={{
+                background:isCV?'rgba(79,124,255,.1)':pl===1?'rgba(251,191,36,.05)':C.card,
+                border:`1px solid ${isCV?'rgba(79,124,255,.45)':pl===1?'rgba(251,191,36,.2)':C.border}`,
+                boxShadow:isCV?'0 0 18px rgba(79,124,255,.12)':pl===1?'0 2px 12px rgba(251,191,36,.06)':'none'
               }}>
-                <div style={{display:'flex',alignItems:'center',gap:9}}>
+                {/* Top row */}
+                <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px 0'}}>
                   {/* Place / medal */}
-                  <div style={{flexShrink:0,minWidth:34,textAlign:'center'}}>
+                  <div style={{flexShrink:0,width:32,textAlign:'center'}}>
                     {medal
-                      ?<span style={{fontSize:20,lineHeight:1}}>{medal}</span>
-                      :<span style={{fontSize:12,fontWeight:800,color:plColor}}>{plStr}</span>
+                      ?<span style={{fontSize:22,lineHeight:1}}>{medal}</span>
+                      :<span style={{fontSize:13,fontWeight:800,color:plColor,fontVariantNumeric:'tabular-nums'}}>{plStr}</span>
                     }
                   </div>
                   <FlagCell athlete={ath} size={22}/>
-                  {/* Name + affiliation */}
+                  {/* Name */}
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:'flex',alignItems:'center',gap:5,minWidth:0}}>
-                      <span style={{fontWeight:800,fontSize:14,color:isCV?'#ffffff':C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ath.firstName} {ath.lastName}</span>
-                      {isCV&&<span style={{fontSize:8,fontWeight:700,color:C.accent,background:`${C.accent}22`,borderRadius:4,padding:'1px 5px',flexShrink:0,letterSpacing:.5}}>NOW</span>}
+                    <div style={{fontWeight:800,fontSize:14,color:isCV?'#ffffff':C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:5}}>
+                      <span>{ath.firstName} <span style={{textTransform:'uppercase',letterSpacing:.2}}>{ath.lastName}</span></span>
+                      {isCV&&<span style={{fontSize:8,fontWeight:800,color:C.accent,background:`${C.accent}22`,borderRadius:4,padding:'1px 5px',flexShrink:0,letterSpacing:.6,border:`1px solid ${C.accent}44`}}>NOW</span>}
                     </div>
-                    {ath.affiliation&&<div style={{fontSize:10,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ath.affiliation}</div>}
+                    {ath.affiliation&&<div style={{fontSize:9.5,color:'rgba(136,136,170,.5)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ath.affiliation}</div>}
                   </div>
                   {/* Best height */}
                   <div style={{flexShrink:0,textAlign:'right'}}>
                     {bestH?(
                       <>
-                        <div style={{fontSize:15,fontWeight:900,color:C.success,letterSpacing:-.5}}>{fmtH(bestH,primaryMetric)}</div>
-                        <div style={{fontSize:9,color:C.muted}}>{fmtH(bestH,!primaryMetric)}</div>
+                        <div style={{fontSize:16,fontWeight:900,color:pl===1?'#fbbf24':C.success,letterSpacing:-.5,lineHeight:1}}>{fmtH(bestH,primaryMetric)}</div>
+                        <div style={{fontSize:9,color:'rgba(136,136,170,.45)',marginTop:1}}>{fmtH(bestH,!primaryMetric)}</div>
                       </>
-                    ):<span style={{fontSize:11,color:C.muted}}>{ath.status==='dns'?'DNS':'NH'}</span>}
+                    ):<span style={{fontSize:11,color:'rgba(136,136,170,.4)'}}>{ath.status==='dns'?'DNS':'NH'}</span>}
                   </div>
                 </div>
-                {/* Height chips — only attempted heights + current vaulter's current height */}
+                {/* Height chips */}
                 {chipHeights.length>0&&(
-                  <div style={{display:'flex',gap:3,marginTop:7,overflowX:'auto',paddingBottom:1}}>
+                  <div style={{display:'flex',gap:3,padding:'7px 12px 10px',overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
                     {chipHeights.map(({h,i,m})=>{
                       const cleared=hasCleared(m);
                       const miss3=countMisses(m)>=3&&!cleared;
-                      const pas=hasPassed(m)&&!cleared;
+                      const pas=hasPassed(m)&&!cleared&&!miss3;
                       const isCurH=isCV&&i===curH;
                       const markStr=m.join('');
                       return(
-                        <div key={i} style={{textAlign:'center',padding:'2px 5px',borderRadius:5,flexShrink:0,
-                          background:isCurH?'rgba(79,124,255,.22)':cleared?'rgba(74,222,128,.12)':miss3?'rgba(248,113,113,.12)':pas?'rgba(217,119,6,.12)':'rgba(255,255,255,.04)',
-                          border:isCurH?'1px solid rgba(79,124,255,.5)':cleared?'1px solid rgba(74,222,128,.25)':miss3?'1px solid rgba(248,113,113,.22)':pas?'1px solid rgba(217,119,6,.25)':'1px solid rgba(255,255,255,.07)'}}>
-                          <div style={{fontSize:7,fontWeight:700,whiteSpace:'nowrap',color:isCurH?'rgba(147,197,253,.8)':cleared?'rgba(74,222,128,.7)':miss3?'rgba(248,113,113,.7)':pas?'#d97706':C.muted}}>{fmtH(h,primaryMetric)}</div>
-                          <div style={{fontSize:10,fontWeight:900,color:cleared?'#4ade80':miss3?'#f87171':pas?'#d97706':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.3)':'rgba(136,136,170,.2)'}}>{markStr||(isCurH?'…':'—')}</div>
+                        <div key={i} style={{textAlign:'center',padding:'3px 6px',borderRadius:5,flexShrink:0,
+                          background:isCurH?'rgba(79,124,255,.2)':cleared?'rgba(74,222,128,.1)':miss3?'rgba(248,113,113,.1)':pas?'rgba(245,158,11,.1)':'rgba(255,255,255,.03)',
+                          border:isCurH?'1px solid rgba(79,124,255,.45)':cleared?'1px solid rgba(74,222,128,.2)':miss3?'1px solid rgba(248,113,113,.2)':pas?'1px solid rgba(245,158,11,.22)':'1px solid rgba(255,255,255,.06)'}}>
+                          <div style={{fontSize:7.5,fontWeight:700,whiteSpace:'nowrap',letterSpacing:.2,color:isCurH?'rgba(147,197,253,.75)':cleared?'rgba(74,222,128,.65)':miss3?'rgba(248,113,113,.65)':pas?'rgba(245,158,11,.6)':'rgba(136,136,170,.35)'}}>{fmtH(h,primaryMetric)}</div>
+                          <div style={{fontSize:10.5,fontWeight:900,color:cleared?'#4ade80':miss3?'#f87171':pas?'#f59e0b':markStr?'#93c5fd':isCurH?'rgba(255,255,255,.3)':'rgba(136,136,170,.18)'}}>{markStr||(isCurH?'…':'—')}</div>
                         </div>
                       );
                     })}
@@ -2175,6 +2458,29 @@ function EditOverlay({sc,updSc,onClose}){
   const setHeights=h=>updSc({heights:h});
   const updateHeight=(i,v)=>{const cm=Math.round(parseFloat(v)*100);if(!isNaN(cm))updSc({heights:heights.map((h,j)=>j===i?cm:h)});};
   const primaryMetric=rulebook!=='NFHS';
+  // ── Resync unsynced athletes to Supabase ──────────────────────────────────
+  const unsyncedCount=(window.__vd_unsyncedAthletes?.size||0)+athletes.filter(a=>!sc.athIds?.[a.id]).length;
+  const [syncState2,setSyncState2]=useState('idle');
+  const [syncMsg,setSyncMsg]=useState('');
+  const [showSignIn,setShowSignIn]=useState(false);
+  const [signEmail,setSignEmail]=useState('');
+  const [signPw,setSignPw]=useState('');
+  const doResync=async()=>{
+    setSyncState2('loading');setSyncMsg('');
+    try{
+      const{data:{session}}=await sb.auth.getSession();
+      if(!session){setShowSignIn(true);setSyncState2('idle');return;}
+      const r=await syncNewAthletesToSupabase(sc,updSc);
+      setSyncState2('ok');setSyncMsg(`✅ Synced ${r.added} athlete${r.added===1?'':'s'} to Supabase`);
+      setTimeout(()=>{setSyncState2('idle');setSyncMsg('');},4000);
+    }catch(e){setSyncState2('error');setSyncMsg('❌ '+(e.message||e));}
+  };
+  const doSignIn=async()=>{
+    setSyncState2('loading');
+    const{error}=await sb.auth.signInWithPassword({email:signEmail,password:signPw});
+    if(error){setSyncState2('error');setSyncMsg('❌ '+error.message);}else{setShowSignIn(false);doResync();}
+  };
+  };
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.85)',zIndex:500,display:'flex',flexDirection:'column'}}>
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'12px 16px',display:'flex',alignItems:'center',gap:10}}>
@@ -2182,6 +2488,22 @@ function EditOverlay({sc,updSc,onClose}){
         <button onClick={onClose} style={btn(C.accent,'7px 16px',13)}>Done</button>
       </div>
       <div style={{flex:1,overflowY:'auto',padding:14,paddingBottom:30}}>
+        {(unsyncedCount>0||syncState2==='ok'||syncState2==='error'||syncMsg)&&<div style={{background:syncState2==='ok'?'#14532d22':syncState2==='error'?'#7f1d1d22':'#78350f22',border:`1px solid ${syncState2==='ok'?C.success:syncState2==='error'?C.danger:C.warn}`,borderRadius:8,padding:'10px 14px',marginBottom:12,display:'flex',flexDirection:'column',gap:6}}>
+          {syncMsg
+            ?<div style={{fontSize:13,fontWeight:600}}>{syncMsg}</div>
+            :<><div style={{fontSize:13,fontWeight:600,color:C.warn}}>{unsyncedCount} athlete{unsyncedCount===1?'':'s'} not yet visible on the Display screen.</div>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',MarginTop:4}}>
+              {(syncState2==='idle'||syncState2==='error')&&<button onClick={doResync} style={btn(C.warn,'6px 14px',12)}>🔄 Resync to Supabase</button>}
+              {syncState2==='loading'&&<span style={{fontSize:12,color:C.muted}}>Syncing…</span>}
+            </div></>
+          }
+          {showSignIn&&<div style={{marginTop:8,display:'flex',flexDirection:'column',gap:6}}>
+            <div style={{fontSize:12,color:C.muted}}>Sign in to push athletes to Supabase:</div>
+            <input value={signEmail} onChange={e=>setSignEmail(e.target.value)} placeholder="Email" style={{...inputSt,fontSize:12}} type="email"/>
+            <input value={signPw} onChange={e=>setSignPw(e.target.value)} placeholder="Password" style={{...inputSt,fontSize:12}} type="password"/>
+            <button onClick={doSignIn} style={btn(C.accent,'6px 14px',12)} disabled={syncState2==='loading'}>Sign In & Sync</button>
+          </div>}
+        </div>}
         <div style={sec}>
           <div style={secTit}>Athletes</div>
           <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Edit inline. ▼ for advanced options. Drag ☰ to reorder.</div>
@@ -2493,6 +2815,79 @@ function SuperAdminScreen(){
   );
 }
 
+// ─── MY COMPETITIONS (remote access for any logged-in admin) ──────────────────
+function MyCompsScreen({authUser}){
+  const[comps,setComps]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[refreshAt,setRefreshAt]=useState(0);
+  const[confirmDel,setConfirmDel]=useState(null);
+  const doDelete=async(slug)=>{
+    try{await sb.from('competitions').delete().eq('slug',slug);setComps(p=>p.filter(c=>c.slug!==slug));}
+    catch(e){console.warn('Delete failed:',e);}
+    setConfirmDel(null);
+  };
+  useEffect(()=>{
+    if(!authUser?.id)return;
+    setLoading(true);
+    sb.from('competitions')
+      .select('slug,name,date,venue,rulebook,status,scorer_token,created_at')
+      .eq('owner_id',authUser.id)
+      .order('created_at',{ascending:false})
+      .then(({data})=>{setComps(data||[]);setLoading(false);})
+      .catch(()=>setLoading(false));
+  },[authUser?.id,refreshAt]);
+  const base=`${window.location.origin}${window.location.pathname}`;
+  const mkUrls=c=>({
+    disp:`${base}#/display/${c.slug}`,
+    score:c.scorer_token?`${base}#/score/${c.slug}/${c.scorer_token}`:null,
+  });
+  if(loading)return<div style={{padding:32,textAlign:'center',color:C.muted,fontSize:13}}>Loading…</div>;
+  return(
+    <div style={{padding:14}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+        <div style={{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:1,fontWeight:700,flex:1}}>My Competitions ({comps.length})</div>
+        <button onClick={()=>setRefreshAt(Date.now())} style={{...btn(C.card,'5px 10px',11),border:`1px solid ${C.border}`,color:C.muted}}>↻ Refresh</button>
+      </div>
+      {comps.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:'center',padding:32}}>No competitions yet. Create one in Setup.</div>}
+      {comps.map(c=>{
+        const{disp,score}=mkUrls(c);
+        const isLive=c.status==='active';
+        const isOfficial=c.status==='official';
+        return(
+          <div key={c.slug} style={{background:C.surface,borderRadius:10,border:`1px solid ${isLive?C.success+'55':C.border}`,padding:14,marginBottom:10}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:5}}>
+              {isLive&&<span className="live-dot" style={{width:7,height:7,borderRadius:'50%',background:C.success,flexShrink:0,display:'inline-block'}}/>}
+              <span style={{fontWeight:700,fontSize:14,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name||'Untitled'}</span>
+              <span style={{fontSize:10,fontWeight:700,color:isLive?C.success:isOfficial?C.accent:C.muted,background:isLive?`${C.success}22`:isOfficial?`${C.accent}22`:C.card,padding:'2px 8px',borderRadius:5,textTransform:'uppercase',flexShrink:0}}>{c.status}</span>
+              {confirmDel===c.slug?(
+                <><span style={{fontSize:11,color:C.danger,fontWeight:700,flexShrink:0}}>Delete?</span>
+                <button onClick={()=>doDelete(c.slug)} style={btn(C.danger,'3px 8px',11)}>Yes</button>
+                <button onClick={()=>setConfirmDel(null)} style={{...btn(C.card,'3px 8px',11),border:`1px solid ${C.border}`}}>No</button></>
+              ):(
+                <button onClick={()=>setConfirmDel(c.slug)} style={{...btn(C.card,'3px 7px',11),border:`1px solid ${C.danger}44`,color:C.danger,flexShrink:0}} title="Delete">🗑</button>
+              )}
+            </div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:10}}>{[c.date,c.venue,c.rulebook].filter(Boolean).join(' · ')}</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
+              {score&&<button onClick={()=>window.open(score,'_blank')} style={btn(C.accent,'7px 14px',13)}>📊 Remote Score</button>}
+              <button onClick={()=>window.open(disp,'_blank')} style={{...btn(C.card,'7px 14px',13),border:`1px solid ${C.border}`}}>📺 Display</button>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:4}}>
+              {[{label:'📺 Display',url:disp},{label:'📊 Scorer',url:score}].filter(r=>r.url).map(r=>(
+                <div key={r.label} style={{display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{fontSize:9,color:C.muted,width:54,flexShrink:0}}>{r.label}</span>
+                  <span style={{fontSize:9,fontFamily:'monospace',background:C.card,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.border}`,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.url}</span>
+                  <button onClick={()=>navigator.clipboard.writeText(r.url).catch(()=>{})} style={{...btn(C.card,'2px 8px',9),border:`1px solid ${C.border}`,flexShrink:0}}>Copy</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function VaultDeskApp(){
   const saved_=useMemo(()=>{try{const s=JSON.parse(localStorage.getItem(LS_CUR)||'{}');return s;}catch{return{}};},[]);
   const[screen,setScreen]=useState(()=>{const s=saved_.screen;return(s==='scoring'||s==='display')?'live':s||'setup';});
@@ -2547,25 +2942,50 @@ function VaultDeskApp(){
     return()=>window.removeEventListener('hashchange',onHash);
   },[]);
 
-  // Display: subscribe to realtime updates
+  // Display: subscribe to realtime updates with reconnect + polling fallback
   useEffect(()=>{
     if(ROUTE.mode!=='display'||!sc?.supabaseCompId)return;
     const compId=sc.supabaseCompId;
+    const compSlug=sc.compId;
+    let ch=null;let pollTimer=null;let reconnectTimer=null;let destroyed=false;
     const reload=async()=>{
-      try{const{sc:f}=await loadCompFromSupabase(sc.compId);setSc(f);}
+      try{const{sc:f}=await loadCompFromSupabase(compSlug);if(!destroyed)setSc(f);}
       catch(e){console.warn('Realtime reload failed:',e);}
     };
-    const ch=sb.channel(`comp:${compId}`)
-      .on('postgres_changes',{event:'*',schema:'public',table:'attempts',filter:`comp_id=eq.${compId}`},reload)
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'competitions',filter:`id=eq.${compId}`},reload)
-      .subscribe();
-    return()=>{sb.removeChannel(ch);};
+    const startSub=()=>{
+      if(destroyed)return;
+      if(ch){try{sb.removeChannel(ch);}catch(_){} ch=null;}
+      ch=sb.channel(`comp:${compId}`)
+        .on('postgres_changes',{event:'*',schema:'public',table:'attempts',filter:`comp_id=eq.${compId}`},reload)
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'competitions',filter:`id=eq.${compId}`},reload)
+        .subscribe(status=>{
+          if((status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')&&!destroyed){
+            console.warn('[VaultDesk] Realtime channel lost ('+status+'), reconnecting in 5s…');
+            clearTimeout(reconnectTimer);
+            reconnectTimer=setTimeout(()=>{startSub();reload();},5000);
+          }
+        });
+    };
+    startSub();
+    // Polling fallback: reload every 30s regardless of realtime status
+    pollTimer=setInterval(reload,30000);
+    return()=>{
+      destroyed=true;
+      clearInterval(pollTimer);clearTimeout(reconnectTimer);
+      if(ch){try{sb.removeChannel(ch);}catch(_){}}
+    };
   },[sc?.supabaseCompId]);
 
   const updSu=useCallback(patch=>setSu(p=>({...p,...patch})),[]);
   const updSc=useCallback(patch=>setSc(p=>p?{...p,...patch}:p),[]);
 
-  useEffect(()=>{saveCurrent({screen,primaryMetric,su,sc});},[screen,primaryMetric,su,sc]);
+  useEffect(()=>{
+    saveCurrent({screen,primaryMetric,su,sc});
+    // Async cloud sync — fire-and-forget, never blocks UI
+    if(sc?.compId&&authUser?.id){
+      saveCompToCloud(sc,authUser.id).catch(()=>{});
+    }
+  },[screen,primaryMetric,su,sc,authUser?.id]);
 
   // ── Auth init (admin mode only) ──
   useEffect(()=>{
@@ -2594,6 +3014,15 @@ function VaultDeskApp(){
       const{data}=await sb.from('admin_profiles').select('*').eq('id',user.id).single();
       setAdminProfile(data);
     }catch(e){console.warn('Profile init failed:',e);}
+    // ── Pull competitions from cloud and merge into local storage ──
+    try{
+      const cloudComps=await loadCompsFromCloud(user.id);
+      if(cloudComps.length>0){
+        const{comps,sc:cloudSc}=mergeCloudComps(cloudComps,scRef.current);
+        setSavedComps(comps);
+        if(cloudSc)setSc(cloudSc); // update active comp if cloud has a newer version
+      }
+    }catch(e){console.warn('Cloud merge failed:',e);}
   },[]);
 
   // Setup helpers
@@ -2825,8 +3254,11 @@ function VaultDeskApp(){
     const filtered=all.filter(s=>(s.id||s.compId)!==(c.compId));
     saveAll([...filtered,snap]);setSavedComps(loadSaved());
     updSc({compStatus:'official'});
-    // Sync official status to Supabase so super-admin view reflects it
-    if(c.compId)sb.from('competitions').update({status:'official'}).eq('slug',c.compId).then(()=>{}).catch(()=>{});
+    // Sync to Supabase (status + full state)
+    if(c.compId){
+      sb.from('competitions').update({status:'official'}).eq('slug',c.compId).catch(()=>{});
+      if(authUser?.id)saveCompToCloud(snap,authUser.id).catch(()=>{});
+    }
     setShowSave(true);
   },[]);
 
@@ -2844,6 +3276,7 @@ function VaultDeskApp(){
     {id:'setup',label:'Setup',icon:'⚙️'},
     {id:'live',label:'Live',icon:'📡'},
     {id:'history',label:'History',icon:'🕐'},
+    ...(authUser?[{id:'mycomps',label:'My Comps',icon:'🗂️'}]:[]),
     {id:'rules',label:'Rules',icon:'📋'},
     ...(isSuperAdmin?[{id:'admin',label:'Admin',icon:'🔐'}]:[]),
   ];
@@ -2875,7 +3308,7 @@ function VaultDeskApp(){
   );
 
   return(
-    <div style={{maxWidth:700,margin:'0 auto',minHeight:'100vh',display:'flex',flexDirection:'column'}}>
+    <div style={{maxWidth:900,margin:'0 auto',minHeight:'100vh',display:'flex',flexDirection:'column'}}>
       {/* HEADER */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'10px 14px',display:'flex',alignItems:'center',gap:10,position:'sticky',top:0,zIndex:100}}>
         <div style={{fontWeight:900,fontSize:17,letterSpacing:-.5,flex:1}}>
@@ -2894,9 +3327,9 @@ function VaultDeskApp(){
         )}
       </div>
 
-      {/* TOP NAV — hidden in scorer/display mode (single-purpose views) */}
+      {/* TOP NAV — desktop only (hidden on mobile via CSS, replaced by bottom nav) */}
       {ROUTE.mode==='admin'&&(
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:'flex'}}>
+      <div className="vd-top-nav" style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:'flex'}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setScreen(t.id)}
             style={{...btn(C.surface,'8px 0',10),flex:1,borderRadius:0,border:'none',flexDirection:'column',gap:2,padding:'7px 0',borderBottom:screen===t.id?`2px solid ${C.accent}`:'2px solid transparent',color:screen===t.id?C.accent:C.muted}}>
@@ -2917,7 +3350,7 @@ function VaultDeskApp(){
       )}
 
       {/* CONTENT */}
-      <div style={{flex:1,overflowY:'auto'}}>
+      <div className="vd-content" style={{flex:1,overflowY:'auto'}}>
         {screen==='setup'&&(
           <SetupScreen
             info={su.info} setInfo={setInfo}
@@ -2956,6 +3389,7 @@ function VaultDeskApp(){
         )}
         {screen==='display'&&sc&&<DisplayScreen sc={sc} primaryMetric={primaryMetric} updSc={updSc}/>}
         {screen==='rules'&&<RulesTab/>}
+        {screen==='mycomps'&&authUser&&<MyCompsScreen authUser={authUser}/>}
         {screen==='admin'&&isSuperAdmin&&<SuperAdminScreen/>}
         {screen==='history'&&(
           <HistoryScreen
@@ -2974,6 +3408,30 @@ function VaultDeskApp(){
       {showPhotoImport&&<PhotoImportDialog onImport={onPhotoImport} onClose={()=>setShowPhotoImport(false)} existingAthletes={su.athletes}/>}
       {showSave&&sc&&<SaveResultsDialog athletes={sc.athletes} heights={sc.heights} ranked={sc_ranked} info={sc.info} primaryMetric={primaryMetric} onClose={()=>setShowSave(false)}/>}
       {showShare&&sc&&<SharePanel sc={sc} onClose={()=>setShowShare(false)}/>}
+
+      {/* BOTTOM NAV — mobile only (shown via CSS media query) */}
+      {ROUTE.mode==='admin'&&(
+        <div className="vd-bottom-nav" style={{
+          position:'fixed',bottom:0,left:0,right:0,
+          background:C.surface,borderTop:`1px solid ${C.border}`,
+          display:'none',zIndex:200,
+        }}>
+          {TABS.map(t=>{
+            const active=screen===t.id;
+            return(
+              <button key={t.id} onClick={()=>setScreen(t.id)} style={{
+                flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+                gap:3,padding:'10px 4px 8px',border:'none',background:'transparent',
+                color:active?C.accent:C.muted,cursor:'pointer',
+                borderTop:active?`2px solid ${C.accent}`:'2px solid transparent',
+              }}>
+                <span style={{fontSize:20,lineHeight:1}}>{t.icon}</span>
+                <span style={{fontSize:9,fontWeight:700,letterSpacing:.3,lineHeight:1}}>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
