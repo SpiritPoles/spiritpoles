@@ -116,25 +116,24 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
-// inventoryBalance confirmed to exist in SuiteQL (probe passed). Aggregate across all locations.
-// Join key tried: inventoryitem (FK to item.id). Fallback to item table (0 counts) on any error.
+// Q_ITEMS: pull on-hand quantities directly from the item record (already aggregated
+// across all locations). inventoryBalance SuiteQL join returned UNEXPECTED_ERROR 500 —
+// the item table's built-in quantity fields are more reliable and require no join.
 // Flex poles are further overridden below with per-lot quantities from Q_FLEXES.
 const Q_ITEMS = `
   SELECT
-    i.itemid                  AS name,
-    MAX(i.displayname)        AS displayname,
-    SUM(ib.quantityonhand)    AS onhand,
-    SUM(ib.quantitycommitted) AS committed,
-    SUM(ib.quantityavailable) AS available
-  FROM inventoryBalance ib
-  JOIN item i ON i.id = ib.inventoryitem
+    i.itemid                     AS name,
+    i.displayname                AS displayname,
+    NVL(i.quantityonhand,    0)  AS onhand,
+    NVL(i.quantitycommitted, 0)  AS committed,
+    NVL(i.quantityavailable, 0)  AS available
+  FROM item i
   WHERE i.isinactive = 'F'
-    AND ib.quantityonhand > 0
-  GROUP BY i.id, i.itemid
+    AND i.itemid LIKE '%/%'
   ORDER BY i.itemid
 `;
 
-// Fallback if inventoryBalance columns don't match — gives correct model list with 0 on-hand.
+// Fallback if item quantity columns aren't supported — gives correct model list with 0 on-hand.
 // Flex poles still get correct counts from Q_FLEXES lotOnHandSum override.
 const Q_ITEMS_FALLBACK = `
   SELECT
@@ -145,6 +144,7 @@ const Q_ITEMS_FALLBACK = `
     0             AS available
   FROM item i
   WHERE i.isinactive = 'F'
+    AND i.itemid LIKE '%/%'
   ORDER BY i.itemid
 `;
 
@@ -302,14 +302,14 @@ export async function onRequestGet({ env }) {
   }
 
   // Run sequentially so the error message names which query failed.
-  // Q_ITEMS tries inventoryBalance first; falls back to item master list (0 on-hand) on any error.
+  // Q_ITEMS reads quantity fields directly from item table; falls back to 0 on-hand on any error.
   let itemRows, flexRows, orderRows;
   let itemsWarning = null;
   try {
     try {
       itemRows = await suiteQLAll(Q_ITEMS, env);
     } catch (e) {
-      itemsWarning = 'inventoryBalance fallback: ' + e.message.substring(0, 300);
+      itemsWarning = 'Item qty fallback (0 on-hand for non-flex items): ' + e.message.substring(0, 300);
       console.warn('[inventory]', itemsWarning);
       try { itemRows = await suiteQLAll(Q_ITEMS_FALLBACK, env); }
       catch (e2) { throw new Error('Q_ITEMS: ' + e2.message); }
