@@ -2480,7 +2480,6 @@ function EditOverlay({sc,updSc,onClose}){
     const{error}=await sb.auth.signInWithPassword({email:signEmail,password:signPw});
     if(error){setSyncState2('error');setSyncMsg('❌ '+error.message);}else{setShowSignIn(false);doResync();}
   };
-  };
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.85)',zIndex:500,display:'flex',flexDirection:'column'}}>
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'12px 16px',display:'flex',alignItems:'center',gap:10}}>
