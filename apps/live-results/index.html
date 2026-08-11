@@ -45,13 +45,8 @@
     .vd-mark-ip{color:#93c5fd}
     .vd-lb-card{border-radius:12px;overflow:hidden;margin-bottom:7px;transition:transform .1s}
     .vd-lb-card:active{transform:scale(.99)}
-<<<<<<< HEAD
     /* ── Mobile / Responsive ── */
     @media (max-width:640px){
-=======
-    /* Mobile */
-    @media (max-width:520px){
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
       .vd-hero-ht{font-size:38px!important;letter-spacing:-2px!important}
       .vd-hero-ht-alt{font-size:11px!important}
       .vd-hero-name{font-size:19px!important}
@@ -60,7 +55,6 @@
       .vd-banner-title{font-size:15px!important;white-space:normal!important}
       .vd-sub-tab{padding:10px 0!important;font-size:11px!important}
       .vd-ondeck{font-size:11px!important}
-<<<<<<< HEAD
       /* Bottom nav on mobile */
       .vd-top-nav{display:none!important}
       .vd-bottom-nav{display:flex!important}
@@ -74,19 +68,14 @@
     @media (min-width:641px){
       .vd-bottom-nav{display:none!important}
       .vd-top-nav{display:flex!important}
-=======
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
     }
     @media (min-width:521px) and (max-width:768px){
       .vd-hero-ht{font-size:46px!important}
     }
-<<<<<<< HEAD
     /* Bottom nav safe area (notch phones) */
     .vd-bottom-nav{padding-bottom:env(safe-area-inset-bottom,0px)}
     /* Prevent content scroll bleed on iOS */
     .vd-content{-webkit-overflow-scrolling:touch}
-=======
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
   </style>
 </head>
 <body>
@@ -146,11 +135,8 @@ const syncMark=async(sc,athLocalId,hIdx,marks)=>{
   if(!sc?.supabaseCompId||!sc?.scorerToken)return;
   const athId=sc.athIds?.[athLocalId];const hId=sc.heightIds?.[hIdx];
   if(!athId||!hId){
-<<<<<<< HEAD
     // Athlete/height was added after publish — mark stays local only.
     // Use "Resync to Supabase" in Edit Fields to push missing athletes to display.
-=======
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
     console.warn('[VaultDesk] Mark NOT synced — athlete or height missing from Supabase. Open Edit Fields → Resync to Supabase.');
     window.__vd_unsyncedAthletes=window.__vd_unsyncedAthletes||new Set();
     if(!athId)window.__vd_unsyncedAthletes.add(athLocalId);
@@ -163,10 +149,7 @@ const syncMark=async(sc,athLocalId,hIdx,marks)=>{
   if(error)throw error;
 };
 
-<<<<<<< HEAD
  // Sync athletes/heights added after publish back to Supabase (requires auth)
-=======
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
 const syncNewAthletesToSupabase=async(sc,updSc)=>{
   const{data:{session}}=await sb.auth.getSession();
   if(!session)throw new Error('Sign in first');
@@ -182,10 +165,7 @@ const syncNewAthletesToSupabase=async(sc,updSc)=>{
     }))
   ).select();
   if(error)throw error;
-<<<<<<< HEAD
   // Sync their heights that may be missing too
-=======
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
   const missingHIdxs=new Set();
   missing.forEach(a=>a.attempts?.forEach((_,i)=>{if(!sc.heightIds?.[i])missingHIdxs.add(i);}));
   const newHeightIds={...sc.heightIds};
@@ -194,10 +174,7 @@ const syncNewAthletesToSupabase=async(sc,updSc)=>{
     const{data:hRow,error:hErr}=await sb.from('heights').insert({comp_id:sc.supabaseCompId,height_cm:cm,sort_order:hIdx}).select().single();
     if(!hErr&&hRow)newHeightIds[hIdx]=hRow.id;
   }
-<<<<<<< HEAD
   // Build updated athIds and sync their marks
-=======
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
   const newAthIds={...sc.athIds};
   for(const row of inserted){
     newAthIds[row.athlete_key]=row.id;
@@ -2481,7 +2458,6 @@ function EditOverlay({sc,updSc,onClose}){
   const setHeights=h=>updSc({heights:h});
   const updateHeight=(i,v)=>{const cm=Math.round(parseFloat(v)*100);if(!isNaN(cm))updSc({heights:heights.map((h,j)=>j===i?cm:h)});};
   const primaryMetric=rulebook!=='NFHS';
-<<<<<<< HEAD
   // ── Resync unsynced athletes to Supabase ──────────────────────────────────
   const unsyncedCount=(window.__vd_unsyncedAthletes?.size||0)+athletes.filter(a=>!sc.athIds?.[a.id]).length;
   const [syncState2,setSyncState2]=useState('idle');
@@ -2489,14 +2465,6 @@ function EditOverlay({sc,updSc,onClose}){
   const [showSignIn,setShowSignIn]=useState(false);
   const [signEmail,setSignEmail]=useState('');
   const [signPw,setSignPw]=useState('');
-=======
-  const[syncState2,setSyncState2]=React.useState('idle');
-  const[syncMsg,setSyncMsg]=React.useState('');
-  const[showSignIn,setShowSignIn]=React.useState(false);
-  const[signEmail,setSignEmail]=React.useState('');
-  const[signPw,setSignPw]=React.useState('');
-  const unsyncedCount=(window.__vd_unsyncedAthletes?.size||0)+athletes.filter(a=>!sc.athIds?.[a.id]).length;
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
   const doResync=async()=>{
     setSyncState2('loading');setSyncMsg('');
     try{
@@ -2505,22 +2473,13 @@ function EditOverlay({sc,updSc,onClose}){
       const r=await syncNewAthletesToSupabase(sc,updSc);
       setSyncState2('ok');setSyncMsg(`✅ Synced ${r.added} athlete${r.added===1?'':'s'} to Supabase`);
       setTimeout(()=>{setSyncState2('idle');setSyncMsg('');},4000);
-<<<<<<< HEAD
     }catch(e){setSyncState2('error');setSyncMsg('❌ '+(e.message||e));}
-=======
-    }catch(e){setSyncState2('error');setSyncMsg('❌ '+e.message);}
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
   };
   const doSignIn=async()=>{
     setSyncState2('loading');
     const{error}=await sb.auth.signInWithPassword({email:signEmail,password:signPw});
-<<<<<<< HEAD
     if(error){setSyncState2('error');setSyncMsg('❌ '+error.message);}else{setShowSignIn(false);doResync();}
   };
-=======
-    if(error){setSyncState2('error');setSyncMsg('❌ '+error.message);}
-    else{setShowSignIn(false);doResync();}
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
   };
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.85)',zIndex:500,display:'flex',flexDirection:'column'}}>
@@ -2533,18 +2492,11 @@ function EditOverlay({sc,updSc,onClose}){
           {syncMsg
             ?<div style={{fontSize:13,fontWeight:600}}>{syncMsg}</div>
             :<><div style={{fontSize:13,fontWeight:600,color:C.warn}}>{unsyncedCount} athlete{unsyncedCount===1?'':'s'} not yet visible on the Display screen.</div>
-<<<<<<< HEAD
             <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',MarginTop:4}}>
               {(syncState2==='idle'||syncState2==='error')&&<button onClick={doResync} style={btn(C.warn,'6px 14px',12)}>🔄 Resync to Supabase</button>}
               {syncState2==='loading'&&<span style={{fontSize:12,color:C.muted}}>Syncing…</span>}
             </div></>
           }
-=======
-            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginTop:4}}>
-              {(syncState2==='idle'||syncState2==='error')&&<button onClick={doResync} style={btn(C.warn,'6px 14px',12)}>🔄 Resync to Supabase</button>}
-              {syncState2==='loading'&&<span style={{fontSize:12,color:C.muted}}>Syncing…</span>}
-            </div></>}
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
           {showSignIn&&<div style={{marginTop:8,display:'flex',flexDirection:'column',gap:6}}>
             <div style={{fontSize:12,color:C.muted}}>Sign in to push athletes to Supabase:</div>
             <input value={signEmail} onChange={e=>setSignEmail(e.target.value)} placeholder="Email" style={{...inputSt,fontSize:12}} type="email"/>
@@ -3015,10 +2967,7 @@ function VaultDeskApp(){
         });
     };
     startSub();
-<<<<<<< HEAD
     // Polling fallback: reload every 30s regardless of realtime status
-=======
->>>>>>> 4b0871f05d1c25d101084e5257a616bb9b9e93f8
     pollTimer=setInterval(reload,30000);
     return()=>{
       destroyed=true;
