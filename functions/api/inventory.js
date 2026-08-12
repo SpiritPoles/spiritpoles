@@ -301,23 +301,22 @@ export async function onRequestGet({ env }) {
     );
   }
 
-  // Run sequentially so the error message names which query failed.
-  // Q_ITEMS reads quantity fields directly from item table; falls back to 0 on-hand on any error.
-  let itemRows, flexRows, orderRows;
+  // Run all three queries in parallel — they are independent of each other.
+  // Q_ITEMS falls back to 0 on-hand on any error (flex poles still get correct
+  // counts from Q_FLEXES lot-sum override, so the main tabs remain accurate).
   let itemsWarning = null;
   try {
-    try {
-      itemRows = await suiteQLAll(Q_ITEMS, env);
-    } catch (e) {
+    const itemsPromise = suiteQLAll(Q_ITEMS, env).catch(async (e) => {
       itemsWarning = 'Item qty fallback (0 on-hand for non-flex items): ' + e.message.substring(0, 300);
       console.warn('[inventory]', itemsWarning);
-      try { itemRows = await suiteQLAll(Q_ITEMS_FALLBACK, env); }
-      catch (e2) { throw new Error('Q_ITEMS: ' + e2.message); }
-    }
-    try { flexRows  = await suiteQLAll(Q_FLEXES, env); }
-    catch (e) { throw new Error('Q_FLEXES: ' + e.message); }
-    try { orderRows = await suiteQLAll(Q_ORDERS, env); }
-    catch (e) { throw new Error('Q_ORDERS: ' + e.message); }
+      return suiteQLAll(Q_ITEMS_FALLBACK, env);   // fallback also runs in parallel slot
+    });
+
+    const [itemRows, flexRows, orderRows] = await Promise.all([
+      itemsPromise,
+      suiteQLAll(Q_FLEXES,  env).catch(e => { throw new Error('Q_FLEXES: '  + e.message); }),
+      suiteQLAll(Q_ORDERS,  env).catch(e => { throw new Error('Q_ORDERS: '  + e.message); }),
+    ]);
 
     const payload = buildPayload(itemRows, flexRows, orderRows);
     if (itemsWarning) payload.warning = itemsWarning;
