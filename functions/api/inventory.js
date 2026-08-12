@@ -146,23 +146,24 @@ const Q_ITEMS_FALLBACK = `
   ORDER BY i.itemid
 `;
 
-// Q_BALANCE: per-location on-hand quantities from inventoryBalance.
-// Returns one row per item per warehouse location — aggregated in JS (no GROUP BY/SUM
-// because those caused UNEXPECTED_ERROR 500 from NetSuite's SuiteQL engine).
-// FK column: tried 'inventoryitem' (got 500); now trying 'item' (standard SuiteQL pattern).
+// Q_BALANCE: per-location on-hand quantities via itemLocation.
+// inventoryBalance returned UNEXPECTED_ERROR 500 with both 'inventoryitem' and 'item' FK —
+// that table appears restricted for this integration role. itemLocation is the standard
+// SuiteQL sublist table for per-location inventory quantities.
+// Returns one row per item per location — aggregated in JS (avoids GROUP BY issues).
 // Flex poles are still overridden below by Q_FLEXES lot-sum. This fixes UF + Kids poles.
-// Fails gracefully — if inventoryBalance is inaccessible, UF/Kids show 0 (non-fatal).
+// Fails gracefully — if this also fails, UF/Kids show 0 and amber warning explains why.
 const Q_BALANCE = `
   SELECT
     i.itemid                     AS name,
-    NVL(ib.quantityonhand,    0) AS onhand,
-    NVL(ib.quantitycommitted, 0) AS committed,
-    NVL(ib.quantityavailable, 0) AS available
-  FROM inventoryBalance ib
-  JOIN item i ON i.id = ib.item
+    NVL(il.quantityonhand,    0) AS onhand,
+    NVL(il.quantitycommitted, 0) AS committed,
+    NVL(il.quantityavailable, 0) AS available
+  FROM itemLocation il
+  JOIN item i ON i.id = il.item
   WHERE i.isinactive = 'F'
     AND i.itemid LIKE '%/%'
-    AND ib.quantityonhand > 0
+    AND il.quantityonhand > 0
   ORDER BY i.itemid
 `;
 
