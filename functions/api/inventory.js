@@ -111,7 +111,7 @@ async function recordAll(type, env, extraParams = {}) {
 
 // ── SuiteQL (paginated) ───────────────────────────────────────────────────────
 
-async function suiteQLPage(q, env, offset, limit, retries = 3) {
+async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000) {
   const base = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
   const url  = `${base}?limit=${limit}&offset=${offset}`;
 
@@ -120,15 +120,26 @@ async function suiteQLPage(q, env, offset, limit, retries = 3) {
       limit:  String(limit),
       offset: String(offset),
     });
-    const resp = await fetch(url, {
-      method:  'POST',
-      headers: {
-        'Authorization': auth,
-        'Content-Type':  'application/json',
-        'prefer':        'transient',
-      },
-      body: JSON.stringify({ q }),
-    });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method:  'POST',
+        headers: {
+          'Authorization': auth,
+          'Content-Type':  'application/json',
+          'prefer':        'transient',
+        },
+        body: JSON.stringify({ q }),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      if (e.name === 'AbortError') throw new Error(`SuiteQL timeout after ${timeoutMs}ms (offset=${offset})`);
+      throw e;
+    }
+    clearTimeout(timer);
 
     if (resp.ok) return resp.json();
 
@@ -194,19 +205,14 @@ const Q_ITEMS_FALLBACK = `
   ORDER BY i.itemid
 `;
 
-// Q_BALANCE: on-hand quantities via inventoryItem subtype table.
-// The generic 'item' table always returns 0 for quantityonhand in SuiteQL;
-// the 'inventoryItem' subtype table exposes the real stored values.
-// Flex poles are still overridden by Q_FLEXES lot-sum below.
+// Q_BALANCE: on-hand quantities for UF (unfinished) poles via the item table.
+// item.quantityonhand is 0 for Assembly items (finished poles), but InvtPart items
+// (UF blanks) expose real on-hand values. Finished pole quantities come from Q_FLEXES.
 const Q_BALANCE = `
-  SELECT
-    itemid     AS name,
-    NVL(quantityonhand,    0) AS onhand,
-    NVL(quantitycommitted, 0) AS committed,
-    NVL(quantityavailable, 0) AS available
-  FROM inventoryItem
-  WHERE isinactive = 'F'
-    AND itemid LIKE '%/%'
+  SELECT itemid, quantityonhand
+  FROM item
+  WHERE itemid LIKE 'UF%'
+    AND isinactive = 'F'
   ORDER BY itemid
 `;
 
