@@ -194,13 +194,10 @@ const Q_ITEMS_FALLBACK = `
   ORDER BY i.itemid
 `;
 
-// Record API params for fetching non-lot-tracked item quantities (UF + Kids poles).
-// inventoryBalance SuiteQL = permission-blocked (500). itemLocation SuiteQL = invalid table.
-// item.quantityonhand in SuiteQL = always 0. Record API reads the live item record directly.
+// SS 2471 (CPC - GENERAL INVENTORY ON HAND) as SuiteQL virtual table.
+// Covers all item types: finished poles, UF blanks, Kids poles, accessories.
 // Flex poles are still overridden by Q_FLEXES lot-sum below.
-const RECORD_INV_PARAMS = {
-  q: 'isInactive eq false',
-};
+const Q_SS2471 = `SELECT * FROM customsearch2471`;
 
 // Replaces SS2827 — individual lot numbers (each pole's flex is encoded in the
 // lot number string: "flex|model|date|time"  e.g. "37.0|370|24-06-03|9:49")
@@ -278,17 +275,19 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     };
   }
 
-  // Overlay real quantities from Record API (one row per item).
-  // Record API uses camelCase field names; SuiteQL fallback rows use lowercase.
-  // Runs before lot-sum override so flex poles are still corrected by Q_FLEXES.
+  // Overlay on-hand quantities from SS 2471 (customsearch2471 virtual table).
+  // Column names depend on the saved search column IDs — log first row to confirm.
+  if (balanceRows && balanceRows.length > 0) {
+    console.log('[inventory] SS2471 columns:', JSON.stringify(Object.keys(balanceRows[0])));
+  }
   for (const row of (balanceRows || [])) {
-    // Record API: itemid / quantityOnHand (camelCase). SuiteQL fallback: name / onhand.
-    const name = (row.itemid || row.name || '').trim();
+    // Try known NetSuite field name variants; adjust once column names are confirmed.
+    const name = (row.itemid || row.name || row.item_id || '').trim();
     if (!name || !models[name]) continue;
-    const oh = toInt(row.quantityOnHand  ?? row.quantityonhand  ?? row.onhand);
-    const cm = toInt(row.quantityCommitted ?? row.quantitycommitted ?? row.committed);
-    const av = toInt(row.quantityAvailable ?? row.quantityavailable ?? row.available);
-    if (oh > 0 || cm > 0) {   // only override when Record API returned real data
+    const oh = toInt(row.quantityonhand ?? row.onhand ?? row.formulanumeric ?? row.locationquantityonhand);
+    const cm = toInt(row.quantitycommitted ?? row.committed);
+    const av = toInt(row.quantityavailable ?? row.available);
+    if (oh > 0 || cm > 0) {
       models[name].onHand    = oh;
       models[name].committed = cm;
       models[name].available = av;
@@ -382,11 +381,11 @@ export async function onRequestGet({ env }) {
       return suiteQLAll(Q_ITEMS_FALLBACK, env);   // fallback also runs in parallel slot
     });
 
-    // Record API: fetch inventory item quantities (UF + Kids poles).
+    // SS 2471: all-item on-hand quantities (UF, Kids, finished poles).
     // Graceful failure — UF/Kids show 0; error surfaced in amber bar.
     let balanceWarning = null;
-    const balPromise = recordAll('inventoryitem', env, RECORD_INV_PARAMS).catch(e => {
-      balanceWarning = 'RecordAPI (UF stock): ' + e.message.substring(0, 300);
+    const balPromise = suiteQLAll(Q_SS2471, env).catch(e => {
+      balanceWarning = 'SS2471 (UF stock): ' + e.message.substring(0, 300);
       console.warn('[inventory]', balanceWarning);
       return [];
     });
