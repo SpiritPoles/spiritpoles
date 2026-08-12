@@ -116,25 +116,23 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
-// Q_ITEMS: pull on-hand quantities directly from the item record (already aggregated
-// across all locations). inventoryBalance SuiteQL join returned UNEXPECTED_ERROR 500 —
-// the item table's built-in quantity fields are more reliable and require no join.
-// Flex poles are further overridden below with per-lot quantities from Q_FLEXES.
+// Q_ITEMS: model catalog — item names + display names only.
+// item.quantityonhand is always 0 in SuiteQL (quantities live in inventoryBalance).
+// Real quantities come from Q_BALANCE below; flex poles are further overridden by Q_FLEXES.
 const Q_ITEMS = `
   SELECT
-    i.itemid                     AS name,
-    i.displayname                AS displayname,
-    NVL(i.quantityonhand,    0)  AS onhand,
-    NVL(i.quantitycommitted, 0)  AS committed,
-    NVL(i.quantityavailable, 0)  AS available
+    i.itemid      AS name,
+    i.displayname AS displayname,
+    0             AS onhand,
+    0             AS committed,
+    0             AS available
   FROM item i
   WHERE i.isinactive = 'F'
     AND i.itemid LIKE '%/%'
   ORDER BY i.itemid
 `;
 
-// Fallback if item quantity columns aren't supported — gives correct model list with 0 on-hand.
-// Flex poles still get correct counts from Q_FLEXES lotOnHandSum override.
+// Fallback if Q_ITEMS fails — identical, kept for symmetry.
 const Q_ITEMS_FALLBACK = `
   SELECT
     i.itemid      AS name,
@@ -145,6 +143,25 @@ const Q_ITEMS_FALLBACK = `
   FROM item i
   WHERE i.isinactive = 'F'
     AND i.itemid LIKE '%/%'
+  ORDER BY i.itemid
+`;
+
+// Q_BALANCE: per-location on-hand quantities from inventoryBalance.
+// Returns one row per item per warehouse location — aggregated in JS (no GROUP BY/SUM
+// because those caused UNEXPECTED_ERROR 500 from NetSuite's SuiteQL engine).
+// Flex poles are still overridden below by Q_FLEXES lot-sum. This fixes UF + Kids poles.
+// Fails gracefully — if inventoryBalance is inaccessible, UF/Kids show 0 (non-fatal).
+const Q_BALANCE = `
+  SELECT
+    i.itemid                     AS name,
+    NVL(ib.quantityonhand,    0) AS onhand,
+    NVL(ib.quantitycommitted, 0) AS committed,
+    NVL(ib.quantityavailable, 0) AS available
+  FROM inventoryBalance ib
+  JOIN item i ON i.id = ib.inventoryitem
+  WHERE i.isinactive = 'F'
+    AND i.itemid LIKE '%/%'
+    AND ib.quantityonhand > 0
   ORDER BY i.itemid
 `;
 
@@ -206,9 +223,9 @@ function parseDisplay(displayname) {
 function toInt(v)   { const n = parseInt(v,  10); return isNaN(n) ? 0    : n; }
 function toFloat(v) { const n = parseFloat(v);    return isNaN(n) ? null : n; }
 
-function buildPayload(itemRows, flexRows, orderRows) {
+function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
 
-  // models (SS2471)
+  // models — catalog from item table (quantities all 0 at this stage)
   const models = {};
   for (const row of itemRows) {
     const name = (row.name || '').trim();
@@ -217,17 +234,35 @@ function buildPayload(itemRows, flexRows, orderRows) {
     models[name] = {
       length,
       weight,
-      onHand:    toInt(row.onhand),
-      available: toInt(row.available),
-      committed: toInt(row.committed),
+      onHand:    0,
+      available: 0,
+      committed: 0,
       flexes:    [],
     };
   }
 
-  // flexes (SS2827) — attach to parent model + derive on-hand from lot quantities
+  // Overlay real quantities from inventoryBalance (per-location rows, sum in JS).
+  // Runs before the lot-sum override so flex poles are still corrected by Q_FLEXES.
+  const balAgg = {};
+  for (const row of (balanceRows || [])) {
+    const name = (row.name || '').trim();
+    if (!name) continue;
+    if (!balAgg[name]) balAgg[name] = { onhand: 0, committed: 0, available: 0 };
+    balAgg[name].onhand    += toInt(row.onhand);
+    balAgg[name].committed += toInt(row.committed);
+    balAgg[name].available += toInt(row.available);
+  }
+  for (const [name, agg] of Object.entries(balAgg)) {
+    if (models[name]) {
+      models[name].onHand    = agg.onhand;
+      models[name].committed = agg.committed;
+      models[name].available = agg.available;
+    }
+  }
+
+  // flexes (Q_FLEXES) — attach to parent model + derive on-hand from lot quantities
   // lot number format: "37.0|370|24-06-03|9:49" — flex is first segment
-  // lotonhand from inventoryNumber is reliable; item.quantityonhand can be 0 in SuiteQL.
-  // We accumulate lot on-hand sums here, then override models[].onHand below.
+  // lotOnHandSum overrides the inventoryBalance value for flex-tracked poles.
   const lotOnHandSum = {};  // modelName → sum of lot quantityonhand
   for (const row of flexRows) {
     const modelName = (row.modelname || '').trim();
@@ -312,13 +347,20 @@ export async function onRequestGet({ env }) {
       return suiteQLAll(Q_ITEMS_FALLBACK, env);   // fallback also runs in parallel slot
     });
 
-    const [itemRows, flexRows, orderRows] = await Promise.all([
+    // Q_BALANCE: graceful failure — UF/Kids show 0 if inventoryBalance is inaccessible
+    const balPromise = suiteQLAll(Q_BALANCE, env).catch(e => {
+      console.warn('[inventory] Q_BALANCE failed (UF/Kids will show 0):', e.message.substring(0, 200));
+      return [];
+    });
+
+    const [itemRows, balanceRows, flexRows, orderRows] = await Promise.all([
       itemsPromise,
+      balPromise,
       suiteQLAll(Q_FLEXES,  env).catch(e => { throw new Error('Q_FLEXES: '  + e.message); }),
       suiteQLAll(Q_ORDERS,  env).catch(e => { throw new Error('Q_ORDERS: '  + e.message); }),
     ]);
 
-    const payload = buildPayload(itemRows, flexRows, orderRows);
+    const payload = buildPayload(itemRows, balanceRows, flexRows, orderRows);
     if (itemsWarning) payload.warning = itemsWarning;
     return new Response(JSON.stringify(payload), { status: 200, headers: CORS });
 
