@@ -194,12 +194,21 @@ const Q_ITEMS_FALLBACK = `
   ORDER BY i.itemid
 `;
 
-// Record API params — valid query params are: q, limit, offset, links (no 'fields').
-// Returns full item records including quantityOnHand for all item types (UF, Kids, finished).
+// Q_BALANCE: on-hand quantities via inventoryItem subtype table.
+// The generic 'item' table always returns 0 for quantityonhand in SuiteQL;
+// the 'inventoryItem' subtype table exposes the real stored values.
 // Flex poles are still overridden by Q_FLEXES lot-sum below.
-const RECORD_INV_PARAMS = {
-  q: 'isInactive eq false',
-};
+const Q_BALANCE = `
+  SELECT
+    itemid     AS name,
+    NVL(quantityonhand,    0) AS onhand,
+    NVL(quantitycommitted, 0) AS committed,
+    NVL(quantityavailable, 0) AS available
+  FROM inventoryItem
+  WHERE isinactive = 'F'
+    AND itemid LIKE '%/%'
+  ORDER BY itemid
+`;
 
 // Replaces SS2827 — individual lot numbers (each pole's flex is encoded in the
 // lot number string: "flex|model|date|time"  e.g. "37.0|370|24-06-03|9:49")
@@ -383,13 +392,13 @@ export async function onRequestGet({ env }) {
       return suiteQLAll(Q_ITEMS_FALLBACK, env);   // fallback also runs in parallel slot
     });
 
-    // Record API: on-hand quantities for all item types (UF, Kids, finished poles).
+    // Q_BALANCE: on-hand quantities via inventoryItem subtype SuiteQL table.
     // Graceful failure — UF/Kids show 0; error surfaced in amber bar.
     let balanceWarning = null;
     let flexWarning    = null;
     let orderWarning   = null;
-    const balPromise = recordAll('inventoryitem', env, RECORD_INV_PARAMS).catch(e => {
-      balanceWarning = 'RecordAPI (UF stock): ' + e.message.substring(0, 300);
+    const balPromise = suiteQLAll(Q_BALANCE, env).catch(e => {
+      balanceWarning = 'Q_BALANCE: ' + e.message.substring(0, 300);
       console.warn('[inventory]', balanceWarning);
       return [];
     });
