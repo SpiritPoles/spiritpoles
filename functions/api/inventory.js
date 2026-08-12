@@ -81,7 +81,7 @@ async function recordPage(type, env, offset, limit, extraParams = {}, retries = 
     if (resp.ok) return resp.json();
     const txt = await resp.text();
     if (resp.status === 401 && attempt < retries) {
-      await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
       continue;
     }
     throw new Error(`RecordAPI[${type}] ${resp.status} (offset=${offset}): ${txt.substring(0, 500)}`);
@@ -134,7 +134,7 @@ async function suiteQLPage(q, env, offset, limit, retries = 3) {
 
     const txt = await resp.text();
     if (resp.status === 401 && attempt < retries) {
-      await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
       continue;
     }
     throw new Error(`SuiteQL ${resp.status} (offset=${offset}): ${txt.substring(0, 500)}`);
@@ -384,6 +384,8 @@ export async function onRequestGet({ env }) {
     // SS 2471: all-item on-hand quantities (UF, Kids, finished poles).
     // Graceful failure — UF/Kids show 0; error surfaced in amber bar.
     let balanceWarning = null;
+    let flexWarning    = null;
+    let orderWarning   = null;
     const balPromise = suiteQLAll(Q_SS2471, env).catch(e => {
       balanceWarning = 'SS2471 (UF stock): ' + e.message.substring(0, 300);
       console.warn('[inventory]', balanceWarning);
@@ -393,12 +395,20 @@ export async function onRequestGet({ env }) {
     const [itemRows, balanceRows, flexRows, orderRows] = await Promise.all([
       itemsPromise,
       balPromise,
-      suiteQLAll(Q_FLEXES,  env).catch(e => { throw new Error('Q_FLEXES: '  + e.message); }),
-      suiteQLAll(Q_ORDERS,  env).catch(e => { throw new Error('Q_ORDERS: '  + e.message); }),
+      suiteQLAll(Q_FLEXES, env).catch(e => {
+        flexWarning = 'Q_FLEXES: ' + e.message.substring(0, 200);
+        console.warn('[inventory]', flexWarning);
+        return [];
+      }),
+      suiteQLAll(Q_ORDERS, env).catch(e => {
+        orderWarning = 'Q_ORDERS: ' + e.message.substring(0, 200);
+        console.warn('[inventory]', orderWarning);
+        return [];
+      }),
     ]);
 
     const payload = buildPayload(itemRows, balanceRows, flexRows, orderRows);
-    const warnings = [itemsWarning, balanceWarning].filter(Boolean);
+    const warnings = [itemsWarning, balanceWarning, flexWarning, orderWarning].filter(Boolean);
     if (warnings.length) payload.warning = warnings.join(' | ');
     return new Response(JSON.stringify(payload), { status: 200, headers: CORS });
 
