@@ -199,8 +199,7 @@ const Q_ITEMS_FALLBACK = `
 // item.quantityonhand in SuiteQL = always 0. Record API reads the live item record directly.
 // Flex poles are still overridden by Q_FLEXES lot-sum below.
 const RECORD_INV_PARAMS = {
-  fields: 'itemid,quantityonhand,quantitycommitted,quantityavailable',
-  q:      "isinactive IS false",
+  q: 'isInactive eq false',
 };
 
 // Replaces SS2827 — individual lot numbers (each pole's flex is encoded in the
