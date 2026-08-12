@@ -61,6 +61,54 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
   ].join(', ');
 }
 
+// ── REST Record API (paginated GET) ──────────────────────────────────────────
+// Used for inventory quantities — inventoryBalance SuiteQL table is permission-blocked
+// (returns 500 UNEXPECTED_ERROR). The Record API reads directly from item records
+// and returns real quantityOnHand values that SuiteQL item.quantityonhand hides.
+
+async function recordPage(type, env, offset, limit, extraParams = {}, retries = 3) {
+  const base = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/${type}`;
+  const qp   = { limit: String(limit), offset: String(offset), ...extraParams };
+  const qs   = Object.entries(qp).map(([k, v]) => `${pct(k)}=${pct(v)}`).join('&');
+  const url  = `${base}?${qs}`;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const auth = await oauthHeader('GET', base, env, qp);
+    const resp = await fetch(url, {
+      method:  'GET',
+      headers: { 'Authorization': auth },
+    });
+    if (resp.ok) return resp.json();
+    const txt = await resp.text();
+    if (resp.status === 401 && attempt < retries) {
+      await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      continue;
+    }
+    throw new Error(`RecordAPI[${type}] ${resp.status} (offset=${offset}): ${txt.substring(0, 500)}`);
+  }
+}
+
+async function recordAll(type, env, extraParams = {}) {
+  const rows  = [];
+  let offset  = 0;
+  const limit = 1000;
+  for (let page = 0; page < 50; page++) {
+    let result;
+    try {
+      result = await recordPage(type, env, offset, limit, extraParams);
+    } catch (e) {
+      if (offset === 0) throw e;
+      console.warn(`recordAll[${type}] stopping at offset=${offset}: ${e.message}`);
+      break;
+    }
+    const items = result.items || [];
+    rows.push(...items);
+    if (!result.hasMore || items.length === 0) break;
+    offset += limit;
+  }
+  return rows;
+}
+
 // ── SuiteQL (paginated) ───────────────────────────────────────────────────────
 
 async function suiteQLPage(q, env, offset, limit, retries = 3) {
@@ -146,26 +194,14 @@ const Q_ITEMS_FALLBACK = `
   ORDER BY i.itemid
 `;
 
-// Q_BALANCE: per-location on-hand quantities via itemLocation.
-// inventoryBalance returned UNEXPECTED_ERROR 500 with both 'inventoryitem' and 'item' FK —
-// that table appears restricted for this integration role. itemLocation is the standard
-// SuiteQL sublist table for per-location inventory quantities.
-// Returns one row per item per location — aggregated in JS (avoids GROUP BY issues).
-// Flex poles are still overridden below by Q_FLEXES lot-sum. This fixes UF + Kids poles.
-// Fails gracefully — if this also fails, UF/Kids show 0 and amber warning explains why.
-const Q_BALANCE = `
-  SELECT
-    i.itemid                     AS name,
-    NVL(il.quantityonhand,    0) AS onhand,
-    NVL(il.quantitycommitted, 0) AS committed,
-    NVL(il.quantityavailable, 0) AS available
-  FROM itemLocation il
-  JOIN item i ON i.id = il.item
-  WHERE i.isinactive = 'F'
-    AND i.itemid LIKE '%/%'
-    AND il.quantityonhand > 0
-  ORDER BY i.itemid
-`;
+// Record API params for fetching non-lot-tracked item quantities (UF + Kids poles).
+// inventoryBalance SuiteQL = permission-blocked (500). itemLocation SuiteQL = invalid table.
+// item.quantityonhand in SuiteQL = always 0. Record API reads the live item record directly.
+// Flex poles are still overridden by Q_FLEXES lot-sum below.
+const RECORD_INV_PARAMS = {
+  fields: 'itemid,quantityonhand,quantitycommitted,quantityavailable',
+  q:      "isinactive IS false",
+};
 
 // Replaces SS2827 — individual lot numbers (each pole's flex is encoded in the
 // lot number string: "flex|model|date|time"  e.g. "37.0|370|24-06-03|9:49")
@@ -243,22 +279,20 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     };
   }
 
-  // Overlay real quantities from inventoryBalance (per-location rows, sum in JS).
-  // Runs before the lot-sum override so flex poles are still corrected by Q_FLEXES.
-  const balAgg = {};
+  // Overlay real quantities from Record API (one row per item).
+  // Record API uses camelCase field names; SuiteQL fallback rows use lowercase.
+  // Runs before lot-sum override so flex poles are still corrected by Q_FLEXES.
   for (const row of (balanceRows || [])) {
-    const name = (row.name || '').trim();
-    if (!name) continue;
-    if (!balAgg[name]) balAgg[name] = { onhand: 0, committed: 0, available: 0 };
-    balAgg[name].onhand    += toInt(row.onhand);
-    balAgg[name].committed += toInt(row.committed);
-    balAgg[name].available += toInt(row.available);
-  }
-  for (const [name, agg] of Object.entries(balAgg)) {
-    if (models[name]) {
-      models[name].onHand    = agg.onhand;
-      models[name].committed = agg.committed;
-      models[name].available = agg.available;
+    // Record API: itemid / quantityOnHand (camelCase). SuiteQL fallback: name / onhand.
+    const name = (row.itemid || row.name || '').trim();
+    if (!name || !models[name]) continue;
+    const oh = toInt(row.quantityOnHand  ?? row.quantityonhand  ?? row.onhand);
+    const cm = toInt(row.quantityCommitted ?? row.quantitycommitted ?? row.committed);
+    const av = toInt(row.quantityAvailable ?? row.quantityavailable ?? row.available);
+    if (oh > 0 || cm > 0) {   // only override when Record API returned real data
+      models[name].onHand    = oh;
+      models[name].committed = cm;
+      models[name].available = av;
     }
   }
 
@@ -349,11 +383,11 @@ export async function onRequestGet({ env }) {
       return suiteQLAll(Q_ITEMS_FALLBACK, env);   // fallback also runs in parallel slot
     });
 
-    // Q_BALANCE: graceful failure — UF/Kids show 0 if inventoryBalance is inaccessible.
-    // balanceWarning is surfaced in the UI amber bar so column-name errors are visible.
+    // Record API: fetch inventory item quantities (UF + Kids poles).
+    // Graceful failure — UF/Kids show 0; error surfaced in amber bar.
     let balanceWarning = null;
-    const balPromise = suiteQLAll(Q_BALANCE, env).catch(e => {
-      balanceWarning = 'Q_BALANCE (UF stock): ' + e.message.substring(0, 300);
+    const balPromise = recordAll('inventoryitem', env, RECORD_INV_PARAMS).catch(e => {
+      balanceWarning = 'RecordAPI (UF stock): ' + e.message.substring(0, 300);
       console.warn('[inventory]', balanceWarning);
       return [];
     });
