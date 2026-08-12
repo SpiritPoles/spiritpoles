@@ -2815,74 +2815,128 @@ function SuperAdminScreen(){
 }
 
 // ─── MY COMPETITIONS (remote access for any logged-in admin) ──────────────────
-function MyCompsScreen({authUser}){
-  const[comps,setComps]=useState([]);
-  const[loading,setLoading]=useState(true);
+function MyCompsScreen({authUser,saved,onResume,onReview,onDelete,primaryMetric}){
   const[refreshAt,setRefreshAt]=useState(0);
   const[confirmDel,setConfirmDel]=useState(null);
-  const doDelete=async(slug)=>{
-    try{await sb.from('competitions').delete().eq('slug',slug);setComps(p=>p.filter(c=>c.slug!==slug));}
-    catch(e){console.warn('Delete failed:',e);}
+  const[extraCloud,setExtraCloud]=useState([]);
+  const[cloudLoading,setCloudLoading]=useState(false);
+
+  // Pull any cloud comps not yet in local cache (e.g. created on another device)
+  useEffect(()=>{
+    if(!authUser?.id){setExtraCloud([]);return;}
+    setCloudLoading(true);
+    sb.from('competitions')
+      .select('slug,state_json,created_at')
+      .eq('owner_id',authUser.id)
+      .not('state_json','is',null)
+      .order('created_at',{ascending:false})
+      .then(({data})=>{
+        const localIds=new Set((saved||[]).map(c=>c.compId||c.id).filter(Boolean));
+        const extra=(data||[]).filter(r=>r.slug&&!localIds.has(r.slug)).map(r=>r.state_json).filter(Boolean);
+        setExtraCloud(extra);setCloudLoading(false);
+      })
+      .catch(()=>setCloudLoading(false));
+  },[authUser?.id,refreshAt]);
+
+  // Merge: cloud-only extras first, then local (newest first), deduped
+  const all=useMemo(()=>{
+    const combined=[...extraCloud,...[...( saved||[])].reverse()];
+    const seen=new Set();
+    return combined.filter(c=>{const id=c.compId||c.id;if(!id)return true;if(seen.has(id))return false;seen.add(id);return true;});
+  },[saved,extraCloud]);
+
+  const handleDelete=async(comp)=>{
+    const id=comp.compId||comp.id;
+    if(authUser&&id){try{await sb.from('competitions').delete().eq('slug',id);}catch(e){console.warn('Cloud delete failed:',e);}}
+    onDelete(id);
     setConfirmDel(null);
   };
-  useEffect(()=>{
-    if(!authUser?.id)return;
-    setLoading(true);
-    sb.from('competitions')
-      .select('slug,name,date,venue,rulebook,status,scorer_token,created_at')
-      .eq('owner_id',authUser.id)
-      .order('created_at',{ascending:false})
-      .then(({data})=>{setComps(data||[]);setLoading(false);})
-      .catch(()=>setLoading(false));
-  },[authUser?.id,refreshAt]);
+
   const base=`${window.location.origin}${window.location.pathname}`;
-  const mkUrls=c=>({
-    disp:`${base}#/display/${c.slug}`,
-    score:c.scorer_token?`${base}#/score/${c.slug}/${c.scorer_token}`:null,
-  });
-  if(loading)return<div style={{padding:32,textAlign:'center',color:C.muted,fontSize:13}}>Loading…</div>;
+
+  if(cloudLoading&&!all.length)return<div style={{padding:32,textAlign:'center',color:C.muted,fontSize:13}}>Loading…</div>;
+  if(!all.length)return<div style={{padding:40,textAlign:'center',color:C.muted,fontSize:14}}>No saved competitions.<br/><span style={{fontSize:12}}>Create one in Setup.</span></div>;
+
   return(
-    <div style={{padding:14}}>
+    <div style={{padding:14,paddingBottom:30}}>
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
-        <div style={{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:1,fontWeight:700,flex:1}}>My Competitions ({comps.length})</div>
-        <button onClick={()=>setRefreshAt(Date.now())} style={{...btn(C.card,'5px 10px',11),border:`1px solid ${C.border}`,color:C.muted}}>↻ Refresh</button>
+        <div style={{fontSize:11,color:C.muted,textTransform:'uppercase',letterSpacing:1,fontWeight:700,flex:1}}>
+          {authUser?'My Competitions':'Local Competitions'} ({all.length})
+        </div>
+        {authUser&&<button onClick={()=>setRefreshAt(Date.now())} style={{...btn(C.card,'5px 10px',11),border:`1px solid ${C.border}`,color:C.muted}}>↻ Refresh</button>}
       </div>
-      {comps.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:'center',padding:32}}>No competitions yet. Create one in Setup.</div>}
-      {comps.map(c=>{
-        const{disp,score}=mkUrls(c);
-        const isLive=c.status==='active';
-        const isOfficial=c.status==='official';
-        return(
-          <div key={c.slug} style={{background:C.surface,borderRadius:10,border:`1px solid ${isLive?C.success+'55':C.border}`,padding:14,marginBottom:10}}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:5}}>
-              {isLive&&<span className="live-dot" style={{width:7,height:7,borderRadius:'50%',background:C.success,flexShrink:0,display:'inline-block'}}/>}
-              <span style={{fontWeight:700,fontSize:14,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name||'Untitled'}</span>
-              <span style={{fontSize:10,fontWeight:700,color:isLive?C.success:isOfficial?C.accent:C.muted,background:isLive?`${C.success}22`:isOfficial?`${C.accent}22`:C.card,padding:'2px 8px',borderRadius:5,textTransform:'uppercase',flexShrink:0}}>{c.status}</span>
-              {confirmDel===c.slug?(
-                <><span style={{fontSize:11,color:C.danger,fontWeight:700,flexShrink:0}}>Delete?</span>
-                <button onClick={()=>doDelete(c.slug)} style={btn(C.danger,'3px 8px',11)}>Yes</button>
-                <button onClick={()=>setConfirmDel(null)} style={{...btn(C.card,'3px 8px',11),border:`1px solid ${C.border}`}}>No</button></>
-              ):(
-                <button onClick={()=>setConfirmDel(c.slug)} style={{...btn(C.card,'3px 7px',11),border:`1px solid ${C.danger}44`,color:C.danger,flexShrink:0}} title="Delete">🗑</button>
-              )}
-            </div>
-            <div style={{fontSize:11,color:C.muted,marginBottom:10}}>{[c.date,c.venue,c.rulebook].filter(Boolean).join(' · ')}</div>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
-              {score&&<button onClick={()=>window.open(score,'_blank')} style={btn(C.accent,'7px 14px',13)}>📊 Remote Score</button>}
-              <button onClick={()=>window.open(disp,'_blank')} style={{...btn(C.card,'7px 14px',13),border:`1px solid ${C.border}`}}>📺 Display</button>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:4}}>
-              {[{label:'📺 Display',url:disp},{label:'📊 Scorer',url:score}].filter(r=>r.url).map(r=>(
-                <div key={r.label} style={{display:'flex',alignItems:'center',gap:6}}>
-                  <span style={{fontSize:9,color:C.muted,width:54,flexShrink:0}}>{r.label}</span>
-                  <span style={{fontSize:9,fontFamily:'monospace',background:C.card,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.border}`,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.url}</span>
-                  <button onClick={()=>navigator.clipboard.writeText(r.url).catch(()=>{})} style={{...btn(C.card,'2px 8px',9),border:`1px solid ${C.border}`,flexShrink:0}}>Copy</button>
+      <div style={{display:'grid',gap:10}}>
+        {all.map(comp=>{
+          const c=comp.sc||comp;
+          const cAthletes=c.athletes||[];
+          const cHeights=c.heights||[];
+          const cInfo=c.info||{name:comp.name,date:comp.date,venue:comp.venue};
+          const ranked=calcPlacements(cAthletes,cHeights);
+          const top3=ranked.filter(r=>r.placement&&r.placement<=3).slice(0,3);
+          const isActive=c.compStatus==='active'||comp.status==='active';
+          const compId=c.compId||comp.compId||comp.id;
+          const scorerToken=c.scorerToken||comp.scorer_token;
+          const dispUrl=compId?`${base}#/display/${compId}`:null;
+          const scoreUrl=(compId&&scorerToken)?`${base}#/score/${compId}/${scorerToken}`:null;
+          const delKey=compId||comp.id;
+          return(
+            <div key={delKey||Math.random()} style={{background:C.surface,borderRadius:14,padding:'14px 16px',border:`1px solid ${isActive?C.accent:C.border}`}}>
+              <div style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:8}}>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:800,fontSize:15}}>{cInfo.name||'Unnamed Meet'}</div>
+                  <div style={{fontSize:12,color:C.muted,marginTop:2}}>
+                    {[cInfo.date,cInfo.venue,RULEBOOKS.find(r=>r.key===c.rulebook)?.label].filter(Boolean).join(' · ')}
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{cAthletes.length} athletes · {cHeights.length} heights</div>
                 </div>
-              ))}
+                <div style={{display:'flex',gap:5,alignItems:'center',flexShrink:0}}>
+                  {isActive&&<span style={{fontSize:9,background:`${C.accent}22`,color:C.accent,borderRadius:6,padding:'2px 8px',fontWeight:700,border:`1px solid ${C.accent}55`}}>LIVE</span>}
+                  {authUser&&<span style={{fontSize:12,color:C.muted}} title="Synced to cloud">☁️</span>}
+                </div>
+              </div>
+              {top3.length>0&&(
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+                  {top3.map((a,i)=>{
+                    const best=highestClearedIdx(a,cHeights.length);
+                    return(
+                      <div key={a.id} style={{display:'flex',alignItems:'center',gap:6,background:C.card,borderRadius:8,padding:'5px 10px',border:`1px solid ${C.border}`}}>
+                        <span style={{fontSize:14}}>{i===0?'🥇':i===1?'🥈':'🥉'}</span>
+                        <FlagCell athlete={a} size={16}/>
+                        <span style={{fontSize:12,fontWeight:700}}>{a.firstName} {a.lastName}</span>
+                        {best>=0&&<span style={{fontSize:11,color:C.success}}>{fmtH(cHeights[best],primaryMetric)}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {(dispUrl||scoreUrl)&&(
+                <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
+                  {[{label:'📺 Display',url:dispUrl},{label:'📊 Scorer',url:scoreUrl}].filter(r=>r.url).map(r=>(
+                    <div key={r.label} style={{display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{fontSize:9,color:C.muted,width:54,flexShrink:0}}>{r.label}</span>
+                      <span style={{fontSize:9,color:C.muted,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:'monospace',background:C.card,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.border}`}}>{r.url}</span>
+                      <button onClick={()=>navigator.clipboard.writeText(r.url).catch(()=>{})} style={{...btn(C.card,'2px 8px',9),border:`1px solid ${C.border}`,flexShrink:0}}>Copy</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                {isActive&&<button onClick={()=>onResume(comp)} style={btn(C.accent,'7px 14px',13)}>Resume</button>}
+                <button onClick={()=>onReview(comp)} style={{...btn(C.card,'7px 14px',13),border:`1px solid ${C.border}`}}>Review</button>
+                {confirmDel===delKey?(
+                  <>
+                    <span style={{fontSize:11,color:C.danger,fontWeight:700,marginLeft:'auto'}}>Delete?</span>
+                    <button onClick={()=>handleDelete(comp)} style={btn(C.danger,'7px 12px',13)}>Yes</button>
+                    <button onClick={()=>setConfirmDel(null)} style={{...btn(C.card,'7px 12px',13),border:`1px solid ${C.border}`}}>No</button>
+                  </>
+                ):(
+                  <button onClick={()=>setConfirmDel(delKey)} style={{...btn('#7f1d1d','7px 14px',13),marginLeft:'auto'}}>Delete</button>
+                )}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -3274,8 +3328,7 @@ function VaultDeskApp(){
   const TABS=[
     {id:'setup',label:'Setup',icon:'⚙️'},
     {id:'live',label:'Live',icon:'📡'},
-    {id:'history',label:'History',icon:'🕐'},
-    ...(authUser?[{id:'mycomps',label:'My Comps',icon:'🗂️'}]:[]),
+    {id:'mycomps',label:'My Comps',icon:'🗂️'},
     {id:'rules',label:'Rules',icon:'📋'},
     ...(isSuperAdmin?[{id:'admin',label:'Admin',icon:'🔐'}]:[]),
   ];
@@ -3388,10 +3441,9 @@ function VaultDeskApp(){
         )}
         {screen==='display'&&sc&&<DisplayScreen sc={sc} primaryMetric={primaryMetric} updSc={updSc}/>}
         {screen==='rules'&&<RulesTab/>}
-        {screen==='mycomps'&&authUser&&<MyCompsScreen authUser={authUser}/>}
-        {screen==='admin'&&isSuperAdmin&&<SuperAdminScreen/>}
-        {screen==='history'&&(
-          <HistoryScreen
+        {screen==='mycomps'&&(
+          <MyCompsScreen
+            authUser={authUser}
             saved={savedComps}
             primaryMetric={primaryMetric}
             onResume={comp=>{setSc({...comp,...(comp.sc||{})});setScreen('live');setLiveCompKey((comp.sc||comp).compId);setLiveSubTab('score');}}
@@ -3399,6 +3451,7 @@ function VaultDeskApp(){
             onDelete={id=>{deleteComp(id);setSavedComps(loadSaved());}}
           />
         )}
+        {screen==='admin'&&isSuperAdmin&&<SuperAdminScreen/>}
       </div>
 
       {/* MODALS */}
