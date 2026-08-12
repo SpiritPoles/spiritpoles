@@ -1105,6 +1105,24 @@ function removeOrder(idx) {
   // Rebuild SO fields
   setVal('so',    loadedOrders.map(o => o.so_number).join(', '));
   setVal('p2-so', loadedOrders.map(o => o.so_number).join(', '));
+  // If one order remains, repopulate all header fields from it
+  if (loadedOrders.length === 1) {
+    const rem = loadedOrders[0];
+    // Phase 1
+    setVal('consignee',      rem.customer            || '');
+    setVal('consignee-full', rem.ship_address        || '');
+    const addrEl = document.getElementById('consignee-full');
+    if (addrEl && typeof autoResize === 'function') autoResize(addrEl);
+    if (rem.port_of_destination) setVal('port-of-dest',    rem.port_of_destination);
+    if (rem.shipping_carrier)    setVal('shipping-carrier', rem.shipping_carrier);
+    // Phase 2
+    setVal('p2-consignee',      rem.customer     || '');
+    setVal('p2-consignee-full', rem.ship_address || '');
+    const addrEl2 = document.getElementById('p2-consignee-full');
+    if (addrEl2 && typeof autoResize === 'function') autoResize(addrEl2);
+    if (rem.if_number)  setVal('if-num',       rem.if_number);
+    if (rem.ship_email) setVal('p2-cons-email', rem.ship_email);
+  }
   updateDeclaredValue();
   repackAll('p1');
   repackAll('p2');
