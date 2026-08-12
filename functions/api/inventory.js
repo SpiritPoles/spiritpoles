@@ -149,6 +149,7 @@ const Q_ITEMS_FALLBACK = `
 // Q_BALANCE: per-location on-hand quantities from inventoryBalance.
 // Returns one row per item per warehouse location — aggregated in JS (no GROUP BY/SUM
 // because those caused UNEXPECTED_ERROR 500 from NetSuite's SuiteQL engine).
+// FK column: tried 'inventoryitem' (got 500); now trying 'item' (standard SuiteQL pattern).
 // Flex poles are still overridden below by Q_FLEXES lot-sum. This fixes UF + Kids poles.
 // Fails gracefully — if inventoryBalance is inaccessible, UF/Kids show 0 (non-fatal).
 const Q_BALANCE = `
@@ -158,7 +159,7 @@ const Q_BALANCE = `
     NVL(ib.quantitycommitted, 0) AS committed,
     NVL(ib.quantityavailable, 0) AS available
   FROM inventoryBalance ib
-  JOIN item i ON i.id = ib.inventoryitem
+  JOIN item i ON i.id = ib.item
   WHERE i.isinactive = 'F'
     AND i.itemid LIKE '%/%'
     AND ib.quantityonhand > 0
@@ -347,9 +348,12 @@ export async function onRequestGet({ env }) {
       return suiteQLAll(Q_ITEMS_FALLBACK, env);   // fallback also runs in parallel slot
     });
 
-    // Q_BALANCE: graceful failure — UF/Kids show 0 if inventoryBalance is inaccessible
+    // Q_BALANCE: graceful failure — UF/Kids show 0 if inventoryBalance is inaccessible.
+    // balanceWarning is surfaced in the UI amber bar so column-name errors are visible.
+    let balanceWarning = null;
     const balPromise = suiteQLAll(Q_BALANCE, env).catch(e => {
-      console.warn('[inventory] Q_BALANCE failed (UF/Kids will show 0):', e.message.substring(0, 200));
+      balanceWarning = 'Q_BALANCE (UF stock): ' + e.message.substring(0, 300);
+      console.warn('[inventory]', balanceWarning);
       return [];
     });
 
@@ -361,7 +365,8 @@ export async function onRequestGet({ env }) {
     ]);
 
     const payload = buildPayload(itemRows, balanceRows, flexRows, orderRows);
-    if (itemsWarning) payload.warning = itemsWarning;
+    const warnings = [itemsWarning, balanceWarning].filter(Boolean);
+    if (warnings.length) payload.warning = warnings.join(' | ');
     return new Response(JSON.stringify(payload), { status: 200, headers: CORS });
 
   } catch (err) {
