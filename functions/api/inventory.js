@@ -180,7 +180,7 @@ const Q_ORDERS = `
 `;
 
 // Q_UF_BALANCE: pull on-hand quantities for UF items directly from the item table.
-// Avoids inventoryBalance virtual table entirely (column names unknown, SELECT * hangs).
+// Works for standard-inventory UF items; returns 0 for lot-tracked items.
 const Q_UF_BALANCE = `
   SELECT itemid,
          NVL(quantityonhand,    0) AS quantityonhand,
@@ -190,6 +190,20 @@ const Q_UF_BALANCE = `
   WHERE itemid LIKE 'UF%'
     AND isinactive = 'F'
   ORDER BY itemid
+`;
+
+// Q_UF_LOTS: aggregate inventoryNumber for UF items.
+// Covers lot-tracked UF blanks (same table used by finished poles for flex tracking).
+const Q_UF_LOTS = `
+  SELECT i.itemid,
+         NVL(SUM(inv.quantityonhand),    0) AS quantityonhand,
+         NVL(SUM(inv.quantityavailable), 0) AS quantityavailable
+  FROM inventoryNumber inv
+  JOIN item i ON i.id = inv.item
+  WHERE i.itemid LIKE 'UF%'
+    AND i.isinactive = 'F'
+  GROUP BY i.itemid
+  ORDER BY i.itemid
 `;
 
 // ── Aggregation ───────────────────────────────────────────────────────────────
@@ -311,14 +325,26 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
 // No inventoryBalance virtual table (unknown columns, SELECT * hangs indefinitely).
 
 async function fetchUFBalance(env) {
-  const rows = await suiteQLAll(Q_UF_BALANCE, env);
-  console.log('[inventory] UF item balance rows=', rows.length,
-              rows[0] ? 'sample=' + JSON.stringify(rows[0]) : '');
-  return rows.map(r => ({
+  // Run both sources concurrently: item table (standard inv) + inventoryNumber (lot-tracked).
+  const [itemRows, lotRows] = await Promise.all([
+    suiteQLAll(Q_UF_BALANCE, env).catch(e => { console.warn('[inventory] Q_UF_BALANCE err:', e.message); return []; }),
+    suiteQLAll(Q_UF_LOTS,    env).catch(e => { console.warn('[inventory] Q_UF_LOTS err:',    e.message); return []; }),
+  ]);
+
+  const itemNonzero = itemRows.filter(r => Number(r.quantityonhand) > 0).length;
+  const lotNonzero  = lotRows.filter( r => Number(r.quantityonhand) > 0).length;
+  console.log('[inventory] UF item rows=', itemRows.length, 'nonzero=', itemNonzero,
+              '| lot rows=', lotRows.length, 'nonzero=', lotNonzero);
+
+  // Prefer lot-aggregated data if it has inventory; otherwise use item table.
+  const source   = lotNonzero > 0 ? lotRows : itemRows;
+  const isLotSrc = source === lotRows;
+
+  return source.map(r => ({
     itemid:            (r.itemid || '').trim(),
     quantityonhand:    Number(r.quantityonhand)    || 0,
     quantityavailable: Number(r.quantityavailable) || 0,
-    quantitycommitted: Number(r.quantitycommitted)  || 0,
+    quantitycommitted: isLotSrc ? 0 : (Number(r.quantitycommitted) || 0),
   })).filter(r => r.itemid);
 }
 
