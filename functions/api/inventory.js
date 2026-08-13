@@ -1,5 +1,5 @@
 // functions/api/inventory.js
-// Cloudflare Pages Function — on-demand CPC Spirit inventory snapshot from NetSuite (TBA OAuth 1.0a)
+// Cloudflare Pages Function — on-demand UCS Spirit inventory snapshot from NetSuite (TBA OAuth 1.0a)
 // Mirrors the payload shape expected by apps/inventory-lookup/index.html:
 //   { models, orders, catalog: {}, refreshedAt }
 
@@ -76,11 +76,11 @@ async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000
     let resp;
     try {
       resp = await fetch(url, {
-        method: 'POST',
+        method:  'POST',
         headers: {
           'Authorization': auth,
-          'Content-Type': 'application/json',
-          'prefer': 'transient',
+          'Content-Type':  'application/json',
+          'prefer':        'transient',
         },
         body: JSON.stringify({ q }),
         signal: ctrl.signal,
@@ -205,15 +205,15 @@ const Q_UF_LOTS = `
   GROUP BY i.itemid
 `;
 
-// Q_UF_INV_BALANCE: query inventoryBalance virtual table for UF items.
-// Using JOIN to filter by item prevents the full-table scan that hangs.
-// inventoryBalance is multi-row per item (one per location) so we SUM.
-const Q_UF_INV_BALANCE = `
+// Q_UF_LOC_INV: query locationInventory (per-item-per-location rows) for UF items.
+// locationInventory is the actual storage table that inventoryBalance aggregates;
+// it supports filtered JOINs without the full-table-scan hang of the virtual table.
+const Q_UF_LOC_INV = `
   SELECT i.itemid,
-         NVL(SUM(ib.quantityonhand),    0) AS quantityonhand,
-         NVL(SUM(ib.quantityavailable), 0) AS quantityavailable
-  FROM inventoryBalance ib
-  JOIN item i ON i.id = ib.item
+         NVL(SUM(li.quantityonhand),    0) AS quantityonhand,
+         NVL(SUM(li.quantityavailable), 0) AS quantityavailable
+  FROM locationInventory li
+  JOIN item i ON i.id = li.item
   WHERE i.itemid LIKE 'UF%'
     AND i.isinactive = 'F'
   GROUP BY i.itemid
@@ -338,22 +338,23 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
 // No inventoryBalance virtual table (unknown columns, SELECT * hangs indefinitely).
 
 async function fetchUFBalance(env) {
-  // Run both sources concurrently: item table (standard inv) + inventoryNumber (lot-tracked).
-  const [itemRows, lotRows, ibRows] = await Promise.all([
+  // Run three sources concurrently: locationInventory (per-location rows, fast),
+  // inventoryNumber (lot-tracked), and item table (standard fallback).
+  const [locRows, lotRows, itemRows] = await Promise.all([
+    suiteQLAll(Q_UF_LOC_INV, env).catch(e => { console.warn('[inventory] Q_UF_LOC_INV err:', e.message); return []; }),
+    suiteQLAll(Q_UF_LOTS,    env).catch(e => { console.warn('[inventory] Q_UF_LOTS err:',    e.message); return []; }),
     suiteQLAll(Q_UF_BALANCE, env).catch(e => { console.warn('[inventory] Q_UF_BALANCE err:', e.message); return []; }),
-    suiteQLAll(Q_UF_LOTS,          env).catch(e => { console.warn('[inventory] Q_UF_LOTS err:',          e.message); return []; }),
-    suiteQLAll(Q_UF_INV_BALANCE,   env).catch(e => { console.warn('[inventory] Q_UF_INV_BALANCE err:',   e.message); return []; }),
   ]);
 
-  const itemNonzero = itemRows.filter(r => Number(r.quantityonhand) > 0).length;
+  const locNonzero  = locRows.filter( r => Number(r.quantityonhand) > 0).length;
   const lotNonzero  = lotRows.filter( r => Number(r.quantityonhand) > 0).length;
-  const ibNonzero   = ibRows.filter(r => Number(r.quantityonhand) > 0).length;
-  console.log('[inventory] UF item rows=', itemRows.length, 'nonzero=', itemNonzero,
+  const itemNonzero = itemRows.filter(r => Number(r.quantityonhand) > 0).length;
+  console.log('[inventory] UF locInv rows=', locRows.length, 'nonzero=', locNonzero,
               '| lot rows=', lotRows.length, 'nonzero=', lotNonzero,
-              '| invBalance rows=', (ibRows || []).length, 'nonzero=', ibNonzero);
+              '| item rows=', itemRows.length, 'nonzero=', itemNonzero);
 
-  // Prefer inventoryBalance data if it has inventory; otherwise prefer lot-aggregated, otherwise use item table.
-  const source   = ibNonzero > 0 ? ibRows : (lotNonzero > 0 ? lotRows : itemRows);
+  // Prefer locationInventory if it has data; then lot-aggregated; then item table.
+  const source   = locNonzero > 0 ? locRows : (lotNonzero > 0 ? lotRows : itemRows);
 
   const isLotSrc = source === lotRows;
 
