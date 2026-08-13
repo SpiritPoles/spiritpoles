@@ -126,14 +126,16 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
-// Q_ITEMS: model catalog — item names + display names only (quantities always 0 here).
+// Q_ITEMS: model catalog + on-hand quantities from item table.
+// item.quantityonhand is the total across all locations — works for UF and finished poles.
+// Lot-tracked finished poles will have their onHand overridden later by lotOnHandSum (Q_FLEXES).
 const Q_ITEMS = `
   SELECT
     i.itemid      AS name,
     i.displayname AS displayname,
-    0             AS onhand,
-    0             AS committed,
-    0             AS available
+    NVL(i.quantityonhand,    0) AS onhand,
+    NVL(i.quantitycommitted,  0) AS committed,
+    NVL(i.quantityavailable, 0) AS available
   FROM item i
   WHERE i.isinactive = 'F'
     AND i.itemid LIKE '%/%'
@@ -233,9 +235,9 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     models[name] = {
       length,
       weight,
-      onHand:    0,
-      available: 0,
-      committed: 0,
+      onHand:    toInt(row.onhand),
+      available: toInt(row.available),
+      committed: toInt(row.committed),
       flexes:    [],
     };
   }
