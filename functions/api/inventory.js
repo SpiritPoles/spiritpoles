@@ -103,7 +103,7 @@ async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000
   }
 }
 
-as function suiteQLAll(q, env) {
+async function suiteQLAll(q, env) {
   const rows  = [];
   let offset  = 0;
   const limit = 1000;
@@ -164,7 +164,6 @@ const Q_ORDERS = `
     i.displayname                                                   AS displayname,
     i.description                                                   AS description,
     t.tranid                                                        AS sonumber,
-  
     ABS(NVL(tl.quantity, 0)) - NVL(tl.quantityshiprecv, 0)         AS openqty
   FROM transaction t
   JOIN transactionLine tl ON tl.transaction = t.id
@@ -180,11 +179,13 @@ const Q_ORDERS = `
   ORDER BY i.itemid, t.tranid
 `;
 
-// Q_UF_IDS: get internal IDs for all active UF items.
-// Used as step 1 of the two-step balance fetch — avoids JOIN on inventoryBalance
-// (which fails with 500 in NS SuiteQL when combined with GROUP BY).
-const Q_UF_IDS = `
-  SELECT id, itemid
+// Q_UF_BALANCE: pull on-hand quantities for UF items directly from the item table.
+// Avoids inventoryBalance virtual table entirely (column names unknown, SELECT * hangs).
+const Q_UF_BALANCE = `
+  SELECT itemid,
+         NVL(quantityonhand,    0) AS quantityonhand,
+         NVL(quantityavailable, 0) AS quantityavailable,
+         NVL(quantitycommitted,  0) AS quantitycommitted
   FROM item
   WHERE itemid LIKE 'UF%'
     AND isinactive = 'F'
@@ -225,9 +226,9 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     };
   }
 
-  // Overlay UF on-hand quantities from inventoryBalance (two-step fetch).
+  // Overlay UF on-hand quantities from item table (fetchUFBalance).
   if (balanceRows && balanceRows.length > 0) {
-    console.log('[inventory] balanceRows[0] keys:', JSON.stringify(Object.keys(balanceRows[0])));
+    console.log('[inventory] UF balanceRows count:', balanceRows.length);
   }
   for (const row of (balanceRows || [])) {
     const name = (row.itemid || '').trim();
@@ -305,93 +306,20 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
   };
 }
 
-// ── UF balance: two-step fetch ────────────────────────────────────────────────
-// Step 1: get UF item internal IDs from item table (always works).
-// Step 2: probe inventoryBalance with SELECT * to discover column names, then
-//         fetch all data with those columns. Falls back to named-column variants
-//         if SELECT * isn't supported. Aggregates in JS (no JOIN/GROUP BY on
-//         virtual table — causes NS 500).
+// ── UF balance: query item table directly ────────────────────────────────────
+// item.quantityonhand is total across all locations — exactly what we need.
+// No inventoryBalance virtual table (unknown columns, SELECT * hangs indefinitely).
 
 async function fetchUFBalance(env) {
-  // Step 1
-  const ufItems = await suiteQLAll(Q_UF_IDS, env);
-  if (!ufItems.length) return [];
-
-  const idMap = {};  // internal_id (string) → itemid name
-  for (const r of ufItems) idMap[String(r.id)] = (r.itemid || '').trim();
-
-  // Helper: aggregate ibRows into output shape using flexible key matching.
-  function aggregate(ibRows) {
-    const agg = {};
-    for (const r of ibRows) {
-      const name = idMap[String(r.item ?? r.Item ?? '')];
-      if (!name) continue;
-      if (!agg[name]) agg[name] = { itemid: name, quantityonhand: 0, quantityavailable: 0, quantitycommitted: 0 };
-      for (const [k, v] of Object.entries(r)) {
-        const kl = k.toLowerCase().replace(/[^a-z]/g, '');
-        if      (kl === 'quantityonhand'    || kl === 'onhand')     agg[name].quantityonhand    += Number(v) || 0;
-        else if (kl === 'quantityavailable' || kl === 'available')  agg[name].quantityavailable += Number(v) || 0;
-        else if (kl === 'quantitycommitted' || kl === 'committed')  agg[name].quantitycommitted += Number(v) || 0;
-      }
-    }
-    return Object.values(agg);
-  }
-
-  const errors = [];
-
-  // Phase A — probe with SELECT * to auto-discover column names.
-  // Uses ROWNUM (Oracle pseudo-column supported by NS SuiteQL) to limit to 5 rows.
-  try {
-    const probe = await suiteQLPage(
-      `SELECT * FROM inventoryBalance WHERE ROWNUM <= 5`,
-      env, 0, 5, 1, 25000
-    );
-    const sampleRow = probe.items?.[0];
-    const keys = sampleRow ? Object.keys(sampleRow) : [];
-    console.log('[inventory] inventoryBalance probe ok — keys:', JSON.stringify(keys));
-
-    // Find on-hand column among discovered keys
-    const SKIP = new Set(['item', 'location', 'id', 'itemid', 'locationid', 'subsidiary', 'unit', 'units', 'currency']);
-    const qtyCols = keys.filter(k => !SKIP.has(k.toLowerCase()));
-    const ohKey = qtyCols.find(k => /on.?hand/i.test(k))
-               || qtyCols.find(k => /qty|quant/i.test(k))
-               || qtyCols[0];
-
-    if (ohKey) {
-      console.log('[inventory] discovered qty cols:', qtyCols.join(', '));
-      // Phase A.2 — full data fetch with discovered column names
-      const selCols = ['item', ...qtyCols].join(', ');
-      const ibRows  = await suiteQLAll(
-        `SELECT ${selCols} FROM inventoryBalance WHERE ${ohKey} > 0`,
-        env
-      );
-      console.log('[inventory] inventoryBalance full rows=', ibRows.length,
-                  ibRows[0] ? 'sample=' + JSON.stringify(ibRows[0]) : '');
-      return aggregate(ibRows);
-    }
-    errors.push(`star-probe: keys=${JSON.stringify(keys)} — no qty col identified`);
-  } catch (ep) {
-    errors.push(`star-probe: ${ep.message.substring(0, 600)}`);
-  }
-
-  // Phase B — named-column fallbacks (different NS account versions use different names).
-  const variants = [
-    `SELECT item, quantityonhand, quantityavailable, quantitycommitted FROM inventoryBalance WHERE quantityonhand > 0`,
-    `SELECT item, onHand, available, committed FROM inventoryBalance WHERE onHand > 0`,
-    `SELECT item, quantityOnHand, quantityAvailable, quantityCommitted FROM inventoryBalance WHERE quantityOnHand > 0`,
-    `SELECT item, locationquantityonhand FROM inventoryBalance WHERE locationquantityonhand > 0`,
-  ];
-  for (const q of variants) {
-    try {
-      const ibRows = await suiteQLAll(q, env);
-      console.log('[inventory] inventoryBalance variant ok:', q.substring(7, 60), 'rows=', ibRows.length);
-      return aggregate(ibRows);
-    } catch (e) {
-      errors.push(e.message.substring(0, 500));
-    }
-  }
-
-  throw new Error('inventoryBalance: ' + errors.join(' || ').substring(0, 1000));
+  const rows = await suiteQLAll(Q_UF_BALANCE, env);
+  console.log('[inventory] UF item balance rows=', rows.length,
+              rows[0] ? 'sample=' + JSON.stringify(rows[0]) : '');
+  return rows.map(r => ({
+    itemid:            (r.itemid || '').trim(),
+    quantityonhand:    Number(r.quantityonhand)    || 0,
+    quantityavailable: Number(r.quantityavailable) || 0,
+    quantitycommitted: Number(r.quantitycommitted)  || 0,
+  })).filter(r => r.itemid);
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -424,9 +352,7 @@ export async function onRequestGet({ env }) {
       }),
     ]);
 
-    // ── Phase 2: orders + UF balance (2 concurrent; balance runs 2 sequential sub-queries) ──
-    // ufBalancePromise starts immediately so Step A overlaps with Q_ORDERS.
-    // Step B (inventoryBalance) starts after Step A — still ≤2 concurrent NS queries total.
+    // ── Phase 2: orders + UF balance (2 concurrent) ──────────────────────────
     const ufBalancePromise = fetchUFBalance(env).then(rows => {
       if (rows._warning) {
         balanceWarning = rows._warning;
