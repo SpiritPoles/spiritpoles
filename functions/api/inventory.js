@@ -205,12 +205,29 @@ const Q_ITEMS_FALLBACK = `
   ORDER BY i.itemid
 `;
 
-// Q_BALANCE: on-hand quantities for UF (unfinished) poles via the item table.
-// item.quantityonhand is 0 for Assembly items (finished poles), but InvtPart items
-// (UF blanks) expose real on-hand values. Finished pole quantities come from Q_FLEXES.
+// Q_BALANCE: on-hand quantities for UF (unfinished) poles.
+// Tries inventoryBalance first (correct NS quantity table), then inventoryItem subtype.
+// Finished pole quantities come from Q_FLEXES lot-sum override.
 const Q_BALANCE = `
-  SELECT itemid, quantityonhand
-  FROM item
+  SELECT i.itemid,
+         SUM(NVL(ib.quantityonhand,    0)) AS quantityonhand,
+         SUM(NVL(ib.quantityavailable, 0)) AS quantityavailable,
+         SUM(NVL(ib.quantitycommitted, 0)) AS quantitycommitted
+  FROM inventoryBalance ib
+  JOIN item i ON i.id = ib.item
+  WHERE i.itemid LIKE 'UF%'
+    AND i.isinactive = 'F'
+  GROUP BY i.itemid
+  ORDER BY i.itemid
+`;
+
+// Fallback: inventoryItem subtype (InvtPart) — direct quantity fields.
+const Q_BALANCE_INVT = `
+  SELECT itemid,
+         quantityonhand,
+         quantityavailable,
+         quantitycommitted
+  FROM inventoryItem
   WHERE itemid LIKE 'UF%'
     AND isinactive = 'F'
   ORDER BY itemid
@@ -398,15 +415,24 @@ export async function onRequestGet({ env }) {
       return suiteQLAll(Q_ITEMS_FALLBACK, env);   // fallback also runs in parallel slot
     });
 
-    // Q_BALANCE: on-hand quantities via inventoryItem subtype SuiteQL table.
-    // Graceful failure — UF/Kids show 0; error surfaced in amber bar.
+    // Q_BALANCE: on-hand quantities for UF poles.
+    // Try inventoryBalance first, fall back to inventoryItem subtype, then empty.
     let balanceWarning = null;
     let flexWarning    = null;
     let orderWarning   = null;
-    const balPromise = suiteQLAll(Q_BALANCE, env).catch(e => {
-      balanceWarning = 'Q_BALANCE: ' + e.message.substring(0, 300);
-      console.warn('[inventory]', balanceWarning);
-      return [];
+    const balPromise = suiteQLAll(Q_BALANCE, env).catch(async e => {
+      const ibErr = e.message.substring(0, 200);
+      console.warn('[inventory] Q_BALANCE inventoryBalance failed:', ibErr);
+      // Fallback: inventoryItem subtype
+      try {
+        const rows = await suiteQLAll(Q_BALANCE_INVT, env);
+        balanceWarning = `Q_BALANCE(fallback-ok): inventoryBalance failed: ${ibErr}`;
+        return rows;
+      } catch (e2) {
+        balanceWarning = `Q_BALANCE: inventoryBalance: ${ibErr} | inventoryItem: ${e2.message.substring(0, 200)}`;
+        console.warn('[inventory]', balanceWarning);
+        return [];
+      }
     });
 
     const [itemRows, balanceRows, flexRows, orderRows] = await Promise.all([
