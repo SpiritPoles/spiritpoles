@@ -192,6 +192,19 @@ const Q_UF_BALANCE = `
   ORDER BY itemid
 `;
 
+// Q_UF_LOTS: aggregate inventoryNumber for UF items.
+// Covers lot-tracked UF blanks (same table used by finished poles for flex tracking).
+const Q_UF_LOTS = `
+  SELECT i.itemid,
+         NVL(SUM(inv.quantityonhand),    0) AS quantityonhand,
+         NVL(SUM(inv.quantityavailable), 0) AS quantityavailable
+  FROM inventoryNumber inv
+  JOIN item i ON i.id = inv.item
+  WHERE i.itemid LIKE 'UF%'
+    AND i.isinactive = 'F'
+  GROUP BY i.itemid
+`;
+
 // Q_UF_INV_BALANCE: query inventoryBalance virtual table for UF items.
 // Using JOIN to filter by item prevents the full-table scan that hangs.
 // inventoryBalance is multi-row per item (one per location) so we SUM.
@@ -201,6 +214,11 @@ const Q_UF_INV_BALANCE = `
          NVL(SUM(ib.quantityavailable), 0) AS quantityavailable
   FROM inventoryBalance ib
   JOIN item i ON i.id = ib.item
+  WHERE i.itemid LIKE 'UF%'
+    AND i.isinactive = 'F'
+  GROUP BY i.itemid
+`;
+
   WHERE i.itemid LIKE 'UF%'
     AND i.isinactive = 'F'
   GROUP BY i.itemid
@@ -329,16 +347,20 @@ async function fetchUFBalance(env) {
   // Run both sources concurrently: item table (standard inv) + inventoryNumber (lot-tracked).
   const [itemRows, lotRows] = await Promise.all([
     suiteQLAll(Q_UF_BALANCE, env).catch(e => { console.warn('[inventory] Q_UF_BALANCE err:', e.message); return []; }),
-    suiteQLAll(Q_UF_INV_BALANCE, env).catch(e => { console.warn('[inventory] Q_UF_INV_BALANCE err:', e.message); return []; }),
+    suiteQLAll(Q_UF_LOTS,          env).catch(e => { console.warn('[inventory] Q_UF_LOTS err:',          e.message); return []; }),
+    suiteQLAll(Q_UF_INV_BALANCE,   env).catch(e => { console.warn('[inventory] Q_UF_INV_BALANCE err:',   e.message); return []; }),
   ]);
 
   const itemNonzero = itemRows.filter(r => Number(r.quantityonhand) > 0).length;
-  const ibNonzero   = lotRows.filter( r => Number(r.quantityonhand) > 0).length;
+  const lotNonzero  = lotRows.filter( r => Number(r.quantityonhand) > 0).length;
+  const ibNonzero   = (typeof ibRows !== 'undefined' ? ibRows.filter( r => Number(r.quantityonhand) > 0).length : 0);
   console.log('[inventory] UF item rows=', itemRows.length, 'nonzero=', itemNonzero,
-              '| invBalance rows=', lotRows.length, 'nonzero=', ibNonzero);
+              '| lot rows=', lotRows.length, 'nonzero=', lotNonzero,
+              '| invBalance rows=', (ibRows || []).length, 'nonzero=', ibNonzero);
 
-  // Prefer inventoryBalance data if it has inventory; otherwise fall back to item table.
-  const source   = ibNonzero > 0 ? lotRows : itemRows;
+  // Prefer inventoryBalance data if it has inventory; otherwise prefer lot-aggregated, otherwise use item table.
+  const source   = ibNonzero > 0 ? ibRows : (lotNonzero > 0 ? lotRows : itemRows);
+
   const isLotSrc = source === lotRows;
 
   return source.map(r => ({
