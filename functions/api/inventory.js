@@ -1,5 +1,5 @@
 // functions/api/inventory.js
-// Cloudflare Pages Function — on-demand UCS Spirit inventory snapshot from NetSuite (TBA OAuth 1.0a)
+// Cloudflare Pages Function — on-demand CPC Spirit inventory snapshot from NetSuite (TBA OAuth 1.0a)
 // Mirrors the payload shape expected by apps/inventory-lookup/index.html:
 //   { models, orders, catalog: {}, refreshedAt }
 
@@ -76,11 +76,11 @@ async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000
     let resp;
     try {
       resp = await fetch(url, {
-        method:  'POST',
+        method: 'POST',
         headers: {
           'Authorization': auth,
-          'Content-Type':  'application/json',
-          'prefer':        'transient',
+          'Content-Type': 'application/json',
+          'prefer': 'transient',
         },
         body: JSON.stringify({ q }),
         signal: ctrl.signal,
@@ -219,12 +219,6 @@ const Q_UF_INV_BALANCE = `
   GROUP BY i.itemid
 `;
 
-  WHERE i.itemid LIKE 'UF%'
-    AND i.isinactive = 'F'
-  GROUP BY i.itemid
-  ORDER BY i.itemid
-`;
-
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
 function parseDisplay(displayname) {
@@ -345,7 +339,7 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
 
 async function fetchUFBalance(env) {
   // Run both sources concurrently: item table (standard inv) + inventoryNumber (lot-tracked).
-  const [itemRows, lotRows] = await Promise.all([
+  const [itemRows, lotRows, ibRows] = await Promise.all([
     suiteQLAll(Q_UF_BALANCE, env).catch(e => { console.warn('[inventory] Q_UF_BALANCE err:', e.message); return []; }),
     suiteQLAll(Q_UF_LOTS,          env).catch(e => { console.warn('[inventory] Q_UF_LOTS err:',          e.message); return []; }),
     suiteQLAll(Q_UF_INV_BALANCE,   env).catch(e => { console.warn('[inventory] Q_UF_INV_BALANCE err:',   e.message); return []; }),
@@ -353,7 +347,7 @@ async function fetchUFBalance(env) {
 
   const itemNonzero = itemRows.filter(r => Number(r.quantityonhand) > 0).length;
   const lotNonzero  = lotRows.filter( r => Number(r.quantityonhand) > 0).length;
-  const ibNonzero   = (typeof ibRows !== 'undefined' ? ibRows.filter( r => Number(r.quantityonhand) > 0).length : 0);
+  const ibNonzero   = ibRows.filter(r => Number(r.quantityonhand) > 0).length;
   console.log('[inventory] UF item rows=', itemRows.length, 'nonzero=', itemNonzero,
               '| lot rows=', lotRows.length, 'nonzero=', lotNonzero,
               '| invBalance rows=', (ibRows || []).length, 'nonzero=', ibNonzero);
