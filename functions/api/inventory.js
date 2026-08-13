@@ -221,7 +221,7 @@ function parseDisplay(displayname) {
   return { length: rest.trim(), weight: '' };
 }
 
-function toInt(v)   { const n = parseInt(v,  10); return isNaN(n) ? 0    : n; }
+function toInt(v)   { const n = parseInt(v,  10); return isNaN(n) > 0    : n; }
 function toFloat(v) { const n = parseFloat(v);    return isNaN(n) ? null : n; }
 
 function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
@@ -355,12 +355,35 @@ async function fetchUFBalance(env) {
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
-export async function onRequestGet({ env }) {
+export async function onRequestGet({ env, request }) {
   if (!env.NS_ACCOUNT_ID || !env.NS_CONSUMER_KEY || !env.NS_TOKEN_ID) {
     return new Response(
       JSON.stringify({ error: 'NetSuite credentials not configured in CF Pages environment.' }),
       { status: 500, headers: CORS }
     );
+  }
+
+  // ── Debug mode: ?debug=uf returns raw fetchUFBalance + sample Q_ITEMS for UF445 ──
+  const url = new URL(request.url);
+  if (url.searchParams.get('debug') === 'uf') {
+    try {
+      const [lotRows, itemRows, uf445Rows] = await Promise.all([
+        suiteQLAll(Q_UF_LOTS,    env).catch(e => ({ error: e.message })),
+        suiteQLAll(Q_UF_BALANCE, env).catch(e => ({ error: e.message })),
+        suiteQLAll(`SELECT i.itemid, NVL(i.quantityonhand,0) AS onhand, NVL(i.quantityavailable,0) AS avail, NVL(i.quantitycommitted,0) AS committed FROM item i WHERE i.itemid LIKE 'UF445/%' AND i.isinactive = 'F' ORDER BY i.itemid`, env).catch(e => ({ error: e.message })),
+      ]);
+      return new Response(JSON.stringify({
+        Q_UF_LOTS_count:    Array.isArray(lotRows)  ? lotRows.length  : 'error',
+        Q_UF_LOTS_nonzero:  Array.isArray(lotRows)  ? lotRows.filter(r => Number(r.quantityonhand) > 0).length : 'error',
+        Q_UF_LOTS_sample:   Array.isArray(lotRows)  ? lotRows.filter(r => r.itemid?.includes('445')).slice(0, 10) : lotRows,
+        Q_UF_BALANCE_count: Array.isArray(itemRows) ? itemRows.length : 'error',
+        Q_UF_BALANCE_nonzero: Array.isArray(itemRows) ? itemRows.filter(r => Number(r.quantityonhand) > 0).length : 'error',
+        Q_UF_BALANCE_sample:Array.isArray(itemRows) ? itemRows.filter(r => r.itemid?.includes('445')).slice(0, 10) : itemRows,
+        Q_ITEMS_UF445:      uf445Rows,
+      }, null, 2), { status: 200, headers: CORS });
+    } catch (e) {
+      return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
+    }
   }
 
   let itemsWarning   = null;
