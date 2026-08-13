@@ -123,3 +123,348 @@ as function suiteQLAll(q, env) {
   }
   return rows;
 }
+
+// ── SuiteQL queries ───────────────────────────────────────────────────────────
+
+// Q_ITEMS: model catalog — item names + display names only (quantities always 0 here).
+const Q_ITEMS = `
+  SELECT
+    i.itemid      AS name,
+    i.displayname AS displayname,
+    0             AS onhand,
+    0             AS committed,
+    0             AS available
+  FROM item i
+  WHERE i.isinactive = 'F'
+    AND i.itemid LIKE '%/%'
+  ORDER BY i.itemid
+`;
+
+// Q_FLEXES: individual lot numbers — flex is encoded in the lot number string
+// ("flex|model|date|time"  e.g. "37.0|370|24-06-03|9:49")
+// Also provides onHand counts for finished (lot-tracked) poles.
+const Q_FLEXES = `
+  SELECT
+    i.itemid            AS modelname,
+    i.displayname       AS displayname,
+    inv.inventorynumber AS lotnumber,
+    NVL(inv.quantityonhand,    0) AS lotonhand,
+    NVL(inv.quantityavailable, 0) AS lotavailable
+  FROM inventoryNumber inv
+  JOIN item i ON i.id = inv.item
+  WHERE inv.quantityonhand > 0
+    AND i.isinactive = 'F'
+  ORDER BY i.itemid, inv.inventorynumber
+`;
+
+// Q_ORDERS: open SO lines (item, SO number, open qty).
+const Q_ORDERS = `
+  SELECT
+    i.itemid                                                        AS name,
+    i.displayname                                                   AS displayname,
+    i.description                                                   AS description,
+    t.tranid                                                        AS sonumber,
+  
+    ABS(NVL(tl.quantity, 0)) - NVL(tl.quantityshiprecv, 0)         AS openqty
+  FROM transaction t
+  JOIN transactionLine tl ON tl.transaction = t.id
+  JOIN item i              ON i.id = tl.item
+  WHERE t.type            = 'SalesOrd'
+    AND tl.isfullyshipped = 'F'
+    AND tl.isclosed       = 'F'
+    AND tl.fulfillable    = 'T'
+    AND tl.item           IS NOT NULL
+    AND i.isinactive      = 'F'
+    AND i.itemid          LIKE '%/%'
+    AND ABS(NVL(tl.quantity, 0)) - NVL(tl.quantityshiprecv, 0) > 0
+  ORDER BY i.itemid, t.tranid
+`;
+
+// Q_UF_IDS: get internal IDs for all active UF items.
+// Used as step 1 of the two-step balance fetch — avoids JOIN on inventoryBalance
+// (which fails with 500 in NS SuiteQL when combined with GROUP BY).
+const Q_UF_IDS = `
+  SELECT id, itemid
+  FROM item
+  WHERE itemid LIKE 'UF%'
+    AND isinactive = 'F'
+  ORDER BY itemid
+`;
+
+// ── Aggregation ───────────────────────────────────────────────────────────────
+
+function parseDisplay(displayname) {
+  // "370/40 | 12'1\" - 90lb"  →  { length: "12'1\"", weight: "90lb" }
+  if (!displayname || !displayname.includes(' | ')) return { length: '', weight: '' };
+  const rest    = displayname.split(' | ')[1] || '';
+  const dashIdx = rest.lastIndexOf(' - ');
+  if (dashIdx >= 0) {
+    return { length: rest.slice(0, dashIdx).trim(), weight: rest.slice(dashIdx + 3).trim() };
+  }
+  return { length: rest.trim(), weight: '' };
+}
+
+function toInt(v)   { const n = parseInt(v,  10); return isNaN(n) ? 0    : n; }
+function toFloat(v) { const n = parseFloat(v);    return isNaN(n) ? null : n; }
+
+function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
+
+  // models — catalog from item table (quantities all 0 at this stage)
+  const models = {};
+  for (const row of itemRows) {
+    const name = (row.name || '').trim();
+    if (!name || !name.includes('/')) continue;
+    const { length, weight } = parseDisplay(row.displayname || '');
+    models[name] = {
+      length,
+      weight,
+      onHand:    0,
+      available: 0,
+      committed: 0,
+      flexes:    [],
+    };
+  }
+
+  // Overlay UF on-hand quantities from inventoryBalance (two-step fetch).
+  if (balanceRows && balanceRows.length > 0) {
+    console.log('[inventory] balanceRows[0] keys:', JSON.stringify(Object.keys(balanceRows[0])));
+  }
+  for (const row of (balanceRows || [])) {
+    const name = (row.itemid || '').trim();
+    if (!name || !models[name]) continue;
+    const oh = toInt(row.quantityonhand  ?? 0);
+    const cm = toInt(row.quantitycommitted ?? 0);
+    const av = toInt(row.quantityavailable ?? 0);
+    if (oh > 0 || cm > 0) {
+      models[name].onHand    = oh;
+      models[name].committed = cm;
+      models[name].available = av;
+    }
+  }
+
+  // flexes (Q_FLEXES) — attach to parent model + derive on-hand from lot quantities
+  // lot number format: "37.0|370|24-06-03|9:49" — flex is first segment
+  // lotOnHandSum overrides the inventoryBalance value for flex-tracked poles.
+  const lotOnHandSum = {};  // modelName → sum of lot quantityonhand
+  for (const row of flexRows) {
+    const modelName = (row.modelname || '').trim();
+    if (!models[modelName]) continue;
+    const lot   = (row.lotnumber || '').trim();
+    const flex  = toFloat(lot.split('|')[0]);
+    if (flex === null) continue;
+    const avail = toInt(row.lotavailable) > 0;
+    models[modelName].flexes.push({ f: Math.round(flex * 10) / 10, a: avail });
+    lotOnHandSum[modelName] = (lotOnHandSum[modelName] || 0) + toInt(row.lotonhand);
+  }
+
+  // Override onHand for flex-tracked models with the sum of lot quantities.
+  for (const [name, sum] of Object.entries(lotOnHandSum)) {
+    if (models[name]) models[name].onHand = sum;
+  }
+
+  // sort flexes smallest → largest within each model
+  for (const m of Object.values(models)) {
+    m.flexes.sort((a, b) => a.f - b.f);
+  }
+
+  // orders (Q_ORDERS) — group by item name
+  const orders = {};
+  for (const row of orderRows) {
+    const name    = (row.name || '').trim();
+    if (!name || !/^\d+S?\//.test(name)) continue;     // poles only
+    const openQty = Math.round(parseFloat(row.openqty) || 0);
+    if (openQty <= 0) continue;
+    const soNum = (row.sonumber || '').trim() || null;
+
+    if (!orders[name]) {
+      orders[name] = {
+        openQty:     0,
+        committed:   0,
+        available:   0,
+        onHand:      0,
+        display:     row.displayname || name,
+        description: row.description || '',
+        soLines:     [],
+      };
+    }
+    orders[name].openQty += openQty;
+    orders[name].soLines.push({ soNum, qty: openQty, flex: null, bo: false });
+
+    // Stub model for back-ordered items with no inventory entry.
+    if (!models[name]) {
+      const { length, weight } = parseDisplay(row.displayname || '');
+      models[name] = { length, weight, onHand: 0, available: 0, committed: 0, flexes: [] };
+    }
+  }
+
+  return {
+    models,
+    orders,
+    catalog:     {},
+    refreshedAt: new Date().toISOString(),
+  };
+}
+
+// ── UF balance: two-step fetch ────────────────────────────────────────────────
+// Step 1: get UF item internal IDs from item table (always works).
+// Step 2: probe inventoryBalance with SELECT * to discover column names, then
+//         fetch all data with those columns. Falls back to named-column variants
+//         if SELECT * isn't supported. Aggregates in JS (no JOIN/GROUP BY on
+//         virtual table — causes NS 500).
+
+async function fetchUFBalance(env) {
+  // Step 1
+  const ufItems = await suiteQLAll(Q_UF_IDS, env);
+  if (!ufItems.length) return [];
+
+  const idMap = {};  // internal_id (string) → itemid name
+  for (const r of ufItems) idMap[String(r.id)] = (r.itemid || '').trim();
+
+  // Helper: aggregate ibRows into output shape using flexible key matching.
+  function aggregate(ibRows) {
+    const agg = {};
+    for (const r of ibRows) {
+      const name = idMap[String(r.item ?? r.Item ?? '')];
+      if (!name) continue;
+      if (!agg[name]) agg[name] = { itemid: name, quantityonhand: 0, quantityavailable: 0, quantitycommitted: 0 };
+      for (const [k, v] of Object.entries(r)) {
+        const kl = k.toLowerCase().replace(/[^a-z]/g, '');
+        if      (kl === 'quantityonhand'    || kl === 'onhand')     agg[name].quantityonhand    += Number(v) || 0;
+        else if (kl === 'quantityavailable' || kl === 'available')  agg[name].quantityavailable += Number(v) || 0;
+        else if (kl === 'quantitycommitted' || kl === 'committed')  agg[name].quantitycommitted += Number(v) || 0;
+      }
+    }
+    return Object.values(agg);
+  }
+
+  const errors = [];
+
+  // Phase A — probe with SELECT * to auto-discover column names.
+  // Uses ROWNUM (Oracle pseudo-column supported by NS SuiteQL) to limit to 5 rows.
+  try {
+    const probe = await suiteQLPage(
+      `SELECT * FROM inventoryBalance WHERE ROWNUM <= 5`,
+      env, 0, 5, 1, 25000
+    );
+    const sampleRow = probe.items?.[0];
+    const keys = sampleRow ? Object.keys(sampleRow) : [];
+    console.log('[inventory] inventoryBalance probe ok — keys:', JSON.stringify(keys));
+
+    // Find on-hand column among discovered keys
+    const SKIP = new Set(['item', 'location', 'id', 'itemid', 'locationid', 'subsidiary', 'unit', 'units', 'currency']);
+    const qtyCols = keys.filter(k => !SKIP.has(k.toLowerCase()));
+    const ohKey = qtyCols.find(k => /on.?hand/i.test(k))
+               || qtyCols.find(k => /qty|quant/i.test(k))
+               || qtyCols[0];
+
+    if (ohKey) {
+      console.log('[inventory] discovered qty cols:', qtyCols.join(', '));
+      // Phase A.2 — full data fetch with discovered column names
+      const selCols = ['item', ...qtyCols].join(', ');
+      const ibRows  = await suiteQLAll(
+        `SELECT ${selCols} FROM inventoryBalance WHERE ${ohKey} > 0`,
+        env
+      );
+      console.log('[inventory] inventoryBalance full rows=', ibRows.length,
+                  ibRows[0] ? 'sample=' + JSON.stringify(ibRows[0]) : '');
+      return aggregate(ibRows);
+    }
+    errors.push(`star-probe: keys=${JSON.stringify(keys)} — no qty col identified`);
+  } catch (ep) {
+    errors.push(`star-probe: ${ep.message.substring(0, 600)}`);
+  }
+
+  // Phase B — named-column fallbacks (different NS account versions use different names).
+  const variants = [
+    `SELECT item, quantityonhand, quantityavailable, quantitycommitted FROM inventoryBalance WHERE quantityonhand > 0`,
+    `SELECT item, onHand, available, committed FROM inventoryBalance WHERE onHand > 0`,
+    `SELECT item, quantityOnHand, quantityAvailable, quantityCommitted FROM inventoryBalance WHERE quantityOnHand > 0`,
+    `SELECT item, locationquantityonhand FROM inventoryBalance WHERE locationquantityonhand > 0`,
+  ];
+  for (const q of variants) {
+    try {
+      const ibRows = await suiteQLAll(q, env);
+      console.log('[inventory] inventoryBalance variant ok:', q.substring(7, 60), 'rows=', ibRows.length);
+      return aggregate(ibRows);
+    } catch (e) {
+      errors.push(e.message.substring(0, 500));
+    }
+  }
+
+  throw new Error('inventoryBalance: ' + errors.join(' || ').substring(0, 1000));
+}
+
+// ── Handler ───────────────────────────────────────────────────────────────────
+
+export async function onRequestGet({ env }) {
+  if (!env.NS_ACCOUNT_ID || !env.NS_CONSUMER_KEY || !env.NS_TOKEN_ID) {
+    return new Response(
+      JSON.stringify({ error: 'NetSuite credentials not configured in CF Pages environment.' }),
+      { status: 500, headers: CORS }
+    );
+  }
+
+  let itemsWarning   = null;
+  let balanceWarning = null;
+  let flexWarning    = null;
+  let orderWarning   = null;
+
+  try {
+    // ── Phase 1: catalog + flex numbers (2 concurrent queries) ───────────────
+    const [itemRows, flexRows] = await Promise.all([
+      suiteQLAll(Q_ITEMS, env).catch(e => {
+        itemsWarning = 'Q_ITEMS: ' + e.message.substring(0, 200);
+        console.warn('[inventory]', itemsWarning);
+        return [];
+      }),
+      suiteQLAll(Q_FLEXES, env).catch(e => {
+        flexWarning = 'Q_FLEXES: ' + e.message.substring(0, 200);
+        console.warn('[inventory]', flexWarning);
+        return [];
+      }),
+    ]);
+
+    // ── Phase 2: orders + UF balance (2 concurrent; balance runs 2 sequential sub-queries) ──
+    // ufBalancePromise starts immediately so Step A overlaps with Q_ORDERS.
+    // Step B (inventoryBalance) starts after Step A — still ≤2 concurrent NS queries total.
+    const ufBalancePromise = fetchUFBalance(env).then(rows => {
+      if (rows._warning) {
+        balanceWarning = rows._warning;
+        delete rows._warning;
+      }
+      return rows;
+    }).catch(e => {
+      balanceWarning = 'Q_BALANCE: ' + e.message.substring(0, 1000);
+      console.warn('[inventory]', balanceWarning);
+      return [];
+    });
+
+    const [orderRows, balanceRows] = await Promise.all([
+      suiteQLAll(Q_ORDERS, env).catch(e => {
+        orderWarning = 'Q_ORDERS: ' + e.message.substring(0, 200);
+        console.warn('[inventory]', orderWarning);
+        return [];
+      }),
+      ufBalancePromise,
+    ]);
+
+    const payload  = buildPayload(itemRows, balanceRows, flexRows, orderRows);
+    const warnings = [itemsWarning, balanceWarning, flexWarning, orderWarning].filter(Boolean);
+    if (warnings.length) payload.warning = warnings.join(' | ');
+    return new Response(JSON.stringify(payload), { status: 200, headers: CORS });
+
+  } catch (err) {
+    console.error('[inventory] error:', err.message);
+    return new Response(JSON.stringify({ error: err.message }), { status: 502, headers: CORS });
+  }
+}
+
+export async function onRequestOptions() {
+  return new Response(null, {
+    headers: {
+      'Access-Control-Allow-Origin':  '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    },
+  });
+}
