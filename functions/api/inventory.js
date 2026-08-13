@@ -1,6 +1,5 @@
 // functions/api/inventory.js
 // Cloudflare Pages Function — on-demand UCS Spirit inventory snapshot from NetSuite (TBA OAuth 1.0a)
-// Replaces the Claude scheduled task 'spiritpoles-inventory-refresh'.
 // Mirrors the payload shape expected by apps/inventory-lookup/index.html:
 //   { models, orders, catalog: {}, refreshedAt }
 
@@ -61,57 +60,9 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
   ].join(', ');
 }
 
-// ── REST Record API (paginated GET) ──────────────────────────────────────────
-// Used for inventory quantities — inventoryBalance SuiteQL table is permission-blocked
-// (returns 500 UNEXPECTED_ERROR). The Record API reads directly from item records
-// and returns real quantityOnHand values that SuiteQL item.quantityonhand hides.
-
-async function recordPage(type, env, offset, limit, extraParams = {}, retries = 3) {
-  const base = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/${type}`;
-  const qp   = { limit: String(limit), offset: String(offset), ...extraParams };
-  const qs   = Object.entries(qp).map(([k, v]) => `${pct(k)}=${pct(v)}`).join('&');
-  const url  = `${base}?${qs}`;
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const auth = await oauthHeader('GET', base, env, qp);
-    const resp = await fetch(url, {
-      method:  'GET',
-      headers: { 'Authorization': auth },
-    });
-    if (resp.ok) return resp.json();
-    const txt = await resp.text();
-    if (resp.status === 401 && attempt < retries) {
-      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-      continue;
-    }
-    throw new Error(`RecordAPI[${type}] ${resp.status} (offset=${offset}): ${txt.substring(0, 500)}`);
-  }
-}
-
-async function recordAll(type, env, extraParams = {}) {
-  const rows  = [];
-  let offset  = 0;
-  const limit = 1000;
-  for (let page = 0; page < 50; page++) {
-    let result;
-    try {
-      result = await recordPage(type, env, offset, limit, extraParams);
-    } catch (e) {
-      if (offset === 0) throw e;
-      console.warn(`recordAll[${type}] stopping at offset=${offset}: ${e.message}`);
-      break;
-    }
-    const items = result.items || [];
-    rows.push(...items);
-    if (!result.hasMore || items.length === 0) break;
-    offset += limit;
-  }
-  return rows;
-}
-
 // ── SuiteQL (paginated) ───────────────────────────────────────────────────────
 
-async function suiteQLPage(q, env, offset, limit, retries = 3) {
+async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000) {
   const base = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
   const url  = `${base}?limit=${limit}&offset=${offset}`;
 
@@ -120,15 +71,26 @@ async function suiteQLPage(q, env, offset, limit, retries = 3) {
       limit:  String(limit),
       offset: String(offset),
     });
-    const resp = await fetch(url, {
-      method:  'POST',
-      headers: {
-        'Authorization': auth,
-        'Content-Type':  'application/json',
-        'prefer':        'transient',
-      },
-      body: JSON.stringify({ q }),
-    });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method:  'POST',
+        headers: {
+          'Authorization': auth,
+          'Content-Type':  'application/json',
+          'prefer':        'transient',
+        },
+        body: JSON.stringify({ q }),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      if (e.name === 'AbortError') throw new Error(`SuiteQL timeout after ${timeoutMs}ms (offset=${offset})`);
+      throw e;
+    }
+    clearTimeout(timer);
 
     if (resp.ok) return resp.json();
 
@@ -164,9 +126,7 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
-// Q_ITEMS: model catalog — item names + display names only.
-// item.quantityonhand is always 0 in SuiteQL (quantities live in inventoryBalance).
-// Real quantities come from Q_BALANCE below; flex poles are further overridden by Q_FLEXES.
+// Q_ITEMS: model catalog — item names + display names only (quantities always 0 here).
 const Q_ITEMS = `
   SELECT
     i.itemid      AS name,
@@ -180,38 +140,9 @@ const Q_ITEMS = `
   ORDER BY i.itemid
 `;
 
-// Fallback if Q_ITEMS fails — identical, kept for symmetry.
-const Q_ITEMS_FALLBACK = `
-  SELECT
-    i.itemid      AS name,
-    i.displayname AS displayname,
-    0             AS onhand,
-    0             AS committed,
-    0             AS available
-  FROM item i
-  WHERE i.isinactive = 'F'
-    AND i.itemid LIKE '%/%'
-  ORDER BY i.itemid
-`;
-
-// Q_BALANCE: on-hand quantities via inventoryItem subtype table.
-// The generic 'item' table always returns 0 for quantityonhand in SuiteQL;
-// the 'inventoryItem' subtype table exposes the real stored values.
-// Flex poles are still overridden by Q_FLEXES lot-sum below.
-const Q_BALANCE = `
-  SELECT
-    itemid     AS name,
-    NVL(quantityonhand,    0) AS onhand,
-    NVL(quantitycommitted, 0) AS committed,
-    NVL(quantityavailable, 0) AS available
-  FROM inventoryItem
-  WHERE isinactive = 'F'
-    AND itemid LIKE '%/%'
-  ORDER BY itemid
-`;
-
-// Replaces SS2827 — individual lot numbers (each pole's flex is encoded in the
-// lot number string: "flex|model|date|time"  e.g. "37.0|370|24-06-03|9:49")
+// Q_FLEXES: individual lot numbers — flex is encoded in the lot number string
+// ("flex|model|date|time"  e.g. "37.0|370|24-06-03|9:49")
+// Also provides onHand counts for finished (lot-tracked) poles.
 const Q_FLEXES = `
   SELECT
     i.itemid            AS modelname,
@@ -226,10 +157,7 @@ const Q_FLEXES = `
   ORDER BY i.itemid, inv.inventorynumber
 `;
 
-// Replaces SS2491 — open SO lines (item, SO number, open qty).
-// Replaces the PreviousTransactionLineLink join (which caused 16k+ row explosion) with the
-// direct quantityshiprecv column on transactionLine (quantity already shipped on this line).
-// openqty = ordered - shipped. Line-level filters exclude fully-shipped/closed lines.
+// Q_ORDERS: open SO lines (item, SO number, open qty).
 const Q_ORDERS = `
   SELECT
     i.itemid                                                        AS name,
@@ -251,6 +179,33 @@ const Q_ORDERS = `
   ORDER BY i.itemid, t.tranid
 `;
 
+// Q_UF_BALANCE: pull on-hand quantities for UF items directly from the item table.
+// Works for standard-inventory UF items; returns 0 for lot-tracked items.
+const Q_UF_BALANCE = `
+  SELECT itemid,
+         NVL(quantityonhand,    0) AS quantityonhand,
+         NVL(quantityavailable, 0) AS quantityavailable,
+         NVL(quantitycommitted,  0) AS quantitycommitted
+  FROM item
+  WHERE itemid LIKE 'UF%'
+    AND isinactive = 'F'
+  ORDER BY itemid
+`;
+
+// Q_UF_INV_BALANCE: query inventoryBalance virtual table for UF items.
+// Using JOIN to filter by item prevents the full-table scan that hangs.
+// inventoryBalance is multi-row per item (one per location) so we SUM.
+const Q_UF_INV_BALANCE = `
+  SELECT i.itemid,
+         NVL(SUM(ib.quantityonhand),    0) AS quantityonhand,
+         NVL(SUM(ib.quantityavailable), 0) AS quantityavailable
+  FROM inventoryBalance ib
+  JOIN item i ON i.id = ib.item
+  WHERE i.itemid LIKE 'UF%'
+    AND i.isinactive = 'F'
+  GROUP BY i.itemid
+  ORDER BY i.itemid
+`;
 
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
@@ -286,18 +241,16 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     };
   }
 
-  // Overlay on-hand quantities from SS 2471 (customsearch2471 virtual table).
-  // Column names depend on the saved search column IDs — log first row to confirm.
+  // Overlay UF on-hand quantities from item table (fetchUFBalance).
   if (balanceRows && balanceRows.length > 0) {
-    console.log('[inventory] balanceRows[0] keys:', JSON.stringify(Object.keys(balanceRows[0])));
+    console.log('[inventory] UF balanceRows count:', balanceRows.length);
   }
   for (const row of (balanceRows || [])) {
-    // Record API returns camelCase; SuiteQL fallback uses lowercase. Handle both.
-    const name = (row.itemid || row.id || '').trim();
+    const name = (row.itemid || '').trim();
     if (!name || !models[name]) continue;
-    const oh = toInt(row.quantityOnHand  ?? row.quantityonhand  ?? 0);
-    const cm = toInt(row.quantityCommitted ?? row.quantitycommitted ?? 0);
-    const av = toInt(row.quantityAvailable ?? row.quantityavailable ?? 0);
+    const oh = toInt(row.quantityonhand  ?? 0);
+    const cm = toInt(row.quantitycommitted ?? 0);
+    const av = toInt(row.quantityavailable ?? 0);
     if (oh > 0 || cm > 0) {
       models[name].onHand    = oh;
       models[name].committed = cm;
@@ -321,7 +274,6 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
   }
 
   // Override onHand for flex-tracked models with the sum of lot quantities.
-  // Non-flex models (kids poles, etc.) keep the inventoryBalance value from Q_ITEMS.
   for (const [name, sum] of Object.entries(lotOnHandSum)) {
     if (models[name]) models[name].onHand = sum;
   }
@@ -331,8 +283,7 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     m.flexes.sort((a, b) => a.f - b.f);
   }
 
-  // orders (SS2491) — group by item name
-  // Also create stub model entries for back-ordered items not in Q_ITEMS (zero stock).
+  // orders (Q_ORDERS) — group by item name
   const orders = {};
   for (const row of orderRows) {
     const name    = (row.name || '').trim();
@@ -355,8 +306,7 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     orders[name].openQty += openQty;
     orders[name].soLines.push({ soNum, qty: openQty, flex: null, bo: false });
 
-    // If this ordered item has no inventory entry (true back-order with 0 stock),
-    // create a stub model so it appears in the Back Ordered tab.
+    // Stub model for back-ordered items with no inventory entry.
     if (!models[name]) {
       const { length, weight } = parseDisplay(row.displayname || '');
       models[name] = { length, weight, onHand: 0, available: 0, committed: 0, flexes: [] };
@@ -366,9 +316,37 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
   return {
     models,
     orders,
-    catalog:     {},   // dashboard renders from models; catalog zero-fill omitted for simplicity
+    catalog:     {},
     refreshedAt: new Date().toISOString(),
   };
+}
+
+// ── UF balance: query item table directly ────────────────────────────────────
+// item.quantityonhand is total across all locations — exactly what we need.
+// No inventoryBalance virtual table (unknown columns, SELECT * hangs indefinitely).
+
+async function fetchUFBalance(env) {
+  // Run both sources concurrently: item table (standard inv) + inventoryNumber (lot-tracked).
+  const [itemRows, lotRows] = await Promise.all([
+    suiteQLAll(Q_UF_BALANCE, env).catch(e => { console.warn('[inventory] Q_UF_BALANCE err:', e.message); return []; }),
+    suiteQLAll(Q_UF_INV_BALANCE, env).catch(e => { console.warn('[inventory] Q_UF_INV_BALANCE err:', e.message); return []; }),
+  ]);
+
+  const itemNonzero = itemRows.filter(r => Number(r.quantityonhand) > 0).length;
+  const ibNonzero   = lotRows.filter( r => Number(r.quantityonhand) > 0).length;
+  console.log('[inventory] UF item rows=', itemRows.length, 'nonzero=', itemNonzero,
+              '| invBalance rows=', lotRows.length, 'nonzero=', ibNonzero);
+
+  // Prefer inventoryBalance data if it has inventory; otherwise fall back to item table.
+  const source   = ibNonzero > 0 ? lotRows : itemRows;
+  const isLotSrc = source === lotRows;
+
+  return source.map(r => ({
+    itemid:            (r.itemid || '').trim(),
+    quantityonhand:    Number(r.quantityonhand)    || 0,
+    quantityavailable: Number(r.quantityavailable) || 0,
+    quantitycommitted: isLotSrc ? 0 : (Number(r.quantitycommitted) || 0),
+  })).filter(r => r.itemid);
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -381,44 +359,49 @@ export async function onRequestGet({ env }) {
     );
   }
 
-  // Run all three queries in parallel — they are independent of each other.
-  // Q_ITEMS falls back to 0 on-hand on any error (flex poles still get correct
-  // counts from Q_FLEXES lot-sum override, so the main tabs remain accurate).
-  let itemsWarning = null;
+  let itemsWarning   = null;
+  let balanceWarning = null;
+  let flexWarning    = null;
+  let orderWarning   = null;
+
   try {
-    const itemsPromise = suiteQLAll(Q_ITEMS, env).catch(async (e) => {
-      itemsWarning = 'Item qty fallback (0 on-hand for non-flex items): ' + e.message.substring(0, 300);
-      console.warn('[inventory]', itemsWarning);
-      return suiteQLAll(Q_ITEMS_FALLBACK, env);   // fallback also runs in parallel slot
-    });
-
-    // Q_BALANCE: on-hand quantities via inventoryItem subtype SuiteQL table.
-    // Graceful failure — UF/Kids show 0; error surfaced in amber bar.
-    let balanceWarning = null;
-    let flexWarning    = null;
-    let orderWarning   = null;
-    const balPromise = suiteQLAll(Q_BALANCE, env).catch(e => {
-      balanceWarning = 'Q_BALANCE: ' + e.message.substring(0, 300);
-      console.warn('[inventory]', balanceWarning);
-      return [];
-    });
-
-    const [itemRows, balanceRows, flexRows, orderRows] = await Promise.all([
-      itemsPromise,
-      balPromise,
+    // ── Phase 1: catalog + flex numbers (2 concurrent queries) ───────────────
+    const [itemRows, flexRows] = await Promise.all([
+      suiteQLAll(Q_ITEMS, env).catch(e => {
+        itemsWarning = 'Q_ITEMS: ' + e.message.substring(0, 200);
+        console.warn('[inventory]', itemsWarning);
+        return [];
+      }),
       suiteQLAll(Q_FLEXES, env).catch(e => {
         flexWarning = 'Q_FLEXES: ' + e.message.substring(0, 200);
         console.warn('[inventory]', flexWarning);
         return [];
       }),
+    ]);
+
+    // ── Phase 2: orders + UF balance (2 concurrent) ──────────────────────────
+    const ufBalancePromise = fetchUFBalance(env).then(rows => {
+      if (rows._warning) {
+        balanceWarning = rows._warning;
+        delete rows._warning;
+      }
+      return rows;
+    }).catch(e => {
+      balanceWarning = 'Q_BALANCE: ' + e.message.substring(0, 1000);
+      console.warn('[inventory]', balanceWarning);
+      return [];
+    });
+
+    const [orderRows, balanceRows] = await Promise.all([
       suiteQLAll(Q_ORDERS, env).catch(e => {
         orderWarning = 'Q_ORDERS: ' + e.message.substring(0, 200);
         console.warn('[inventory]', orderWarning);
         return [];
       }),
+      ufBalancePromise,
     ]);
 
-    const payload = buildPayload(itemRows, balanceRows, flexRows, orderRows);
+    const payload  = buildPayload(itemRows, balanceRows, flexRows, orderRows);
     const warnings = [itemsWarning, balanceWarning, flexWarning, orderWarning].filter(Boolean);
     if (warnings.length) payload.warning = warnings.join(' | ');
     return new Response(JSON.stringify(payload), { status: 200, headers: CORS });
