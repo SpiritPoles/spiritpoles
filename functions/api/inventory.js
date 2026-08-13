@@ -205,19 +205,6 @@ const Q_UF_LOTS = `
   GROUP BY i.itemid
 `;
 
-// Q_UF_LOC_INV: query locationInventory (per-item-per-location rows) for UF items.
-// locationInventory is the actual storage table that inventoryBalance aggregates;
-// it supports filtered JOINs without the full-table-scan hang of the virtual table.
-const Q_UF_LOC_INV = `
-  SELECT i.itemid,
-         NVL(SUM(li.quantityonhand),    0) AS quantityonhand,
-         NVL(SUM(li.quantityavailable), 0) AS quantityavailable
-  FROM locationInventory li
-  JOIN item i ON i.id = li.item
-  WHERE i.itemid LIKE 'UF%'
-    AND i.isinactive = 'F'
-  GROUP BY i.itemid
-`;
 
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
@@ -338,23 +325,21 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
 // No inventoryBalance virtual table (unknown columns, SELECT * hangs indefinitely).
 
 async function fetchUFBalance(env) {
-  // Run three sources concurrently: locationInventory (per-location rows, fast),
-  // inventoryNumber (lot-tracked), and item table (standard fallback).
-  const [locRows, lotRows, itemRows] = await Promise.all([
-    suiteQLAll(Q_UF_LOC_INV, env).catch(e => { console.warn('[inventory] Q_UF_LOC_INV err:', e.message); return []; }),
+  // Two fast, reliable sources run concurrently.
+  // inventoryNumber covers lot-tracked UF blanks; item table covers standard-inventory UF items.
+  // inventoryBalance and locationInventory are both virtual/calculated tables that hang indefinitely.
+  const [lotRows, itemRows] = await Promise.all([
     suiteQLAll(Q_UF_LOTS,    env).catch(e => { console.warn('[inventory] Q_UF_LOTS err:',    e.message); return []; }),
     suiteQLAll(Q_UF_BALANCE, env).catch(e => { console.warn('[inventory] Q_UF_BALANCE err:', e.message); return []; }),
   ]);
 
-  const locNonzero  = locRows.filter( r => Number(r.quantityonhand) > 0).length;
   const lotNonzero  = lotRows.filter( r => Number(r.quantityonhand) > 0).length;
   const itemNonzero = itemRows.filter(r => Number(r.quantityonhand) > 0).length;
-  console.log('[inventory] UF locInv rows=', locRows.length, 'nonzero=', locNonzero,
-              '| lot rows=', lotRows.length, 'nonzero=', lotNonzero,
+  console.log('[inventory] UF lot rows=', lotRows.length, 'nonzero=', lotNonzero,
               '| item rows=', itemRows.length, 'nonzero=', itemNonzero);
 
-  // Prefer locationInventory if it has data; then lot-aggregated; then item table.
-  const source   = locNonzero > 0 ? locRows : (lotNonzero > 0 ? lotRows : itemRows);
+  // Prefer lot-aggregated if it has data (lot-tracked items); otherwise item table.
+  const source   = lotNonzero > 0 ? lotRows : itemRows;
 
   const isLotSrc = source === lotRows;
 
