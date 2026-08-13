@@ -318,40 +318,49 @@ async function fetchUFBalance(env) {
   for (const r of ufItems) idMap[String(r.id)] = (r.itemid || '').trim();
   const idList = Object.keys(idMap).join(', ');
 
-  // Step 2 — try quantityOnHand first, then onhand (column name varies by NS version)
+  // Step 2 — query inventoryBalance filtered to our UF items.
+  // Column names: onHand / available / committed (no "quantity" prefix in inventoryBalance).
+  // Avoid large IN clause — use WHERE onHand > 0 and filter to UF in JS instead.
   let ibRows;
   let colWarning = null;
   try {
     ibRows = await suiteQLAll(
-      `SELECT item, quantityOnHand, quantityAvailable, quantityCommitted
+      `SELECT item, onHand, available, committed
        FROM inventoryBalance
-       WHERE item IN (${idList})`,
+       WHERE onHand > 0`,
       env
     );
   } catch (e1) {
     const err1 = e1.message.substring(0, 150);
+    // Fallback: try with quantityOnHand column name (older NS versions)
     try {
       ibRows = await suiteQLAll(
-        `SELECT item, onhand AS quantityOnHand, available AS quantityAvailable, committed AS quantityCommitted
+        `SELECT item, quantityOnHand AS onHand, quantityAvailable AS available, quantityCommitted AS committed
          FROM inventoryBalance
-         WHERE item IN (${idList})`,
+         WHERE quantityOnHand > 0`,
         env
       );
       colWarning = `inventoryBalance(alt-cols-ok): first: ${err1}`;
     } catch (e2) {
-      throw new Error(`inventoryBalance failed — quantityOnHand: ${err1} | onhand: ${e2.message.substring(0, 150)}`);
+      throw new Error(`inventoryBalance failed — onHand: ${err1} | quantityOnHand: ${e2.message.substring(0, 150)}`);
     }
   }
 
   // Aggregate across locations in JS, map internal ID → itemid name
+  // Log first row keys so we can see what column names NS actually returns
+  if (ibRows.length > 0) {
+    console.log('[inventory] inventoryBalance row keys:', JSON.stringify(Object.keys(ibRows[0])));
+    console.log('[inventory] inventoryBalance row[0]:', JSON.stringify(ibRows[0]));
+  }
   const agg = {};
   for (const r of ibRows) {
     const name = idMap[String(r.item)];
     if (!name) continue;
     if (!agg[name]) agg[name] = { itemid: name, quantityonhand: 0, quantityavailable: 0, quantitycommitted: 0 };
-    agg[name].quantityonhand   += Number(r.quantityOnHand  || r.quantityonhand  || 0);
-    agg[name].quantityavailable += Number(r.quantityAvailable || r.quantityavailable || 0);
-    agg[name].quantitycommitted += Number(r.quantityCommitted || r.quantitycommitted || 0);
+    // Handle both column-name conventions: onHand (inventoryBalance) and quantityOnHand (fallback)
+    agg[name].quantityonhand   += Number(r.onHand    || r.onhand    || r.quantityOnHand  || r.quantityonhand  || 0);
+    agg[name].quantityavailable += Number(r.available  || r.Available  || r.quantityAvailable || r.quantityavailable || 0);
+    agg[name].quantitycommitted += Number(r.committed  || r.Committed  || r.quantityCommitted || r.quantitycommitted || 0);
   }
 
   const result = Object.values(agg);
