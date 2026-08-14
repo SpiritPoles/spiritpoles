@@ -1,13 +1,12 @@
 // Diagnostic endpoint: /api/uf-debug
-// Queries several approaches to find where UF445 quantities live in NetSuite.
 import crypto from 'node:crypto';
 
-const NS_BASE   = 'https://6849768.suitelets.api.netsuite.com';
-const NS_REALM  = '6849768';
+const NS_BASE  = 'https://6849768.suitelets.api.netsuite.com';
+const NS_REALM = '6849768';
 
 function oauthHeader(method, url, env) {
-  const tk  = env.NS_TOKEN,  ts = env.NS_TOKEN_SECRET;
-  const ck  = env.NS_KEY,    cs = env.NS_KEY_SECRET;
+  const tk = env.NS_TOKEN, ts = env.NS_TOKEN_SECRET;
+  const ck = env.NS_KEY,   cs = env.NS_KEY_SECRET;
   const ts2 = String(Math.floor(Date.now()/1000));
   const nonce = crypto.randomBytes(8).toString('hex');
   const params = [
@@ -23,11 +22,17 @@ function oauthHeader(method, url, env) {
   ].join('&');
   const sig = crypto.createHmac('sha256', `${encodeURIComponent(cs)}&${encodeURIComponent(ts)}`)
                     .update(base).digest('base64');
-  const hdr = `OAuth realm="${NS_REALM}", ` +
+  return `OAuth realm="${NS_REALM}", ` +
     [...params, ['oauth_signature', sig]]
       .map(([k,v])=>`${k}="${encodeURIComponent(v)}"`)
       .join(', ');
-  return hdr;
+}
+
+function withTimeout(ms, promise) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms)),
+  ]);
 }
 
 async function runQuery(sql, env) {
@@ -35,15 +40,15 @@ async function runQuery(sql, env) {
   const resp = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization':  oauthHeader('POST', url.split('?')[0], env),
-      'Content-Type':   'application/json',
-      'prefer':         'transient',
+      'Authorization': oauthHeader('POST', url.split('?')[0], env),
+      'Content-Type': 'application/json',
+      'prefer': 'transient',
     },
     body: JSON.stringify({ q: sql }),
   });
   if (!resp.ok) {
     const t = await resp.text();
-    return { error: `HTTP ${resp.status}`, detail: t.substring(0, 300) };
+    return { error: `HTTP ${resp.status}`, detail: t.substring(0, 500) };
   }
   const d = await resp.json();
   return d.items ?? d;
@@ -55,54 +60,53 @@ export async function onRequestGet({ env }) {
     'Access-Control-Allow-Origin': '*',
   };
 
-  const results = {};
+  const [itemTable, lotRecords, itemType] = await Promise.allSettled([
+    // 1. item table — all quantity fields for UF445
+    withTimeout(20000, runQuery(`
+      SELECT itemid, displayname, itemtype, subtype,
+             NVL(quantityonhand, 0)    AS qoh,
+             NVL(quantityavailable, 0) AS avail,
+             NVL(quantitycommitted, 0) AS committed,
+             NVL(quantitybackordered, 0) AS backordered
+      FROM item
+      WHERE itemid LIKE 'UF445/%'
+        AND isinactive = 'F'
+      ORDER BY itemid
+    `, env)),
 
-  // 1. item table — quantityonhand for UF445 items
-  results.itemTable = await runQuery(`
-    SELECT itemid, displayname,
-           NVL(quantityonhand, 0)    AS qoh,
-           NVL(quantityavailable, 0) AS avail,
-           NVL(quantitycommitted, 0) AS committed
-    FROM item
-    WHERE itemid LIKE 'UF445/%'
-      AND isinactive = 'F'
-    ORDER BY itemid
-  `, env).catch(e => ({ error: e.message }));
+    // 2. inventoryNumber — lot-level quantities for UF445
+    withTimeout(20000, runQuery(`
+      SELECT i.itemid,
+             inv.inventorynumber,
+             NVL(inv.quantityonhand,    0) AS lot_qoh,
+             NVL(inv.quantityavailable, 0) AS lot_avail,
+             NVL(inv.quantityintransit, 0) AS lot_intransit
+      FROM inventoryNumber inv
+      JOIN item i ON i.id = inv.item
+      WHERE i.itemid LIKE 'UF445/%'
+        AND i.isinactive = 'F'
+      ORDER BY i.itemid, inv.inventorynumber
+    `, env)),
 
-  // 2. inventoryNumber (lot records) for UF445 items
-  results.lotRecords = await runQuery(`
-    SELECT i.itemid,
-           inv.inventorynumber,
-           NVL(inv.quantityonhand,    0) AS lot_qoh,
-           NVL(inv.quantityavailable, 0) AS lot_avail
-    FROM inventoryNumber inv
-    JOIN item i ON i.id = inv.item
-    WHERE i.itemid LIKE 'UF445/%'
-      AND i.isinactive = 'F'
-    ORDER BY i.itemid, inv.inventorynumber
-  `, env).catch(e => ({ error: e.message }));
+    // 3. Check if there are assembly component records (assemblyItem)
+    withTimeout(20000, runQuery(`
+      SELECT i.itemid,
+             NVL(i.quantityonhand, 0)    AS qoh,
+             NVL(i.quantitycommitted, 0) AS committed,
+             i.itemtype,
+             i.subtype,
+             i.isphantom,
+             i.isbomitem
+      FROM item i
+      WHERE i.itemid LIKE 'UF445/%'
+        AND i.isinactive = 'F'
+      ORDER BY i.itemid
+    `, env)),
+  ]);
 
-  // 3. Try locationInventory — only list available fields to see if it works at all
-  results.locationInventory = await runQuery(`
-    SELECT i.itemid,
-           NVL(li.quantityonhand, 0)    AS loc_qoh,
-           NVL(li.quantityavailable, 0) AS loc_avail
-    FROM locationInventory li
-    JOIN item i ON i.id = li.item
-    WHERE i.itemid LIKE 'UF445/%'
-      AND i.isinactive = 'F'
-    ORDER BY i.itemid
-  `, env).catch(e => ({ error: e.message }));
-
-  // 4. Check if item type matters — what type are UF445 items?
-  results.itemType = await runQuery(`
-    SELECT itemid, itemtype, subtype, isphantom, isbomitem,
-           NVL(quantityonhand, 0) AS qoh
-    FROM item
-    WHERE itemid LIKE 'UF445/%'
-      AND isinactive = 'F'
-    ORDER BY itemid
-  `, env).catch(e => ({ error: e.message }));
-
-  return new Response(JSON.stringify(results, null, 2), { headers: CORS });
+  return new Response(JSON.stringify({
+    itemTable:  itemTable.status  === 'fulfilled' ? itemTable.value  : { error: itemTable.reason?.message },
+    lotRecords: lotRecords.status === 'fulfilled' ? lotRecords.value : { error: lotRecords.reason?.message },
+    itemType:   itemType.status   === 'fulfilled' ? itemType.value   : { error: itemType.reason?.message },
+  }, null, 2), { headers: CORS });
 }
