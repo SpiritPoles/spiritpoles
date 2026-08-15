@@ -107,14 +107,14 @@ async function suiteQLAll(q, env) {
   const rows  = [];
   let offset  = 0;
   const limit = 1000;
-  for (let page = 0; page < 50; page++) {   // safety cap
+  for (let page = 0; page < 50; page++) {
     let result;
     try {
       result = await suiteQLPage(q, env, offset, limit);
     } catch (e) {
-      if (offset === 0) throw e;             // first page failure is fatal
+      if (offset === 0) throw e;
       console.warn(`suiteQLAll stopping early at offset=${offset}: ${e.message}`);
-      break;                                 // mid-pagination failure — use rows collected so far
+      break;
     }
     const items = result.items || [];
     rows.push(...items);
@@ -181,20 +181,14 @@ const Q_ORDERS = `
   ORDER BY i.itemid, t.tranid
 `;
 
-// Q_UF_INV_BALANCE: sum per-location quantities from inventoryBalance for UF items.
-// item.quantityonhand returns 0 for UF blanks; inventoryBalance has the real per-location values.
-// This avoids the customsearch virtual table (requires extra NetSuite permissions) and
-// the inventoryNumber table (only covers lot/serial-tracked items, not UF blanks).
-const Q_UF_INV_BALANCE = `
-  SELECT i.itemid,
-         NVL(SUM(ib.quantityonhand),    0) AS quantityonhand,
-         NVL(SUM(ib.quantityavailable), 0) AS quantityavailable,
-         NVL(SUM(ib.quantitycommitted), 0) AS quantitycommitted
+// Q_UF_ITEMS: internal IDs for UF blanks — used to fetch per-location quantities via REST Records API.
+// item.quantityonhand = 0 for multi-location items; inventoryBalance returns 401 (table-level restriction).
+// Fix: fetch /record/v1/inventoryitem/{id}/locations for each item and sum across locations.
+const Q_UF_ITEMS = `
+  SELECT i.id, i.itemid
   FROM item i
-  LEFT JOIN inventoryBalance ib ON ib.item = i.id
   WHERE i.itemid LIKE 'UF%'
     AND i.isinactive = 'F'
-  GROUP BY i.itemid
   ORDER BY i.itemid
 `;
 
@@ -233,7 +227,7 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     };
   }
 
-  // Overlay UF on-hand quantities from SS 2471 (fetchUFBalance).
+  // Overlay UF on-hand quantities from fetchUFBalance (REST Records API).
   if (balanceRows && balanceRows.length > 0) {
     console.log('[inventory] UF balanceRows count:', balanceRows.length);
   }
@@ -243,16 +237,13 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     const oh = toInt(row.quantityonhand  ?? 0);
     const cm = toInt(row.quantitycommitted ?? 0);
     const av = toInt(row.quantityavailable ?? 0);
-    // Always apply the overlay from SS 2471 — even if 0, it's more authoritative.
     models[name].onHand    = oh;
     models[name].committed = cm;
     models[name].available = av;
   }
 
   // flexes (Q_FLEXES) — attach to parent model + derive on-hand from lot quantities
-  // lot number format: "37.0|370|24-06-03|9:49" — flex is first segment
-  // lotOnHandSum overrides the inventoryBalance value for flex-tracked poles.
-  const lotOnHandSum = {};  // modelName → sum of lot quantityonhand
+  const lotOnHandSum = {};
   for (const row of flexRows) {
     const modelName = (row.modelname || '').trim();
     if (!models[modelName]) continue;
@@ -264,26 +255,24 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     lotOnHandSum[modelName] = (lotOnHandSum[modelName] || 0) + toInt(row.lotonhand);
   }
 
-  // Override onHand for flex-tracked finished poles with the sum of lot quantities.
-  // Do NOT override UF items — their quantities came from SS 2471.
+  // Override onHand for flex-tracked finished poles — do NOT override UF items.
   for (const [name, sum] of Object.entries(lotOnHandSum)) {
     if (models[name] && !name.startsWith('UF')) models[name].onHand = sum;
   }
 
-  // sort flexes smallest → largest within each model
+  // sort flexes smallest → largest
   for (const m of Object.values(models)) {
     m.flexes.sort((a, b) => a.f - b.f);
   }
 
-  // orders (Q_ORDERS) — group by item name
+  // orders (Q_ORDERS)
   const orders = {};
   for (const row of orderRows) {
     const name    = (row.name || '').trim();
-    if (!name || !/^\d+S?\//.test(name)) continue;     // poles only
+    if (!name || !/^\d+S?\//.test(name)) continue;
     const openQty = Math.round(parseFloat(row.openqty) || 0);
     if (openQty <= 0) continue;
     const soNum = (row.sonumber || '').trim() || null;
-
     if (!orders[name]) {
       orders[name] = {
         openQty:     0,
@@ -297,8 +286,6 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     }
     orders[name].openQty += openQty;
     orders[name].soLines.push({ soNum, qty: openQty, flex: null, bo: false });
-
-    // Stub model for back-ordered items with no inventory entry.
     if (!models[name]) {
       const { length, weight } = parseDisplay(row.displayname || '');
       models[name] = { length, weight, onHand: 0, available: 0, committed: 0, flexes: [] };
@@ -313,24 +300,54 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
   };
 }
 
-// ── UF balance via inventoryBalance join ─────────────────────────────────────
-// item.quantityonhand = 0 for UF blanks (multi-location, non-lot-tracked items).
-// inventoryBalance has per-location quantities; summing it gives real On Hand.
-// customsearch virtual tables (SS2471) require extra NetSuite role permissions — avoided.
+// ── UF balance via REST Records API locations sublist ─────────────────────────
+// item.quantityonhand = 0 for UF blanks (multi-location, non-lot-tracked).
+// inventoryBalance SuiteQL table returns 401 (table-level access restriction, unfixable via role).
+// Fix: GET /record/v1/inventoryitem/{id}/locations for each UF item; sum quantities across locations.
+
+async function fetchItemLocations(id, env) {
+  const url  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/inventoryitem/${id}/locations`;
+  const auth = await oauthHeader('GET', url, env);
+  const resp = await fetch(url, {
+    method:  'GET',
+    headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`locations ${resp.status}: ${txt.substring(0, 200)}`);
+  }
+  const data = await resp.json();
+  let onhand = 0, available = 0, committed = 0;
+  for (const loc of (data.items || [])) {
+    onhand    += Number(loc.quantityOnHand)    || 0;
+    available += Number(loc.quantityAvailable) || 0;
+    committed += Number(loc.quantityCommitted) || 0;
+  }
+  return { onhand, available, committed };
+}
 
 async function fetchUFBalance(env) {
   try {
-    const rows = await suiteQLAll(Q_UF_INV_BALANCE, env);
-    const nonzero = rows.filter(r => Number(r.quantityonhand) > 0).length;
-    console.log('[inventory] inventoryBalance UF rows=', rows.length, 'nonzero=', nonzero);
-    return rows.map(r => ({
-      itemid:            (r.itemid || '').trim(),
-      quantityonhand:    Number(r.quantityonhand)    || 0,
-      quantityavailable: Number(r.quantityavailable) || 0,
-      quantitycommitted: Number(r.quantitycommitted) || 0,
-    })).filter(r => r.itemid);
+    const itemRows = await suiteQLAll(Q_UF_ITEMS, env);
+    if (!itemRows.length) { console.log('[inventory] Q_UF_ITEMS: no rows'); return []; }
+    const results = await Promise.all(itemRows.map(async row => {
+      const itemid = (row.itemid || '').trim();
+      const id     = row.id;
+      if (!itemid || !id) return null;
+      try {
+        const { onhand, available, committed } = await fetchItemLocations(id, env);
+        return { itemid, quantityonhand: onhand, quantityavailable: available, quantitycommitted: committed };
+      } catch (e) {
+        console.warn('[inventory] locations failed for', itemid, ':', e.message.substring(0, 100));
+        return { itemid, quantityonhand: 0, quantityavailable: 0, quantitycommitted: 0 };
+      }
+    }));
+    const filtered = results.filter(r => r && r.itemid);
+    const nonzero  = filtered.filter(r => r.quantityonhand > 0).length;
+    console.log('[inventory] REST locations UF items=', filtered.length, 'nonzero=', nonzero);
+    return filtered;
   } catch (e) {
-    console.warn('[inventory] inventoryBalance UF query failed:', e.message.substring(0, 300));
+    console.warn('[inventory] fetchUFBalance failed:', e.message.substring(0, 300));
     return [];
   }
 }
@@ -345,30 +362,27 @@ export async function onRequestGet({ env, request }) {
     );
   }
 
-  // ── Debug mode: ?debug=uf — tests inventoryBalance query for UF On Hand ──
+  // ── Debug mode: ?debug=uf — tests REST Records API locations for UF On Hand ──
   const url = new URL(request.url);
   if (url.searchParams.get('debug') === 'uf') {
     try {
-      const [invBalRows, itemRows] = await Promise.all([
-        suiteQLAll(Q_UF_INV_BALANCE, env).catch(e => ({ error: e.message })),
-        suiteQLAll(
-          `SELECT i.itemid, NVL(i.quantityonhand,0) AS onhand FROM item i WHERE i.itemid LIKE 'UF445/%' AND i.isinactive = 'F' ORDER BY i.itemid`,
-          env
-        ).catch(e => ({ error: e.message })),
-      ]);
+      const ufItems = await suiteQLAll(Q_UF_ITEMS, env).catch(e => ({ error: e.message }));
+      const uf445   = Array.isArray(ufItems)
+        ? ufItems.filter(r => (r.itemid || '').includes('445')).slice(0, 6)
+        : [];
 
-      const ibRows    = Array.isArray(invBalRows) ? invBalRows : [];
-      const ibError   = Array.isArray(invBalRows) ? null : invBalRows;
-      const ibNonzero = ibRows.filter(r => Number(r.quantityonhand) > 0).length;
+      const locationResults = await Promise.all(uf445.map(async row => {
+        try {
+          const qty = await fetchItemLocations(row.id, env);
+          return { id: row.id, itemid: row.itemid, ...qty };
+        } catch (e) {
+          return { id: row.id, itemid: row.itemid, error: e.message };
+        }
+      }));
 
       return new Response(JSON.stringify({
-        inventoryBalance: {
-          error:   ibError,
-          count:   ibRows.length,
-          nonzero: ibNonzero,
-          uf445:   ibRows.filter(r => (r.itemid || '').includes('445')).slice(0, 15),
-        },
-        item_quantityonhand_uf445: Array.isArray(itemRows) ? itemRows : { error: itemRows },
+        uf_items: Array.isArray(ufItems) ? { count: ufItems.length } : ufItems,
+        uf445_locations: locationResults,
       }, null, 2), { status: 200, headers: CORS });
     } catch (e) {
       return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
