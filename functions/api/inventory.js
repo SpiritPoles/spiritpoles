@@ -127,7 +127,7 @@ async function suiteQLAll(q, env) {
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
 // Q_ITEMS: model catalog + on-hand quantities from item table.
-// item.quantityonhand is the total across all locations — works for UF and finished poles.
+// NOTE: item.quantityonhand returns 0 for UF items — UF On Hand comes from Q_SS2471_UF.
 // Lot-tracked finished poles will have their onHand overridden later by lotOnHandSum (Q_FLEXES).
 const Q_ITEMS = `
   SELECT
@@ -181,8 +181,18 @@ const Q_ORDERS = `
   ORDER BY i.itemid, t.tranid
 `;
 
-// Q_UF_BALANCE: pull on-hand quantities for UF items directly from the item table.
-// Works for standard-inventory UF items; returns 0 for lot-tracked items.
+// Q_SS2471_UF: query saved search 2471 as a SuiteQL virtual table to get REAL UF On Hand.
+// SS 2471 uses NetSuite's built-in On Hand formula which correctly handles all item types,
+// including those where item.quantityonhand returns 0 (UF blanks with multi-location tracking).
+// Column names in a SuiteQL virtual table match the saved search's column internal names.
+// We SELECT * and then pick columns defensively since exact names depend on SS config.
+const Q_SS2471_UF = `
+  SELECT *
+  FROM customsearch2471
+  WHERE name LIKE 'UF%'
+`;
+
+// Fallback queries for UF items (both currently return 0 for UF items but kept as safety net).
 const Q_UF_BALANCE = `
   SELECT itemid,
          NVL(quantityonhand,    0) AS quantityonhand,
@@ -194,8 +204,6 @@ const Q_UF_BALANCE = `
   ORDER BY itemid
 `;
 
-// Q_UF_LOTS: aggregate inventoryNumber for UF items.
-// Covers lot-tracked UF blanks (same table used by finished poles for flex tracking).
 const Q_UF_LOTS = `
   SELECT i.itemid,
          NVL(SUM(inv.quantityonhand),    0) AS quantityonhand,
@@ -221,12 +229,12 @@ function parseDisplay(displayname) {
   return { length: rest.trim(), weight: '' };
 }
 
-function toInt(v)   { const n = parseInt(v,  10); return isNaN(n) > 0    : n; }
+function toInt(v)   { const n = parseInt(v,  10); return isNaN(n) ? 0    : n; }
 function toFloat(v) { const n = parseFloat(v);    return isNaN(n) ? null : n; }
 
 function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
 
-  // models — catalog from item table (quantities all 0 at this stage)
+  // models — catalog from item table (UF quantities are 0 here; overridden below by balanceRows)
   const models = {};
   for (const row of itemRows) {
     const name = (row.name || '').trim();
@@ -242,7 +250,7 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     };
   }
 
-  // Overlay UF on-hand quantities from item table (fetchUFBalance).
+  // Overlay UF on-hand quantities from SS 2471 (fetchUFBalance).
   if (balanceRows && balanceRows.length > 0) {
     console.log('[inventory] UF balanceRows count:', balanceRows.length);
   }
@@ -252,11 +260,10 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     const oh = toInt(row.quantityonhand  ?? 0);
     const cm = toInt(row.quantitycommitted ?? 0);
     const av = toInt(row.quantityavailable ?? 0);
-    if (oh > 0 || cm > 0) {
-      models[name].onHand    = oh;
-      models[name].committed = cm;
-      models[name].available = av;
-    }
+    // Always apply the overlay from SS 2471 — even if 0, it's more authoritative.
+    models[name].onHand    = oh;
+    models[name].committed = cm;
+    models[name].available = av;
   }
 
   // flexes (Q_FLEXES) — attach to parent model + derive on-hand from lot quantities
@@ -274,9 +281,10 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     lotOnHandSum[modelName] = (lotOnHandSum[modelName] || 0) + toInt(row.lotonhand);
   }
 
-  // Override onHand for flex-tracked models with the sum of lot quantities.
+  // Override onHand for flex-tracked finished poles with the sum of lot quantities.
+  // Do NOT override UF items — their quantities came from SS 2471.
   for (const [name, sum] of Object.entries(lotOnHandSum)) {
-    if (models[name]) models[name].onHand = sum;
+    if (models[name] && !name.startsWith('UF')) models[name].onHand = sum;
   }
 
   // sort flexes smallest → largest within each model
@@ -322,14 +330,67 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
   };
 }
 
-// ── UF balance: query item table directly ────────────────────────────────────
-// item.quantityonhand is total across all locations — exactly what we need.
-// No inventoryBalance virtual table (unknown columns, SELECT * hangs indefinitely).
+// ── UF balance via SS 2471 virtual table ─────────────────────────────────────
+// PRIMARY: query saved search 2471 as a SuiteQL virtual table.
+// SS 2471 returns real On Hand for UF items where item.quantityonhand = 0.
+// FALLBACK: item table + inventoryNumber (both return 0 currently, but harmless).
+
+function parseSSRow(row) {
+  // Column names in a SuiteQL virtual table depend on the saved search configuration.
+  // Try all known variants defensively.
+  const oh = Number(
+    row.onhand          ??
+    row['on hand']      ??
+    row.on_hand         ??
+    row.quantityonhand  ??
+    0
+  );
+  const cm = Number(
+    row.committed            ??
+    row.quantitycommitted    ??
+    0
+  );
+  const av = Number(
+    row.available            ??
+    row.quantityavailable    ??
+    0
+  );
+  return { oh, cm, av };
+}
 
 async function fetchUFBalance(env) {
-  // Two fast, reliable sources run concurrently.
-  // inventoryNumber covers lot-tracked UF blanks; item table covers standard-inventory UF items.
-  // inventoryBalance and locationInventory are both virtual/calculated tables that hang indefinitely.
+  // ── PRIMARY: SS 2471 virtual table ──
+  try {
+    const ssResult = await suiteQLPage(Q_SS2471_UF, env, 0, 500, 1, 20000);
+    const ssRows   = ssResult.items || [];
+    const { oh: sampleOh } = ssRows.length > 0 ? parseSSRow(ssRows[0]) : { oh: 0 };
+    const ssNonzero = ssRows.filter(r => parseSSRow(r).oh > 0).length;
+    console.log('[inventory] SS2471 UF rows=', ssRows.length,
+                'nonzero=', ssNonzero,
+                'columns=', ssRows.length > 0 ? Object.keys(ssRows[0]).join(',') : 'none');
+
+    if (ssRows.length > 0) {
+      // Return SS 2471 data regardless of nonzero count — it's authoritative.
+      return ssRows
+        .filter(r => r.name && String(r.name).includes('/'))
+        .map(r => {
+          const { oh, cm, av } = parseSSRow(r);
+          return {
+            itemid:            String(r.name).trim(),
+            quantityonhand:    oh,
+            quantityavailable: av,
+            quantitycommitted: cm,
+          };
+        });
+    }
+    console.warn('[inventory] SS2471 returned 0 rows — falling back to item/lot queries');
+  } catch (e) {
+    console.warn('[inventory] SS2471 virtual table failed:', e.message.substring(0, 300));
+    // Fall through to legacy approach
+  }
+
+  // ── FALLBACK: item table + inventoryNumber ──
+  // Both currently return 0 for UF items but kept as a safety net.
   const [lotRows, itemRows] = await Promise.all([
     suiteQLAll(Q_UF_LOTS,    env).catch(e => { console.warn('[inventory] Q_UF_LOTS err:',    e.message); return []; }),
     suiteQLAll(Q_UF_BALANCE, env).catch(e => { console.warn('[inventory] Q_UF_BALANCE err:', e.message); return []; }),
@@ -340,9 +401,7 @@ async function fetchUFBalance(env) {
   console.log('[inventory] UF lot rows=', lotRows.length, 'nonzero=', lotNonzero,
               '| item rows=', itemRows.length, 'nonzero=', itemNonzero);
 
-  // Prefer lot-aggregated if it has data (lot-tracked items); otherwise item table.
   const source   = lotNonzero > 0 ? lotRows : itemRows;
-
   const isLotSrc = source === lotRows;
 
   return source.map(r => ({
@@ -363,23 +422,45 @@ export async function onRequestGet({ env, request }) {
     );
   }
 
-  // ── Debug mode: ?debug=uf returns raw fetchUFBalance + sample Q_ITEMS for UF445 ──
+  // ── Debug mode: ?debug=uf — tests SS 2471 virtual table + legacy queries ──
   const url = new URL(request.url);
   if (url.searchParams.get('debug') === 'uf') {
     try {
-      const [lotRows, itemRows, uf445Rows] = await Promise.all([
+      const [ssResult, lotRows, itemRows, uf445Rows] = await Promise.all([
+        suiteQLPage(Q_SS2471_UF, env, 0, 500, 1, 20000)
+          .then(r => r.items || [])
+          .catch(e => ({ error: e.message })),
         suiteQLAll(Q_UF_LOTS,    env).catch(e => ({ error: e.message })),
         suiteQLAll(Q_UF_BALANCE, env).catch(e => ({ error: e.message })),
-        suiteQLAll(`SELECT i.itemid, NVL(i.quantityonhand,0) AS onhand, NVL(i.quantityavailable,0) AS avail, NVL(i.quantitycommitted,0) AS committed FROM item i WHERE i.itemid LIKE 'UF445/%' AND i.isinactive = 'F' ORDER BY i.itemid`, env).catch(e => ({ error: e.message })),
+        suiteQLAll(
+          `SELECT i.itemid, NVL(i.quantityonhand,0) AS onhand, NVL(i.quantityavailable,0) AS avail, NVL(i.quantitycommitted,0) AS committed FROM item i WHERE i.itemid LIKE 'UF445/%' AND i.isinactive = 'F' ORDER BY i.itemid`,
+          env
+        ).catch(e => ({ error: e.message })),
       ]);
+
+      const ssRows    = Array.isArray(ssResult) ? ssResult : [];
+      const ssError   = Array.isArray(ssResult) ? null : ssResult;
+      const ssNonzero = ssRows.filter(r => parseSSRow(r).oh > 0).length;
+
       return new Response(JSON.stringify({
-        Q_UF_LOTS_count:    Array.isArray(lotRows)  ? lotRows.length  : 'error',
-        Q_UF_LOTS_nonzero:  Array.isArray(lotRows)  ? lotRows.filter(r => Number(r.quantityonhand) > 0).length : 'error',
-        Q_UF_LOTS_sample:   Array.isArray(lotRows)  ? lotRows.filter(r => r.itemid?.includes('445')).slice(0, 10) : lotRows,
-        Q_UF_BALANCE_count: Array.isArray(itemRows) ? itemRows.length : 'error',
-        Q_UF_BALANCE_nonzero: Array.isArray(itemRows) ? itemRows.filter(r => Number(r.quantityonhand) > 0).length : 'error',
-        Q_UF_BALANCE_sample:Array.isArray(itemRows) ? itemRows.filter(r => r.itemid?.includes('445')).slice(0, 10) : itemRows,
-        Q_ITEMS_UF445:      uf445Rows,
+        SS2471: {
+          error:    ssError,
+          count:    ssRows.length,
+          nonzero:  ssNonzero,
+          columns:  ssRows.length > 0 ? Object.keys(ssRows[0]) : [],
+          uf445_sample: ssRows.filter(r => String(r.name || '').includes('445')).slice(0, 10),
+        },
+        Q_UF_LOTS: {
+          count:   Array.isArray(lotRows)  ? lotRows.length  : 'error',
+          nonzero: Array.isArray(lotRows)  ? lotRows.filter(r => Number(r.quantityonhand) > 0).length : 'error',
+          uf445:   Array.isArray(lotRows)  ? lotRows.filter(r => (r.itemid || '').includes('445')).slice(0, 10) : lotRows,
+        },
+        Q_UF_BALANCE: {
+          count:   Array.isArray(itemRows) ? itemRows.length : 'error',
+          nonzero: Array.isArray(itemRows) ? itemRows.filter(r => Number(r.quantityonhand) > 0).length : 'error',
+          uf445:   Array.isArray(itemRows) ? itemRows.filter(r => (r.itemid || '').includes('445')).slice(0, 10) : itemRows,
+        },
+        Q_ITEMS_UF445: uf445Rows,
       }, null, 2), { status: 200, headers: CORS });
     } catch (e) {
       return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
@@ -407,14 +488,8 @@ export async function onRequestGet({ env, request }) {
     ]);
 
     // ── Phase 2: orders + UF balance (2 concurrent) ──────────────────────────
-    const ufBalancePromise = fetchUFBalance(env).then(rows => {
-      if (rows._warning) {
-        balanceWarning = rows._warning;
-        delete rows._warning;
-      }
-      return rows;
-    }).catch(e => {
-      balanceWarning = 'Q_BALANCE: ' + e.message.substring(0, 1000);
+    const ufBalancePromise = fetchUFBalance(env).catch(e => {
+      balanceWarning = 'UF balance: ' + e.message.substring(0, 200);
       console.warn('[inventory]', balanceWarning);
       return [];
     });
