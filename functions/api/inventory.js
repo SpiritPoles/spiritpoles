@@ -127,7 +127,7 @@ async function suiteQLAll(q, env) {
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
 // Q_ITEMS: model catalog + on-hand quantities from item table.
-// NOTE: item.quantityonhand returns 0 for UF items — UF On Hand comes from Q_SS2471_UF.
+// NOTE: item.quantityonhand returns 0 for UF items — UF On Hand comes from Q_UF_INV_BALANCE (inventoryBalance join).
 // Lot-tracked finished poles will have their onHand overridden later by lotOnHandSum (Q_FLEXES).
 const Q_ITEMS = `
   SELECT
@@ -181,38 +181,21 @@ const Q_ORDERS = `
   ORDER BY i.itemid, t.tranid
 `;
 
-// Q_SS2471_UF: query saved search 2471 as a SuiteQL virtual table to get REAL UF On Hand.
-// SS 2471 uses NetSuite's built-in On Hand formula which correctly handles all item types,
-// including those where item.quantityonhand returns 0 (UF blanks with multi-location tracking).
-// Column names in a SuiteQL virtual table match the saved search's column internal names.
-// We SELECT * and then pick columns defensively since exact names depend on SS config.
-const Q_SS2471_UF = `
-  SELECT *
-  FROM customsearch2471
-  WHERE name LIKE 'UF%'
-`;
-
-// Fallback queries for UF items (both currently return 0 for UF items but kept as safety net).
-const Q_UF_BALANCE = `
-  SELECT itemid,
-         NVL(quantityonhand,    0) AS quantityonhand,
-         NVL(quantityavailable, 0) AS quantityavailable,
-         NVL(quantitycommitted,  0) AS quantitycommitted
-  FROM item
-  WHERE itemid LIKE 'UF%'
-    AND isinactive = 'F'
-  ORDER BY itemid
-`;
-
-const Q_UF_LOTS = `
+// Q_UF_INV_BALANCE: sum per-location quantities from inventoryBalance for UF items.
+// item.quantityonhand returns 0 for UF blanks; inventoryBalance has the real per-location values.
+// This avoids the customsearch virtual table (requires extra NetSuite permissions) and
+// the inventoryNumber table (only covers lot/serial-tracked items, not UF blanks).
+const Q_UF_INV_BALANCE = `
   SELECT i.itemid,
-         NVL(SUM(inv.quantityonhand),    0) AS quantityonhand,
-         NVL(SUM(inv.quantityavailable), 0) AS quantityavailable
-  FROM inventoryNumber inv
-  JOIN item i ON i.id = inv.item
+         NVL(SUM(ib.quantityonhand),    0) AS quantityonhand,
+         NVL(SUM(ib.quantityavailable), 0) AS quantityavailable,
+         NVL(SUM(ib.quantitycommitted), 0) AS quantitycommitted
+  FROM item i
+  LEFT JOIN inventoryBalance ib ON ib.item = i.id
   WHERE i.itemid LIKE 'UF%'
     AND i.isinactive = 'F'
   GROUP BY i.itemid
+  ORDER BY i.itemid
 `;
 
 
@@ -330,86 +313,26 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
   };
 }
 
-// ── UF balance via SS 2471 virtual table ─────────────────────────────────────
-// PRIMARY: query saved search 2471 as a SuiteQL virtual table.
-// SS 2471 returns real On Hand for UF items where item.quantityonhand = 0.
-// FALLBACK: item table + inventoryNumber (both return 0 currently, but harmless).
-
-function parseSSRow(row) {
-  // Column names in a SuiteQL virtual table depend on the saved search configuration.
-  // Try all known variants defensively.
-  const oh = Number(
-    row.onhand          ??
-    row['on hand']      ??
-    row.on_hand         ??
-    row.quantityonhand  ??
-    0
-  );
-  const cm = Number(
-    row.committed            ??
-    row.quantitycommitted    ??
-    0
-  );
-  const av = Number(
-    row.available            ??
-    row.quantityavailable    ??
-    0
-  );
-  return { oh, cm, av };
-}
+// ── UF balance via inventoryBalance join ─────────────────────────────────────
+// item.quantityonhand = 0 for UF blanks (multi-location, non-lot-tracked items).
+// inventoryBalance has per-location quantities; summing it gives real On Hand.
+// customsearch virtual tables (SS2471) require extra NetSuite role permissions — avoided.
 
 async function fetchUFBalance(env) {
-  // ── PRIMARY: SS 2471 virtual table ──
   try {
-    const ssResult = await suiteQLPage(Q_SS2471_UF, env, 0, 500, 1, 20000);
-    const ssRows   = ssResult.items || [];
-    const { oh: sampleOh } = ssRows.length > 0 ? parseSSRow(ssRows[0]) : { oh: 0 };
-    const ssNonzero = ssRows.filter(r => parseSSRow(r).oh > 0).length;
-    console.log('[inventory] SS2471 UF rows=', ssRows.length,
-                'nonzero=', ssNonzero,
-                'columns=', ssRows.length > 0 ? Object.keys(ssRows[0]).join(',') : 'none');
-
-    if (ssRows.length > 0) {
-      // Return SS 2471 data regardless of nonzero count — it's authoritative.
-      return ssRows
-        .filter(r => r.name && String(r.name).includes('/'))
-        .map(r => {
-          const { oh, cm, av } = parseSSRow(r);
-          return {
-            itemid:            String(r.name).trim(),
-            quantityonhand:    oh,
-            quantityavailable: av,
-            quantitycommitted: cm,
-          };
-        });
-    }
-    console.warn('[inventory] SS2471 returned 0 rows — falling back to item/lot queries');
+    const rows = await suiteQLAll(Q_UF_INV_BALANCE, env);
+    const nonzero = rows.filter(r => Number(r.quantityonhand) > 0).length;
+    console.log('[inventory] inventoryBalance UF rows=', rows.length, 'nonzero=', nonzero);
+    return rows.map(r => ({
+      itemid:            (r.itemid || '').trim(),
+      quantityonhand:    Number(r.quantityonhand)    || 0,
+      quantityavailable: Number(r.quantityavailable) || 0,
+      quantitycommitted: Number(r.quantitycommitted) || 0,
+    })).filter(r => r.itemid);
   } catch (e) {
-    console.warn('[inventory] SS2471 virtual table failed:', e.message.substring(0, 300));
-    // Fall through to legacy approach
+    console.warn('[inventory] inventoryBalance UF query failed:', e.message.substring(0, 300));
+    return [];
   }
-
-  // ── FALLBACK: item table + inventoryNumber ──
-  // Both currently return 0 for UF items but kept as a safety net.
-  const [lotRows, itemRows] = await Promise.all([
-    suiteQLAll(Q_UF_LOTS,    env).catch(e => { console.warn('[inventory] Q_UF_LOTS err:',    e.message); return []; }),
-    suiteQLAll(Q_UF_BALANCE, env).catch(e => { console.warn('[inventory] Q_UF_BALANCE err:', e.message); return []; }),
-  ]);
-
-  const lotNonzero  = lotRows.filter( r => Number(r.quantityonhand) > 0).length;
-  const itemNonzero = itemRows.filter(r => Number(r.quantityonhand) > 0).length;
-  console.log('[inventory] UF lot rows=', lotRows.length, 'nonzero=', lotNonzero,
-              '| item rows=', itemRows.length, 'nonzero=', itemNonzero);
-
-  const source   = lotNonzero > 0 ? lotRows : itemRows;
-  const isLotSrc = source === lotRows;
-
-  return source.map(r => ({
-    itemid:            (r.itemid || '').trim(),
-    quantityonhand:    Number(r.quantityonhand)    || 0,
-    quantityavailable: Number(r.quantityavailable) || 0,
-    quantitycommitted: isLotSrc ? 0 : (Number(r.quantitycommitted) || 0),
-  })).filter(r => r.itemid);
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -422,45 +345,30 @@ export async function onRequestGet({ env, request }) {
     );
   }
 
-  // ── Debug mode: ?debug=uf — tests SS 2471 virtual table + legacy queries ──
+  // ── Debug mode: ?debug=uf — tests inventoryBalance query for UF On Hand ──
   const url = new URL(request.url);
   if (url.searchParams.get('debug') === 'uf') {
     try {
-      const [ssResult, lotRows, itemRows, uf445Rows] = await Promise.all([
-        suiteQLPage(Q_SS2471_UF, env, 0, 500, 1, 20000)
-          .then(r => r.items || [])
-          .catch(e => ({ error: e.message })),
-        suiteQLAll(Q_UF_LOTS,    env).catch(e => ({ error: e.message })),
-        suiteQLAll(Q_UF_BALANCE, env).catch(e => ({ error: e.message })),
+      const [invBalRows, itemRows] = await Promise.all([
+        suiteQLAll(Q_UF_INV_BALANCE, env).catch(e => ({ error: e.message })),
         suiteQLAll(
-          `SELECT i.itemid, NVL(i.quantityonhand,0) AS onhand, NVL(i.quantityavailable,0) AS avail, NVL(i.quantitycommitted,0) AS committed FROM item i WHERE i.itemid LIKE 'UF445/%' AND i.isinactive = 'F' ORDER BY i.itemid`,
+          `SELECT i.itemid, NVL(i.quantityonhand,0) AS onhand FROM item i WHERE i.itemid LIKE 'UF445/%' AND i.isinactive = 'F' ORDER BY i.itemid`,
           env
         ).catch(e => ({ error: e.message })),
       ]);
 
-      const ssRows    = Array.isArray(ssResult) ? ssResult : [];
-      const ssError   = Array.isArray(ssResult) ? null : ssResult;
-      const ssNonzero = ssRows.filter(r => parseSSRow(r).oh > 0).length;
+      const ibRows    = Array.isArray(invBalRows) ? invBalRows : [];
+      const ibError   = Array.isArray(invBalRows) ? null : invBalRows;
+      const ibNonzero = ibRows.filter(r => Number(r.quantityonhand) > 0).length;
 
       return new Response(JSON.stringify({
-        SS2471: {
-          error:    ssError,
-          count:    ssRows.length,
-          nonzero:  ssNonzero,
-          columns:  ssRows.length > 0 ? Object.keys(ssRows[0]) : [],
-          uf445_sample: ssRows.filter(r => String(r.name || '').includes('445')).slice(0, 10),
+        inventoryBalance: {
+          error:   ibError,
+          count:   ibRows.length,
+          nonzero: ibNonzero,
+          uf445:   ibRows.filter(r => (r.itemid || '').includes('445')).slice(0, 15),
         },
-        Q_UF_LOTS: {
-          count:   Array.isArray(lotRows)  ? lotRows.length  : 'error',
-          nonzero: Array.isArray(lotRows)  ? lotRows.filter(r => Number(r.quantityonhand) > 0).length : 'error',
-          uf445:   Array.isArray(lotRows)  ? lotRows.filter(r => (r.itemid || '').includes('445')).slice(0, 10) : lotRows,
-        },
-        Q_UF_BALANCE: {
-          count:   Array.isArray(itemRows) ? itemRows.length : 'error',
-          nonzero: Array.isArray(itemRows) ? itemRows.filter(r => Number(r.quantityonhand) > 0).length : 'error',
-          uf445:   Array.isArray(itemRows) ? itemRows.filter(r => (r.itemid || '').includes('445')).slice(0, 10) : itemRows,
-        },
-        Q_ITEMS_UF445: uf445Rows,
+        item_quantityonhand_uf445: Array.isArray(itemRows) ? itemRows : { error: itemRows },
       }, null, 2), { status: 200, headers: CORS });
     } catch (e) {
       return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
