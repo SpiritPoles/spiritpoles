@@ -178,14 +178,28 @@ const Q_ORDERS = `
   ORDER BY i.itemid, t.tranid
 `;
 
-// Q_UF_ITEMS: internal IDs for UF blanks — used to fetch per-location quantities via REST Records API.
-// item.quantityonhand = 0 for multi-location items; inventoryBalance returns 401 (table-level restriction).
-// Fix: fetch /record/v1/inventoryitem/{id}/locations for each item and sum across locations.
+// Q_UF_ITEMS: internal IDs + type for UF blanks.
+// item.quantityonhand = 0 for multi-location items; REST Records API used per-location.
+// itemtype field drives the correct REST record type (Assembly vs InvtPart).
 const Q_UF_ITEMS = `
-  SELECT i.id, i.itemid
+  SELECT i.id, i.itemid, i.type AS itemtype
   FROM item i
   WHERE i.itemid LIKE 'UF%'
     AND i.isinactive = 'F'
+  ORDER BY i.itemid
+`;
+
+// Q_UF_BALANCE_ALT: SuiteQL-only fallback for UF On Hand using inventoryBalance.
+// Requires "Inventory Register" permission on the role — only used if available.
+const Q_UF_BALANCE_ALT = `
+  SELECT i.itemid, SUM(ib.quantityonhand) AS quantityonhand,
+         SUM(ib.quantityavailable) AS quantityavailable,
+         SUM(ib.quantitycommitted) AS quantitycommitted
+  FROM inventoryBalance ib
+  JOIN item i ON i.id = ib.item
+  WHERE i.itemid LIKE 'UF%'
+    AND i.isinactive = 'F'
+  GROUP BY i.itemid
   ORDER BY i.itemid
 `;
 
@@ -224,7 +238,7 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     };
   }
 
-  // Overlay UF on-hand quantities from SS 2471 (fetchUFBalance).
+  // Overlay UF on-hand quantities from fetchUFBalance.
   if (balanceRows && balanceRows.length > 0) {
     console.log('[inventory] UF balanceRows count:', balanceRows.length);
   }
@@ -234,16 +248,13 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     const oh = toInt(row.quantityonhand  ?? 0);
     const cm = toInt(row.quantitycommitted ?? 0);
     const av = toInt(row.quantityavailable ?? 0);
-    // Always apply the overlay from SS 2471 — even if 0, it's more authoritative.
     models[name].onHand    = oh;
     models[name].committed = cm;
     models[name].available = av;
   }
 
   // flexes (Q_FLEXES) — attach to parent model + derive on-hand from lot quantities
-  // lot number format: "37.0|370|24-06-03|9:49" — flex is first segment
-  // lotOnHandSum overrides the inventoryBalance value for flex-tracked poles.
-  const lotOnHandSum = {};  // modelName → sum of lot quantityonhand
+  const lotOnHandSum = {};
   for (const row of flexRows) {
     const modelName = (row.modelname || '').trim();
     if (!models[modelName]) continue;
@@ -255,8 +266,7 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     lotOnHandSum[modelName] = (lotOnHandSum[modelName] || 0) + toInt(row.lotonhand);
   }
 
-  // Override onHand for flex-tracked finished poles with the sum of lot quantities.
-  // Do NOT override UF items — their quantities came from SS 2471.
+  // Override onHand for flex-tracked finished poles — NOT UF items.
   for (const [name, sum] of Object.entries(lotOnHandSum)) {
     if (models[name] && !name.startsWith('UF')) models[name].onHand = sum;
   }
@@ -270,7 +280,7 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
   const orders = {};
   for (const row of orderRows) {
     const name    = (row.name || '').trim();
-    if (!name || !/^\d+S?\//.test(name)) continue;     // poles only
+    if (!name || !/^\d+S?\//.test(name)) continue;
     const openQty = Math.round(parseFloat(row.openqty) || 0);
     if (openQty <= 0) continue;
     const soNum = (row.sonumber || '').trim() || null;
@@ -289,7 +299,6 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     orders[name].openQty += openQty;
     orders[name].soLines.push({ soNum, qty: openQty, flex: null, bo: false });
 
-    // Stub model for back-ordered items with no inventory entry.
     if (!models[name]) {
       const { length, weight } = parseDisplay(row.displayname || '');
       models[name] = { length, weight, onHand: 0, available: 0, committed: 0, flexes: [] };
@@ -307,10 +316,14 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
 // ── UF balance via REST Records API locations sublist ─────────────────────────
 // item.quantityonhand = 0 for UF blanks (multi-location, non-lot-tracked).
 // inventoryBalance SuiteQL table returns 401 (table-level access restriction, unfixable via role).
-// Fix: GET /record/v1/inventoryitem/{id}/locations for each UF item; sum quantities across locations.
+// Fix: GET /record/v1/{recordType}/{id}/locations for each UF item; sum quantities across locations.
+// recordType is 'assemblyitem' for Assembly items, 'inventoryitem' for InvtPart items.
 
-async function fetchItemLocations(id, env) {
-  const url  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/inventoryitem/${id}/locations`;
+async function fetchItemLocations(id, itemtype, env) {
+  // NetSuite REST record type depends on the item's type field from SuiteQL:
+  //   'Assembly' → assemblyitem,  everything else → inventoryitem
+  const recType = (itemtype || '').toLowerCase() === 'assembly' ? 'assemblyitem' : 'inventoryitem';
+  const url  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/${recType}/${id}/locations`;
   const auth = await oauthHeader('GET', url, env);
   const resp = await fetch(url, {
     method:  'GET',
@@ -339,7 +352,7 @@ async function fetchUFBalance(env) {
       const id     = row.id;
       if (!itemid || !id) return null;
       try {
-        const { onhand, available, committed } = await fetchItemLocations(id, env);
+        const { onhand, available, committed } = await fetchItemLocations(id, row.itemtype, env);
         return { itemid, quantityonhand: onhand, quantityavailable: available, quantitycommitted: committed };
       } catch (e) {
         console.warn('[inventory] locations failed for', itemid, ':', e.message.substring(0, 100));
@@ -366,7 +379,7 @@ export async function onRequestGet({ env, request }) {
     );
   }
 
-  // ── Debug mode: ?debug=uf — tests REST Records API locations for UF On Hand ──
+  // ── Debug mode: ?debug=uf ─────────────────────────────────────────────────
   const url = new URL(request.url);
   if (url.searchParams.get('debug') === 'uf') {
     try {
@@ -375,18 +388,27 @@ export async function onRequestGet({ env, request }) {
         ? ufItems.filter(r => (r.itemid || '').includes('445')).slice(0, 6)
         : [];
 
+      // Test REST Records API locations (with correct record type per itemtype field)
       const locationResults = await Promise.all(uf445.map(async row => {
         try {
-          const qty = await fetchItemLocations(row.id, env);
-          return { id: row.id, itemid: row.itemid, ...qty };
+          const qty = await fetchItemLocations(row.id, row.itemtype, env);
+          return { id: row.id, itemid: row.itemid, itemtype: row.itemtype, ...qty };
         } catch (e) {
-          return { id: row.id, itemid: row.itemid, error: e.message };
+          return { id: row.id, itemid: row.itemid, itemtype: row.itemtype, error: e.message };
         }
       }));
 
+      // Test inventoryBalance SuiteQL (requires "Inventory Register" permission)
+      const ibTest = await suiteQLAll(Q_UF_BALANCE_ALT, env)
+        .then(rows => ({ ok: true, count: rows.length, sample: rows.slice(0, 4) }))
+        .catch(e => ({ ok: false, error: e.message.substring(0, 300) }));
+
       return new Response(JSON.stringify({
-        uf_items: Array.isArray(ufItems) ? { count: ufItems.length } : ufItems,
+        uf_items: Array.isArray(ufItems)
+          ? { count: ufItems.length, sample_types: uf445.map(r => ({ itemid: r.itemid, itemtype: r.itemtype })) }
+          : ufItems,
         uf445_locations: locationResults,
+        inventoryBalance_test: ibTest,
       }, null, 2), { status: 200, headers: CORS });
     } catch (e) {
       return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
@@ -399,7 +421,6 @@ export async function onRequestGet({ env, request }) {
   let orderWarning   = null;
 
   try {
-    // ── Phase 1: catalog + flex numbers (2 concurrent queries) ───────────────
     const [itemRows, flexRows] = await Promise.all([
       suiteQLAll(Q_ITEMS, env).catch(e => {
         itemsWarning = 'Q_ITEMS: ' + e.message.substring(0, 200);
@@ -413,7 +434,6 @@ export async function onRequestGet({ env, request }) {
       }),
     ]);
 
-    // ── Phase 2: orders + UF balance (2 concurrent) ──────────────────────────
     const ufBalancePromise = fetchUFBalance(env).catch(e => {
       balanceWarning = 'UF balance: ' + e.message.substring(0, 200);
       console.warn('[inventory]', balanceWarning);
