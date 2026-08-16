@@ -95,10 +95,7 @@ async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000
     if (resp.ok) return resp.json();
 
     const txt = await resp.text();
-    if (resp.status === 401 && attempt < retries) {
-      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-      continue;
-    }
+    // Do NOT retry 401 — repeated failed attempts lock the NetSuite token via Login Audit Trail.
     throw new Error(`SuiteQL ${resp.status} (offset=${offset}): ${txt.substring(0, 500)}`);
   }
 }
@@ -181,17 +178,25 @@ const Q_ORDERS = `
   ORDER BY i.itemid, t.tranid
 `;
 
-// Q_UF_INV_BALANCE: sum per-location quantities from inventoryBalance for UF items.
-// item.quantityonhand returns 0 for UF blanks; inventoryBalance has the real per-location values.
-// This avoids the customsearch virtual table (requires extra NetSuite permissions) and
-// the inventoryNumber table (only covers lot/serial-tracked items, not UF blanks).
-const Q_UF_INV_BALANCE = `
-  SELECT i.itemid,
-         NVL(SUM(ib.quantityonhand),    0) AS quantityonhand,
-         NVL(SUM(ib.quantityavailable), 0) AS quantityavailable,
-         NVL(SUM(ib.quantitycommitted), 0) AS quantitycommitted
+// Q_UF_ITEMS: internal IDs for UF blanks.
+// item.quantityonhand = 0 for multi-location items; per-location qty via REST Records API.
+// NOTE: i.type is not a valid SuiteQL column — causes 500. Item type inferred at fetch time.
+const Q_UF_ITEMS = `
+  SELECT i.id, i.itemid
   FROM item i
-  LEFT JOIN inventoryBalance ib ON ib.item = i.id
+  WHERE i.itemid LIKE 'UF%'
+    AND i.isinactive = 'F'
+  ORDER BY i.itemid
+`;
+
+// Q_UF_BALANCE_ALT: SuiteQL-only fallback for UF On Hand using inventoryBalance.
+// Requires "Inventory Register" permission on the role — only used if available.
+const Q_UF_BALANCE_ALT = `
+  SELECT i.itemid, SUM(ib.quantityonhand) AS quantityonhand,
+         SUM(ib.quantityavailable) AS quantityavailable,
+         SUM(ib.quantitycommitted) AS quantitycommitted
+  FROM inventoryBalance ib
+  JOIN item i ON i.id = ib.item
   WHERE i.itemid LIKE 'UF%'
     AND i.isinactive = 'F'
   GROUP BY i.itemid
@@ -313,24 +318,74 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
   };
 }
 
-// ── UF balance via inventoryBalance join ─────────────────────────────────────
-// item.quantityonhand = 0 for UF blanks (multi-location, non-lot-tracked items).
-// inventoryBalance has per-location quantities; summing it gives real On Hand.
-// customsearch virtual tables (SS2471) require extra NetSuite role permissions — avoided.
+// ── UF balance via REST Records API locations sublist ─────────────────────────
+// item.quantityonhand = 0 for UF blanks (multi-location, non-lot-tracked).
+// inventoryBalance SuiteQL table returns 401 (table-level access restriction, unfixable via role).
+// Fix: GET /record/v1/inventoryitem/{id}/locations for each UF item; sum quantities across locations.
+
+// Try /inventoryitem/{id}/locations first; if 400 (wrong record type), retry with /assemblyitem/.
+// 401 = CEO role missing "REST Web Services" setup permission — throw immediately (no retry).
+async function fetchItemLocations(id, env) {
+  let lastErr;
+  for (const recType of ['inventoryitem', 'assemblyitem']) {
+    const url  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/${recType}/${id}/locations`;
+    const auth = await oauthHeader('GET', url, env);
+    const resp = await fetch(url, {
+      method:  'GET',
+      headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      let onhand = 0, available = 0, committed = 0;
+      for (const loc of (data.items || [])) {
+        onhand    += Number(loc.quantityOnHand)    || 0;
+        available += Number(loc.quantityAvailable) || 0;
+        committed += Number(loc.quantityCommitted) || 0;
+      }
+      return { onhand, available, committed };
+    }
+    const txt = await resp.text();
+    if (resp.status === 400) {
+      lastErr = new Error(`locations 400/${recType}: ${txt.substring(0, 100)}`);
+      continue; // wrong record type — try next
+    }
+    throw new Error(`locations ${resp.status}/${recType}: ${txt.substring(0, 200)}`);
+  }
+  throw lastErr || new Error('locations: exhausted record types');
+}
+
+// Run async tasks with limited concurrency to avoid overwhelming NetSuite auth.
+async function runBatched(items, fn, concurrency = 8) {
+  const results = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    results.push(...await Promise.all(batch.map(fn)));
+  }
+  return results;
+}
 
 async function fetchUFBalance(env) {
   try {
-    const rows = await suiteQLAll(Q_UF_INV_BALANCE, env);
-    const nonzero = rows.filter(r => Number(r.quantityonhand) > 0).length;
-    console.log('[inventory] inventoryBalance UF rows=', rows.length, 'nonzero=', nonzero);
-    return rows.map(r => ({
-      itemid:            (r.itemid || '').trim(),
-      quantityonhand:    Number(r.quantityonhand)    || 0,
-      quantityavailable: Number(r.quantityavailable) || 0,
-      quantitycommitted: Number(r.quantitycommitted) || 0,
-    })).filter(r => r.itemid);
+    const itemRows = await suiteQLAll(Q_UF_ITEMS, env);
+    if (!itemRows.length) { console.log('[inventory] Q_UF_ITEMS: no rows'); return []; }
+    const results = await runBatched(itemRows, async row => {
+      const itemid = (row.itemid || '').trim();
+      const id     = row.id;
+      if (!itemid || !id) return null;
+      try {
+        const { onhand, available, committed } = await fetchItemLocations(id, env);
+        return { itemid, quantityonhand: onhand, quantityavailable: available, quantitycommitted: committed };
+      } catch (e) {
+        console.warn('[inventory] locations failed for', itemid, ':', e.message.substring(0, 100));
+        return { itemid, quantityonhand: 0, quantityavailable: 0, quantitycommitted: 0 };
+      }
+    }));
+    const filtered = results.filter(r => r && r.itemid);
+    const nonzero  = filtered.filter(r => r.quantityonhand > 0).length;
+    console.log('[inventory] REST locations UF items=', filtered.length, 'nonzero=', nonzero);
+    return filtered;
   } catch (e) {
-    console.warn('[inventory] inventoryBalance UF query failed:', e.message.substring(0, 300));
+    console.warn('[inventory] fetchUFBalance failed:', e.message.substring(0, 300));
     return [];
   }
 }
@@ -345,30 +400,53 @@ export async function onRequestGet({ env, request }) {
     );
   }
 
-  // ── Debug mode: ?debug=uf — tests inventoryBalance query for UF On Hand ──
   const url = new URL(request.url);
+
+  // ── debug=qoh — does item.quantityonhand have UF data in SuiteQL? ──────────
+  if (url.searchParams.get('debug') === 'qoh') {
+    const q = `
+      SELECT i.itemid, i.quantityonhand, i.quantityavailable, i.quantitycommitted
+      FROM item i WHERE i.itemid LIKE 'UF445%' AND i.isinactive = 'F' ORDER BY i.itemid
+    `;
+    const rows = await suiteQLAll(q, env).catch(e => ({ error: e.message }));
+    return new Response(JSON.stringify({ direct_qoh: rows }, null, 2), { status: 200, headers: CORS });
+  }
+
+  // ── debug=ss2471 — try saved search SS2471 directly via REST record API ────
+  if (url.searchParams.get('debug') === 'ss2471') {
+    const ssUrl = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/inventoryitem?savedSearchId=2471&limit=20`;
+    const auth  = await oauthHeader('GET', ssUrl, env);
+    const resp  = await fetch(ssUrl, { method: 'GET', headers: { 'Authorization': auth, 'Content-Type': 'application/json' } });
+    const body  = await resp.text();
+    return new Response(JSON.stringify({ status: resp.status, body: body.substring(0, 2000) }, null, 2), { status: 200, headers: CORS });
+  }
+
+  // ── debug=uf — REST Records API locations test ───────────────────────────
   if (url.searchParams.get('debug') === 'uf') {
     try {
-      const [invBalRows, itemRows] = await Promise.all([
-        suiteQLAll(Q_UF_INV_BALANCE, env).catch(e => ({ error: e.message })),
-        suiteQLAll(
-          `SELECT i.itemid, NVL(i.quantityonhand,0) AS onhand FROM item i WHERE i.itemid LIKE 'UF445/%' AND i.isinactive = 'F' ORDER BY i.itemid`,
-          env
-        ).catch(e => ({ error: e.message })),
-      ]);
+      const ufItems = await suiteQLAll(Q_UF_ITEMS, env).catch(e => ({ error: e.message }));
+      const uf445   = Array.isArray(ufItems)
+        ? ufItems.filter(r => (r.itemid || '').includes('445')).slice(0, 6)
+        : [];
 
-      const ibRows    = Array.isArray(invBalRows) ? invBalRows : [];
-      const ibError   = Array.isArray(invBalRows) ? null : invBalRows;
-      const ibNonzero = ibRows.filter(r => Number(r.quantityonhand) > 0).length;
+      const locationResults = [];
+      for (const row of uf445) {
+        try {
+          const qty = await fetchItemLocations(row.id, env);
+          locationResults.push({ id: row.id, itemid: row.itemid, ...qty });
+        } catch (e) {
+          locationResults.push({ id: row.id, itemid: row.itemid, error: e.message });
+        }
+      }
+
+      const ibTest = await suiteQLAll(Q_UF_BALANCE_ALT, env)
+        .then(rows => ({ ok: true, count: rows.length, sample: rows.slice(0, 4) }))
+        .catch(e => ({ ok: false, error: e.message.substring(0, 300) }));
 
       return new Response(JSON.stringify({
-        inventoryBalance: {
-          error:   ibError,
-          count:   ibRows.length,
-          nonzero: ibNonzero,
-          uf445:   ibRows.filter(r => (r.itemid || '').includes('445')).slice(0, 15),
-        },
-        item_quantityonhand_uf445: Array.isArray(itemRows) ? itemRows : { error: itemRows },
+        uf_items: Array.isArray(ufItems) ? { count: ufItems.length } : ufItems,
+        uf445_locations: locationResults,
+        inventoryBalance_test: ibTest,
       }, null, 2), { status: 200, headers: CORS });
     } catch (e) {
       return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
