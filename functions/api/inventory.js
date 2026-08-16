@@ -95,10 +95,7 @@ async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000
     if (resp.ok) return resp.json();
 
     const txt = await resp.text();
-    if (resp.status === 401 && attempt < retries) {
-      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-      continue;
-    }
+    // Do NOT retry 401 — repeated failed attempts lock the NetSuite token via Login Audit Trail.
     throw new Error(`SuiteQL ${resp.status} (offset=${offset}): ${txt.substring(0, 500)}`);
   }
 }
@@ -107,14 +104,14 @@ async function suiteQLAll(q, env) {
   const rows  = [];
   let offset  = 0;
   const limit = 1000;
-  for (let page = 0; page < 50; page++) {
+  for (let page = 0; page < 50; page++) {   // safety cap
     let result;
     try {
       result = await suiteQLPage(q, env, offset, limit);
     } catch (e) {
-      if (offset === 0) throw e;
+      if (offset === 0) throw e;             // first page failure is fatal
       console.warn(`suiteQLAll stopping early at offset=${offset}: ${e.message}`);
-      break;
+      break;                                 // mid-pagination failure — use rows collected so far
     }
     const items = result.items || [];
     rows.push(...items);
@@ -227,7 +224,7 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     };
   }
 
-  // Overlay UF on-hand quantities from fetchUFBalance (REST Records API).
+  // Overlay UF on-hand quantities from SS 2471 (fetchUFBalance).
   if (balanceRows && balanceRows.length > 0) {
     console.log('[inventory] UF balanceRows count:', balanceRows.length);
   }
@@ -237,13 +234,16 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     const oh = toInt(row.quantityonhand  ?? 0);
     const cm = toInt(row.quantitycommitted ?? 0);
     const av = toInt(row.quantityavailable ?? 0);
+    // Always apply the overlay from SS 2471 — even if 0, it's more authoritative.
     models[name].onHand    = oh;
     models[name].committed = cm;
     models[name].available = av;
   }
 
   // flexes (Q_FLEXES) — attach to parent model + derive on-hand from lot quantities
-  const lotOnHandSum = {};
+  // lot number format: "37.0|370|24-06-03|9:49" — flex is first segment
+  // lotOnHandSum overrides the inventoryBalance value for flex-tracked poles.
+  const lotOnHandSum = {};  // modelName → sum of lot quantityonhand
   for (const row of flexRows) {
     const modelName = (row.modelname || '').trim();
     if (!models[modelName]) continue;
@@ -255,24 +255,26 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     lotOnHandSum[modelName] = (lotOnHandSum[modelName] || 0) + toInt(row.lotonhand);
   }
 
-  // Override onHand for flex-tracked finished poles — do NOT override UF items.
+  // Override onHand for flex-tracked finished poles with the sum of lot quantities.
+  // Do NOT override UF items — their quantities came from SS 2471.
   for (const [name, sum] of Object.entries(lotOnHandSum)) {
     if (models[name] && !name.startsWith('UF')) models[name].onHand = sum;
   }
 
-  // sort flexes smallest → largest
+  // sort flexes smallest → largest within each model
   for (const m of Object.values(models)) {
     m.flexes.sort((a, b) => a.f - b.f);
   }
 
-  // orders (Q_ORDERS)
+  // orders (Q_ORDERS) — group by item name
   const orders = {};
   for (const row of orderRows) {
     const name    = (row.name || '').trim();
-    if (!name || !/^\d+S?\//.test(name)) continue;
+    if (!name || !/^\d+S?\//.test(name)) continue;     // poles only
     const openQty = Math.round(parseFloat(row.openqty) || 0);
     if (openQty <= 0) continue;
     const soNum = (row.sonumber || '').trim() || null;
+
     if (!orders[name]) {
       orders[name] = {
         openQty:     0,
@@ -286,6 +288,8 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     }
     orders[name].openQty += openQty;
     orders[name].soLines.push({ soNum, qty: openQty, flex: null, bo: false });
+
+    // Stub model for back-ordered items with no inventory entry.
     if (!models[name]) {
       const { length, weight } = parseDisplay(row.displayname || '');
       models[name] = { length, weight, onHand: 0, available: 0, committed: 0, flexes: [] };
