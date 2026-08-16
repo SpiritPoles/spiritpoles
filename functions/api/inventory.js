@@ -21,6 +21,7 @@ function pct(str) {
 async function oauthHeader(method, baseUrl, env, extraParams = {}) {
   const ts    = Math.floor(Date.now() / 1000).toString();
   const nonce = crypto.randomUUID().replace(/-/g, '');
+
   const p = {
     ...extraParams,
     oauth_consumer_key:     env.NS_CONSUMER_KEY,
@@ -30,12 +31,15 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
     oauth_token:            env.NS_TOKEN_ID,
     oauth_version:          '1.0',
   };
+
   const normalized = Object.entries(p)
     .sort(([a], [b]) => (pct(a) < pct(b) ? -1 : 1))
     .map(([k, v]) => `${pct(k)}=${pct(v)}`)
     .join('&');
+
   const base   = `${method.toUpperCase()}&${pct(baseUrl)}&${pct(normalized)}`;
   const sigKey = `${pct(env.NS_CONSUMER_SECRET)}&${pct(env.NS_TOKEN_SECRET)}`;
+
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw', enc.encode(sigKey),
@@ -43,6 +47,7 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
   );
   const raw = await crypto.subtle.sign('HMAC', key, enc.encode(base));
   const sig = btoa(String.fromCharCode(...new Uint8Array(raw)));
+
   return [
     `OAuth realm="${env.NS_ACCOUNT_ID}"`,
     `oauth_consumer_key="${env.NS_CONSUMER_KEY}"`,
@@ -60,6 +65,7 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
 async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000) {
   const base = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
   const url  = `${base}?limit=${limit}&offset=${offset}`;
+
   for (let attempt = 0; attempt <= retries; attempt++) {
     const auth = await oauthHeader('POST', base, env, {
       limit:  String(limit),
@@ -71,7 +77,11 @@ async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000
     try {
       resp = await fetch(url, {
         method:  'POST',
-        headers: { 'Authorization': auth, 'Content-Type': 'application/json', 'prefer': 'transient' },
+        headers: {
+          'Authorization': auth,
+          'Content-Type':  'application/json',
+          'prefer':        'transient',
+        },
         body: JSON.stringify({ q }),
         signal: ctrl.signal,
       });
@@ -81,7 +91,9 @@ async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000
       throw e;
     }
     clearTimeout(timer);
+
     if (resp.ok) return resp.json();
+
     const txt = await resp.text();
     // Do NOT retry 401 — repeated failed attempts lock the NetSuite token via Login Audit Trail.
     throw new Error(`SuiteQL ${resp.status} (offset=${offset}): ${txt.substring(0, 500)}`);
@@ -92,14 +104,14 @@ async function suiteQLAll(q, env) {
   const rows  = [];
   let offset  = 0;
   const limit = 1000;
-  for (let page = 0; page < 50; page++) {
+  for (let page = 0; page < 50; page++) {   // safety cap
     let result;
     try {
       result = await suiteQLPage(q, env, offset, limit);
     } catch (e) {
-      if (offset === 0) throw e;
+      if (offset === 0) throw e;             // first page failure is fatal
       console.warn(`suiteQLAll stopping early at offset=${offset}: ${e.message}`);
-      break;
+      break;                                 // mid-pagination failure — use rows collected so far
     }
     const items = result.items || [];
     rows.push(...items);
@@ -111,6 +123,9 @@ async function suiteQLAll(q, env) {
 
 // ── SuiteQL queries ───────────────────────────────────────────────────────────
 
+// Q_ITEMS: model catalog + on-hand quantities from item table.
+// NOTE: item.quantityonhand returns 0 for UF items — UF On Hand comes from Q_UF_INV_BALANCE (inventoryBalance join).
+// Lot-tracked finished poles will have their onHand overridden later by lotOnHandSum (Q_FLEXES).
 const Q_ITEMS = `
   SELECT
     i.itemid      AS name,
@@ -120,10 +135,14 @@ const Q_ITEMS = `
     NVL(i.quantityavailable, 0) AS available
   FROM item i
   WHERE i.isinactive = 'F'
+    ANDive = 'F'
     AND i.itemid LIKE '%/%'
   ORDER BY i.itemid
 `;
 
+// Q_FLEXES: individual lot numbers — flex is encoded in the lot number string
+// ("flex|model|date|time"  e.g. "37.0|370|24-06-03|9:49")
+// Also provides onHand counts for finished (lot-tracked) poles.
 const Q_FLEXES = `
   SELECT
     i.itemid            AS modelname,
@@ -138,6 +157,7 @@ const Q_FLEXES = `
   ORDER BY i.itemid, inv.inventorynumber
 `;
 
+// Q_ORDERS: open SO lines (item, SO number, open qty).
 const Q_ORDERS = `
   SELECT
     i.itemid                                                        AS name,
@@ -170,9 +190,8 @@ const Q_UF_ITEMS = `
   ORDER BY i.itemid
 `;
 
-// Q_UF_BALANCE_ALT: SuiteQL-only alternative using inventoryBalance.
-// Requires "Inventory Register" permission on the CEO role — currently returns 401.
-// Kept here for future use if the role permission is added.
+// Q_UF_BALANCE_ALT: SuiteQL-only fallback for UF On Hand using inventoryBalance.
+// Requires "Inventory Register" permission on the role — only used if available.
 const Q_UF_BALANCE_ALT = `
   SELECT i.itemid, SUM(ib.quantityonhand) AS quantityonhand,
          SUM(ib.quantityavailable) AS quantityavailable,
@@ -189,6 +208,7 @@ const Q_UF_BALANCE_ALT = `
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
 function parseDisplay(displayname) {
+  // "370/40 | 12'1\" - 90lb"  →  { length: "12'1\"", weight: "90lb" }
   if (!displayname || !displayname.includes(' | ')) return { length: '', weight: '' };
   const rest    = displayname.split(' | ')[1] || '';
   const dashIdx = rest.lastIndexOf(' - ');
@@ -202,6 +222,8 @@ function toInt(v)   { const n = parseInt(v,  10); return isNaN(n) ? 0    : n; }
 function toFloat(v) { const n = parseFloat(v);    return isNaN(n) ? null : n; }
 
 function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
+
+  // models — catalog from item table (UF quantities are 0 here; overridden below by balanceRows)
   const models = {};
   for (const row of itemRows) {
     const name = (row.name || '').trim();
@@ -217,18 +239,26 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     };
   }
 
+  // Overlay UF on-hand quantities from SS 2471 (fetchUFBalance).
   if (balanceRows && balanceRows.length > 0) {
     console.log('[inventory] UF balanceRows count:', balanceRows.length);
   }
   for (const row of (balanceRows || [])) {
     const name = (row.itemid || '').trim();
     if (!name || !models[name]) continue;
-    models[name].onHand    = toInt(row.quantityonhand  ?? 0);
-    models[name].committed = toInt(row.quantitycommitted ?? 0);
-    models[name].available = toInt(row.quantityavailable ?? 0);
+    const oh = toInt(row.quantityonhand  ?? 0);
+    const cm = toInt(row.quantitycommitted ?? 0);
+    const av = toInt(row.quantityavailable ?? 0);
+    // Always apply the overlay from SS 2471 — even if 0, it's more authoritative.
+    models[name].onHand    = oh;
+    models[name].committed = cm;
+    models[name].available = av;
   }
 
-  const lotOnHandSum = {};
+  // flexes (Q_FLEXES) — attach to parent model + derive on-hand from lot quantities
+  // lot number format: "37.0|370|24-06-03|9:49" — flex is first segment
+  // lotOnHandSum overrides the inventoryBalance value for flex-tracked poles.
+  const lotOnHandSum = {};  // modelName → sum of lot quantityonhand
   for (const row of flexRows) {
     const modelName = (row.modelname || '').trim();
     if (!models[modelName]) continue;
@@ -240,21 +270,26 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     lotOnHandSum[modelName] = (lotOnHandSum[modelName] || 0) + toInt(row.lotonhand);
   }
 
+  // Override onHand for flex-tracked finished poles with the sum of lot quantities.
+  // Do NOT override UF items — their quantities came from SS 2471.
   for (const [name, sum] of Object.entries(lotOnHandSum)) {
     if (models[name] && !name.startsWith('UF')) models[name].onHand = sum;
   }
 
+  // sort flexes smallest → largest within each model
   for (const m of Object.values(models)) {
     m.flexes.sort((a, b) => a.f - b.f);
   }
 
+  // orders (Q_ORDERS) — group by item name
   const orders = {};
   for (const row of orderRows) {
     const name    = (row.name || '').trim();
-    if (!name || !/^\d+S?\//.test(name)) continue;
+    if (!name || !/^\d+S?\//.test(name)) continue;     // poles only
     const openQty = Math.round(parseFloat(row.openqty) || 0);
     if (openQty <= 0) continue;
     const soNum = (row.sonumber || '').trim() || null;
+
     if (!orders[name]) {
       orders[name] = {
         openQty:     0,
@@ -268,6 +303,8 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
     }
     orders[name].openQty += openQty;
     orders[name].soLines.push({ soNum, qty: openQty, flex: null, bo: false });
+
+    // Stub model for back-ordered items with no inventory entry.
     if (!models[name]) {
       const { length, weight } = parseDisplay(row.displayname || '');
       models[name] = { length, weight, onHand: 0, available: 0, committed: 0, flexes: [] };
@@ -284,9 +321,8 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
 
 // ── UF balance via REST Records API locations sublist ─────────────────────────
 // item.quantityonhand = 0 for UF blanks (multi-location, non-lot-tracked).
-// inventoryBalance SuiteQL table returns 401 (CEO role needs "Inventory Register" permission).
-// Fix: GET /record/v1/{recType}/{id}/locations — try inventoryitem first, assemblyitem on 400.
-// CEO role also needs "REST Web Services" setup permission for the Records API.
+// inventoryBalance SuiteQL table returns 401 (table-level access restriction, unfixable via role).
+// Fix: GET /record/v1/inventoryitem/{id}/locations for each UF item; sum quantities across locations.
 
 // Try /inventoryitem/{id}/locations first; if 400 (wrong record type), retry with /assemblyitem/.
 // 401 = CEO role missing "REST Web Services" setup permission — throw immediately (no retry).
@@ -312,7 +348,7 @@ async function fetchItemLocations(id, env) {
     const txt = await resp.text();
     if (resp.status === 400) {
       lastErr = new Error(`locations 400/${recType}: ${txt.substring(0, 100)}`);
-      continue;
+      continue; // wrong record type — try next
     }
     throw new Error(`locations ${resp.status}/${recType}: ${txt.substring(0, 200)}`);
   }
@@ -344,7 +380,7 @@ async function fetchUFBalance(env) {
         console.warn('[inventory] locations failed for', itemid, ':', e.message.substring(0, 100));
         return { itemid, quantityonhand: 0, quantityavailable: 0, quantitycommitted: 0 };
       }
-    }, 8);
+    }));
     const filtered = results.filter(r => r && r.itemid);
     const nonzero  = filtered.filter(r => r.quantityonhand > 0).length;
     console.log('[inventory] REST locations UF items=', filtered.length, 'nonzero=', nonzero);
@@ -355,7 +391,7 @@ async function fetchUFBalance(env) {
   }
 }
 
-// ── Handler ───────────────────────────────────────────────────────────────────
+// ── Handler ─────────────────────────────────────────────────────────────
 
 export async function onRequestGet({ env, request }) {
   if (!env.NS_ACCOUNT_ID || !env.NS_CONSUMER_KEY || !env.NS_TOKEN_ID) {
@@ -365,8 +401,28 @@ export async function onRequestGet({ env, request }) {
     );
   }
 
-  // ── Debug mode: ?debug=uf ─────────────────────────────────────────────────
   const url = new URL(request.url);
+
+  // ── debug=qoh — does item.quantityonhand have UF data in SuiteQL? ──────────
+  if (url.searchParams.get('debug') === 'qoh') {
+    const q = `
+      SELECT i.itemid, i.quantityonhand, i.quantityavailable, i.quantitycommitted
+      FROM item i WHERE i.itemid LIKE 'UF445%' AND i.isinactive = 'F' ORDER BY i.itemid
+    `;
+    const rows = await suiteQLAll(q, env).catch(e => ({ error: e.message }));
+    return new Response(JSON.stringify({ direct_qoh: rows }, null, 2), { status: 200, headers: CORS });
+  }
+
+  // ── debug=ss2471 — try saved search SS2471 directly via REST record API ────
+  if (url.searchParams.get('debug') === 'ss2471') {
+    const ssUrl = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/inventoryitem?savedSearchId=2471&limit=20`;
+    const auth  = await oauthHeader('GET', ssUrl, env);
+    const resp  = await fetch(ssUrl, { method: 'GET', headers: { 'Authorization': auth, 'Content-Type': 'application/json' } });
+    const body  = await resp.text();
+    return new Response(JSON.stringify({ status: resp.status, body: body.substring(0, 2000) }, null, 2), { status: 200, headers: CORS });
+  }
+
+  // ── debug=uf — REST Records API locations test ───────────────────────────
   if (url.searchParams.get('debug') === 'uf') {
     try {
       const ufItems = await suiteQLAll(Q_UF_ITEMS, env).catch(e => ({ error: e.message }));
@@ -374,7 +430,6 @@ export async function onRequestGet({ env, request }) {
         ? ufItems.filter(r => (r.itemid || '').includes('445')).slice(0, 6)
         : [];
 
-      // Serialized (one at a time) to isolate concurrent-auth issues
       const locationResults = [];
       for (const row of uf445) {
         try {
@@ -385,7 +440,6 @@ export async function onRequestGet({ env, request }) {
         }
       }
 
-      // Test inventoryBalance SuiteQL (requires "Inventory Register" on CEO role — currently 401)
       const ibTest = await suiteQLAll(Q_UF_BALANCE_ALT, env)
         .then(rows => ({ ok: true, count: rows.length, sample: rows.slice(0, 4) }))
         .catch(e => ({ ok: false, error: e.message.substring(0, 300) }));
@@ -406,6 +460,7 @@ export async function onRequestGet({ env, request }) {
   let orderWarning   = null;
 
   try {
+    // ── Phase 1: catalog + flex numbers (2 concurrent queries) ───────────────
     const [itemRows, flexRows] = await Promise.all([
       suiteQLAll(Q_ITEMS, env).catch(e => {
         itemsWarning = 'Q_ITEMS: ' + e.message.substring(0, 200);
@@ -419,6 +474,7 @@ export async function onRequestGet({ env, request }) {
       }),
     ]);
 
+    // ── Phase 2: orders + UF balance (2 concurrent) ──────────────────────────
     const ufBalancePromise = fetchUFBalance(env).catch(e => {
       balanceWarning = 'UF balance: ' + e.message.substring(0, 200);
       console.warn('[inventory]', balanceWarning);
