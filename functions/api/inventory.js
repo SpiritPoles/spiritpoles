@@ -457,31 +457,14 @@ export async function onRequestGet({ env, request }) {
     return new Response(JSON.stringify({ status: resp.status, body: body.substring(0, 2000) }, null, 2), { status: 200, headers: CORS });
   }
 
-  // ── debug=uf — REST Records API locations test ───────────────────────────
+  // ── debug=uf — inventoryBalance SuiteQL test (NO REST calls — avoid lockout cascade) ──
   if (url.searchParams.get('debug') === 'uf') {
     try {
-      const ufItems = await suiteQLAll(Q_UF_ITEMS, env).catch(e => ({ error: e.message }));
-      const uf445   = Array.isArray(ufItems)
-        ? ufItems.filter(r => (r.itemid || '').includes('445')).slice(0, 6)
-        : [];
-
-      const locationResults = [];
-      for (const row of uf445) {
-        try {
-          const qty = await fetchItemLocations(row.id, env);
-          locationResults.push({ id: row.id, itemid: row.itemid, ...qty });
-        } catch (e) {
-          locationResults.push({ id: row.id, itemid: row.itemid, error: e.message });
-        }
-      }
-
       const ibTest = await suiteQLAll(Q_UF_BALANCE_ALT, env)
-        .then(rows => ({ ok: true, count: rows.length, sample: rows.slice(0, 4) }))
+        .then(rows => ({ ok: true, count: rows.length, nonzero: rows.filter(r => Number(r.quantityonhand) > 0).length, sample: rows.slice(0, 5) }))
         .catch(e => ({ ok: false, error: e.message.substring(0, 300) }));
 
       return new Response(JSON.stringify({
-        uf_items: Array.isArray(ufItems) ? { count: ufItems.length } : ufItems,
-        uf445_locations: locationResults,
         inventoryBalance_test: ibTest,
       }, null, 2), { status: 200, headers: CORS });
     } catch (e) {
