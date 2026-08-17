@@ -318,10 +318,60 @@ function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
   };
 }
 
+// ── RESTlet call (replaces Q_FLEXES + fetchUFBalance) ────────────────────────
+// Calls spiritpoles_inventory_restlet.js deployed in NetSuite.
+// Returns { flexes, ufBalance } — single authenticated request, no SuiteQL table restrictions.
+// Set NS_RESTLET_URL in Cloudflare env vars. If not set, flex/UF data is skipped gracefully.
+
+async function fetchRestlet(env) {
+  if (!env.NS_RESTLET_URL) return { flexes: [], ufBalance: [] };
+
+  // Parse base URL and query params separately — OAuth signature requires them split.
+  const urlObj  = new URL(env.NS_RESTLET_URL);
+  const baseUrl = urlObj.origin + urlObj.pathname;
+  const qParams = Object.fromEntries(urlObj.searchParams.entries());
+
+  const auth = await oauthHeader('GET', baseUrl, env, qParams);
+
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 28000);
+  let resp;
+  try {
+    resp = await fetch(env.NS_RESTLET_URL, {
+      method:  'GET',
+      headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
+      signal:  ctrl.signal,
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('RESTlet timeout after 28s');
+    throw e;
+  }
+  clearTimeout(timer);
+
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`RESTlet ${resp.status}: ${txt.substring(0, 300)}`);
+  }
+
+  // NetSuite may return the object directly or as a JSON-encoded string — handle both.
+  const raw = await resp.text();
+  try {
+    const parsed = JSON.parse(raw);
+    const data   = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+    return {
+      flexes:    Array.isArray(data.flexes)    ? data.flexes    : [],
+      ufBalance: Array.isArray(data.ufBalance) ? data.ufBalance : [],
+    };
+  } catch (e) {
+    throw new Error(`RESTlet JSON parse failed: ${raw.substring(0, 100)}`);
+  }
+}
+
 // ── UF balance via REST Records API locations sublist ─────────────────────────
+// DEPRECATED — kept for reference only. Replaced by fetchRestlet().
 // item.quantityonhand = 0 for UF blanks (multi-location, non-lot-tracked).
 // inventoryBalance SuiteQL table returns 401 (table-level access restriction, unfixable via role).
-// Fix: GET /record/v1/inventoryitem/{id}/locations for each UF item; sum quantities across locations.
 
 // Try /inventoryitem/{id}/locations first; if 400 (wrong record type), retry with /assemblyitem/.
 // 401 = CEO role missing "REST Web Services" setup permission — throw immediately (no retry).
@@ -365,10 +415,29 @@ async function runBatched(items, fn, concurrency = 8) {
 }
 
 async function fetchUFBalance(env) {
+  // NOTE: inventoryBalance SuiteQL always 401s (table-level restriction) — DISABLED to prevent
+  // Login Audit Trail failures that lock the token. Skip straight to REST /locations fallback.
+  // TODO: Replace with RESTlet once deployed.
+
+  // Fallback: REST Records API /locations per item.
+  // CRITICAL: probe ONE item first — abort on 401 to prevent flooding Login Audit Trail → token lockout.
   try {
     const itemRows = await suiteQLAll(Q_UF_ITEMS, env);
     if (!itemRows.length) { console.log('[inventory] Q_UF_ITEMS: no rows'); return []; }
-    const results = await runBatched(itemRows, async row => {
+
+    // Probe with first item; if 401, abort entirely.
+    // (CEO role needs Setup → Permissions → "REST Web Services" = Full to use this endpoint.)
+    const probe = itemRows[0];
+    let probeQty;
+    try {
+      probeQty = await fetchItemLocations(probe.id, env);
+    } catch (e) {
+      console.warn('[inventory] REST locations probe failed — aborting UF fetch:', e.message.substring(0, 150));
+      return [];
+    }
+
+    // Probe succeeded; batch-fetch remaining items.
+    const batchResults = await runBatched(itemRows.slice(1), async row => {
       const itemid = (row.itemid || '').trim();
       const id     = row.id;
       if (!itemid || !id) return null;
@@ -376,12 +445,19 @@ async function fetchUFBalance(env) {
         const { onhand, available, committed } = await fetchItemLocations(id, env);
         return { itemid, quantityonhand: onhand, quantityavailable: available, quantitycommitted: committed };
       } catch (e) {
-        console.warn('[inventory] locations failed for', itemid, ':', e.message.substring(0, 100));
+        console.warn('[inventory] locations failed for', itemid, ':', e.message.substring(0, 80));
         return { itemid, quantityonhand: 0, quantityavailable: 0, quantitycommitted: 0 };
       }
-    }));
-    const filtered = results.filter(r => r && r.itemid);
-    const nonzero  = filtered.filter(r => r.quantityonhand > 0).length;
+    });
+
+    const probeRow = {
+      itemid:            (probe.itemid || '').trim(),
+      quantityonhand:    probeQty.onhand,
+      quantityavailable: probeQty.available,
+      quantitycommitted: probeQty.committed,
+    };
+    const filtered = [probeRow, ...batchResults.filter(r => r && r.itemid)];
+    const nonzero  = filtered.filter(r => Number(r.quantityonhand) > 0).length;
     console.log('[inventory] REST locations UF items=', filtered.length, 'nonzero=', nonzero);
     return filtered;
   } catch (e) {
@@ -421,31 +497,14 @@ export async function onRequestGet({ env, request }) {
     return new Response(JSON.stringify({ status: resp.status, body: body.substring(0, 2000) }, null, 2), { status: 200, headers: CORS });
   }
 
-  // ── debug=uf — REST Records API locations test ───────────────────────────
+  // ── debug=uf — inventoryBalance SuiteQL test (NO REST calls — avoid lockout cascade) ──
   if (url.searchParams.get('debug') === 'uf') {
     try {
-      const ufItems = await suiteQLAll(Q_UF_ITEMS, env).catch(e => ({ error: e.message }));
-      const uf445   = Array.isArray(ufItems)
-        ? ufItems.filter(r => (r.itemid || '').includes('445')).slice(0, 6)
-        : [];
-
-      const locationResults = [];
-      for (const row of uf445) {
-        try {
-          const qty = await fetchItemLocations(row.id, env);
-          locationResults.push({ id: row.id, itemid: row.itemid, ...qty });
-        } catch (e) {
-          locationResults.push({ id: row.id, itemid: row.itemid, error: e.message });
-        }
-      }
-
       const ibTest = await suiteQLAll(Q_UF_BALANCE_ALT, env)
-        .then(rows => ({ ok: true, count: rows.length, sample: rows.slice(0, 4) }))
+        .then(rows => ({ ok: true, count: rows.length, nonzero: rows.filter(r => Number(r.quantityonhand) > 0).length, sample: rows.slice(0, 5) }))
         .catch(e => ({ ok: false, error: e.message.substring(0, 300) }));
 
       return new Response(JSON.stringify({
-        uf_items: Array.isArray(ufItems) ? { count: ufItems.length } : ufItems,
-        uf445_locations: locationResults,
         inventoryBalance_test: ibTest,
       }, null, 2), { status: 200, headers: CORS });
     } catch (e) {
@@ -459,38 +518,32 @@ export async function onRequestGet({ env, request }) {
   let orderWarning   = null;
 
   try {
-    // ── Phase 1: catalog + flex numbers (2 concurrent queries) ───────────────
-    const [itemRows, flexRows] = await Promise.all([
+    // ── All 3 sources fetched concurrently ───────────────────────────────────
+    // RESTlet replaces Q_FLEXES (inventoryNumber) + fetchUFBalance (inventoryBalance) —
+    // both of which returned 401 on every refresh and caused token lockout cascades.
+    const [itemRows, restletData, orderRows] = await Promise.all([
       suiteQLAll(Q_ITEMS, env).catch(e => {
         itemsWarning = 'Q_ITEMS: ' + e.message.substring(0, 200);
         console.warn('[inventory]', itemsWarning);
         return [];
       }),
-      suiteQLAll(Q_FLEXES, env).catch(e => {
-        flexWarning = 'Q_FLEXES: ' + e.message.substring(0, 200);
+      fetchRestlet(env).catch(e => {
+        flexWarning = 'RESTlet: ' + e.message.substring(0, 200);
         console.warn('[inventory]', flexWarning);
-        return [];
+        return { flexes: [], ufBalance: [] };
       }),
-    ]);
-
-    // ── Phase 2: orders + UF balance (2 concurrent) ──────────────────────────
-    const ufBalancePromise = fetchUFBalance(env).catch(e => {
-      balanceWarning = 'UF balance: ' + e.message.substring(0, 200);
-      console.warn('[inventory]', balanceWarning);
-      return [];
-    });
-
-    const [orderRows, balanceRows] = await Promise.all([
       suiteQLAll(Q_ORDERS, env).catch(e => {
         orderWarning = 'Q_ORDERS: ' + e.message.substring(0, 200);
         console.warn('[inventory]', orderWarning);
         return [];
       }),
-      ufBalancePromise,
     ]);
 
+    const flexRows    = restletData.flexes    || [];
+    const balanceRows = restletData.ufBalance || [];
+
     const payload  = buildPayload(itemRows, balanceRows, flexRows, orderRows);
-    const warnings = [itemsWarning, balanceWarning, flexWarning, orderWarning].filter(Boolean);
+    const warnings = [itemsWarning, flexWarning, orderWarning].filter(Boolean);
     if (warnings.length) payload.warning = warnings.join(' | ');
     return new Response(JSON.stringify(payload), { status: 200, headers: CORS });
 
