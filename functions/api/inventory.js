@@ -135,7 +135,6 @@ const Q_ITEMS = `
     NVL(i.quantityavailable, 0) AS available
   FROM item i
   WHERE i.isinactive = 'F'
-    ANDive = 'F'
     AND i.itemid LIKE '%/%'
   ORDER BY i.itemid
 `;
@@ -366,10 +365,39 @@ async function runBatched(items, fn, concurrency = 8) {
 }
 
 async function fetchUFBalance(env) {
+  // Primary: inventoryBalance SuiteQL — single query, no concurrent-401 risk.
+  try {
+    const rows = await suiteQLAll(Q_UF_BALANCE_ALT, env);
+    if (rows.length > 0) {
+      const nz = rows.filter(r => Number(r.quantityonhand) > 0).length;
+      console.log('[inventory] UF via inventoryBalance:', rows.length, 'items,', nz, 'nonzero');
+      return rows;
+    }
+    console.warn('[inventory] inventoryBalance returned 0 rows');
+  } catch (e) {
+    // 401 = role lacks Inventory Register permission; fall through to REST approach.
+    console.warn('[inventory] inventoryBalance failed:', e.message.substring(0, 200));
+  }
+
+  // Fallback: REST Records API /locations per item.
+  // CRITICAL: probe ONE item first — abort on 401 to prevent flooding Login Audit Trail → token lockout.
   try {
     const itemRows = await suiteQLAll(Q_UF_ITEMS, env);
     if (!itemRows.length) { console.log('[inventory] Q_UF_ITEMS: no rows'); return []; }
-    const results = await runBatched(itemRows, async row => {
+
+    // Probe with first item; if 401, abort entirely.
+    // (CEO role needs Setup → Permissions → "REST Web Services" = Full to use this endpoint.)
+    const probe = itemRows[0];
+    let probeQty;
+    try {
+      probeQty = await fetchItemLocations(probe.id, env);
+    } catch (e) {
+      console.warn('[inventory] REST locations probe failed — aborting UF fetch:', e.message.substring(0, 150));
+      return [];
+    }
+
+    // Probe succeeded; batch-fetch remaining items.
+    const batchResults = await runBatched(itemRows.slice(1), async row => {
       const itemid = (row.itemid || '').trim();
       const id     = row.id;
       if (!itemid || !id) return null;
@@ -377,12 +405,19 @@ async function fetchUFBalance(env) {
         const { onhand, available, committed } = await fetchItemLocations(id, env);
         return { itemid, quantityonhand: onhand, quantityavailable: available, quantitycommitted: committed };
       } catch (e) {
-        console.warn('[inventory] locations failed for', itemid, ':', e.message.substring(0, 100));
+        console.warn('[inventory] locations failed for', itemid, ':', e.message.substring(0, 80));
         return { itemid, quantityonhand: 0, quantityavailable: 0, quantitycommitted: 0 };
       }
-    }));
-    const filtered = results.filter(r => r && r.itemid);
-    const nonzero  = filtered.filter(r => r.quantityonhand > 0).length;
+    });
+
+    const probeRow = {
+      itemid:            (probe.itemid || '').trim(),
+      quantityonhand:    probeQty.onhand,
+      quantityavailable: probeQty.available,
+      quantitycommitted: probeQty.committed,
+    };
+    const filtered = [probeRow, ...batchResults.filter(r => r && r.itemid)];
+    const nonzero  = filtered.filter(r => Number(r.quantityonhand) > 0).length;
     console.log('[inventory] REST locations UF items=', filtered.length, 'nonzero=', nonzero);
     return filtered;
   } catch (e) {
@@ -391,7 +426,7 @@ async function fetchUFBalance(env) {
   }
 }
 
-// ── Handler ─────────────────────────────────────────────────────────────
+// ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function onRequestGet({ env, request }) {
   if (!env.NS_ACCOUNT_ID || !env.NS_CONSUMER_KEY || !env.NS_TOKEN_ID) {
