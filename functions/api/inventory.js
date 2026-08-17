@@ -518,26 +518,26 @@ export async function onRequestGet({ env, request }) {
   let orderWarning   = null;
 
   try {
-    // ── All 3 sources fetched concurrently ───────────────────────────────────
-    // RESTlet replaces Q_FLEXES (inventoryNumber) + fetchUFBalance (inventoryBalance) —
-    // both of which returned 401 on every refresh and caused token lockout cascades.
-    const [itemRows, restletData, orderRows] = await Promise.all([
-      suiteQLAll(Q_ITEMS, env).catch(e => {
-        itemsWarning = 'Q_ITEMS: ' + e.message.substring(0, 200);
-        console.warn('[inventory]', itemsWarning);
-        return [];
-      }),
-      fetchRestlet(env).catch(e => {
-        flexWarning = 'RESTlet: ' + e.message.substring(0, 200);
-        console.warn('[inventory]', flexWarning);
-        return { flexes: [], ufBalance: [] };
-      }),
-      suiteQLAll(Q_ORDERS, env).catch(e => {
-        orderWarning = 'Q_ORDERS: ' + e.message.substring(0, 200);
-        console.warn('[inventory]', orderWarning);
-        return [];
-      }),
-    ]);
+    // ── Sequential fetches — avoids NetSuite concurrent-auth 401s ────────────
+    // NetSuite rejects concurrent TBA requests sharing the same OAuth timestamp.
+    // SuiteQL calls run first (sequential), RESTlet last (different endpoint, safe).
+    const itemRows = await suiteQLAll(Q_ITEMS, env).catch(e => {
+      itemsWarning = 'Q_ITEMS: ' + e.message.substring(0, 200);
+      console.warn('[inventory]', itemsWarning);
+      return [];
+    });
+
+    const orderRows = await suiteQLAll(Q_ORDERS, env).catch(e => {
+      orderWarning = 'Q_ORDERS: ' + e.message.substring(0, 200);
+      console.warn('[inventory]', orderWarning);
+      return [];
+    });
+
+    const restletData = await fetchRestlet(env).catch(e => {
+      flexWarning = 'RESTlet: ' + e.message.substring(0, 200);
+      console.warn('[inventory]', flexWarning);
+      return { flexes: [], ufBalance: [] };
+    });
 
     const flexRows    = restletData.flexes    || [];
     const balanceRows = restletData.ufBalance || [];
