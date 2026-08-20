@@ -125,12 +125,17 @@ async function buildModelsAndCatalog(env) {
   // Pole models/blanks all have a "/" in their item id, e.g. "430/68" or
   // "UF430/68". This mirrors the frontend's own POLE_RE (/^\d+S?\//) plus
   // the UF-prefixed blanks, without pulling every unrelated item in NetSuite.
-  const items = await suiteQLAll(env, `
-    SELECT id, itemid, displayname
-    FROM item
-    WHERE isinactive = 'F'
-      AND (itemid LIKE '%/%')
-  `);
+  let items;
+  try {
+    items = await suiteQLAll(env, `
+      SELECT id, itemid, displayname
+      FROM item
+      WHERE isinactive = 'F'
+        AND (itemid LIKE '%/%')
+    `);
+  } catch (err) {
+    throw new Error(`Q_ITEMS: ${String((err && err.message) || err)}`);
+  }
 
   const itemIdByInternalId = {};
   for (const row of items) {
@@ -143,17 +148,22 @@ async function buildModelsAndCatalog(env) {
   // item and to the inventory number's label (the "Flex #" string, e.g.
   // "20.1|430|26-04-08|8:51"). `inventorybalance` is location-level, so an
   // item can have multiple rows per location/flex combination.
-  const balances = await suiteQLAll(env, `
-    SELECT
-      ib.item AS item_internal_id,
-      ib.quantityonhand,
-      ib.quantityavailable,
-      ib.committedqtyperlocation,
-      ib.committedqtyperseriallotnumberlocation,
-      invnum.inventorynumber AS flex_label
-    FROM inventorybalance ib
-    LEFT JOIN inventorynumber invnum ON invnum.id = ib.inventorynumber
-  `);
+  let balances;
+  try {
+    balances = await suiteQLAll(env, `
+      SELECT
+        ib.item AS item_internal_id,
+        ib.quantityonhand,
+        ib.quantityavailable,
+        ib.committedqtyperlocation,
+        ib.committedqtyperseriallotnumberlocation,
+        invnum.inventorynumber AS flex_label
+      FROM inventorybalance ib
+      LEFT JOIN inventorynumber invnum ON invnum.id = ib.inventorynumber
+    `);
+  } catch (err) {
+    throw new Error(`Q_BALANCES: ${String((err && err.message) || err)}`);
+  }
 
   // Track committed-per-location once per (item, location) pair so we
   // don't double-count it across every flex row at that location.
@@ -351,9 +361,14 @@ function splitUrl(url) {
 }
 
 function buildSignatureBaseString(method, baseUrl, params) {
-  const encodedParams = Object.keys(params)
-    .sort()
-    .map((k) => `${percentEncode(k)}=${percentEncode(params[k])}`)
+  // OAuth 1.0a requires sorting by the percent-ENCODED key (byte-wise), not
+  // the raw key — harmless here since none of our param names contain
+  // characters that encoding would change, but doing it correctly in case
+  // that ever changes.
+  const encodedParams = Object.entries(params)
+    .map(([k, v]) => [percentEncode(k), percentEncode(v)])
+    .sort(([ak, av], [bk, bv]) => (ak === bk ? (av < bv ? -1 : av > bv ? 1 : 0) : (ak < bk ? -1 : 1)))
+    .map(([k, v]) => `${k}=${v}`)
     .join('&');
   return [
     method.toUpperCase(),
