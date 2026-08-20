@@ -25,11 +25,11 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
   // Merge oauth_ params with any request query params — all get sorted together
   const p = {
     ...extraParams,
-    oauth_consumer_key:     env.NS_CONSUMER_KEY,
+    oauth_consumer_key:     env.NETSUITE_CONSUMER_KEY,
     oauth_nonce:            nonce,
     oauth_signature_method: 'HMAC-SHA256',
     oauth_timestamp:        ts,
-    oauth_token:            env.NS_TOKEN_ID,
+    oauth_token:            env.NETSUITE_TOKEN_ID,
     oauth_version:          '1.0',
   };
 
@@ -39,7 +39,7 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
     .join('&');
 
   const base   = `${method.toUpperCase()}&${pct(baseUrl)}&${pct(normalized)}`;
-  const sigKey = `${pct(env.NS_CONSUMER_SECRET)}&${pct(env.NS_TOKEN_SECRET)}`;
+  const sigKey = `${pct(env.NETSUITE_CONSUMER_SECRET)}&${pct(env.NETSUITE_TOKEN_SECRET)}`;
 
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -50,9 +50,9 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
   const sig = btoa(String.fromCharCode(...new Uint8Array(raw)));
 
   return [
-    `OAuth realm="${env.NS_ACCOUNT_ID}"`,
-    `oauth_consumer_key="${env.NS_CONSUMER_KEY}"`,
-    `oauth_token="${env.NS_TOKEN_ID}"`,
+    `OAuth realm="${env.NETSUITE_ACCOUNT_ID}"`,
+    `oauth_consumer_key="${env.NETSUITE_CONSUMER_KEY}"`,
+    `oauth_token="${env.NETSUITE_TOKEN_ID}"`,
     `oauth_signature_method="HMAC-SHA256"`,
     `oauth_timestamp="${ts}"`,
     `oauth_nonce="${nonce}"`,
@@ -64,7 +64,7 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
 // ── SuiteQL helper ─────────────────────────────────────────────────────────────
 
 async function suiteQL(q, env, retries = 3) {
-  const url = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
+  const url = `https://${env.NETSUITE_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const auth = await oauthHeader('POST', url, env);
@@ -179,7 +179,7 @@ export async function onRequestGet({ params, env }) {
 
     // 2. REST Record API — gets subtotal + full line items with custom fields & serials
     // expandSubResources=true inlines inventoryDetail subrecords per line.
-    const recUrl  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/salesorder/${so.id}?expandSubResources=true`;
+    const recUrl  = `https://${env.NETSUITE_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/salesorder/${so.id}?expandSubResources=true`;
     const rec     = await nsGet(recUrl, env);
     const subtotal = parseFloat(rec.subtotal ?? rec.total ?? 0);
     const portOfDest = rec.custbody_mctms_swa_code?.refName

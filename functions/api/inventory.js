@@ -1,564 +1,396 @@
 // functions/api/inventory.js
-// Cloudflare Pages Function — on-demand UCS Spirit inventory snapshot from NetSuite (TBA OAuth 1.0a)
-// Mirrors the payload shape expected by apps/inventory-lookup/index.html:
-//   { models, orders, catalog: {}, refreshedAt }
+//
+// Cloudflare Pages Function — standalone NetSuite backend for the
+// UCS Spirit Inventory Lookup app. No Claude account involved at runtime.
+//
+// Auth: NetSuite Token-Based Authentication (TBA / OAuth 1.0a, HMAC-SHA256),
+// signed here with the Workers-native Web Crypto API. This is deliberately
+// NOT the OAuth2 flow Claude's own MCP connector uses — TBA needs no
+// interactive browser consent, so it works from an unattended server.
+//
+// Required Cloudflare Pages environment variables (set as encrypted
+// "Secrets" in the Pages project settings, never committed to the repo):
+//   NETSUITE_ACCOUNT_ID       e.g. "1234567" or "1234567-sb1" for sandbox
+//   NETSUITE_CONSUMER_KEY
+//   NETSUITE_CONSUMER_SECRET
+//   NETSUITE_TOKEN_ID
+//   NETSUITE_TOKEN_SECRET
+//
+// NetSuite-side prerequisites — all done as of this version:
+//   1. [DONE] Transactions > Find Transaction (View) added to the
+//      "UCS Spirit - AI Apps Connector" role — confirmed live via SuiteQL
+//      that `transaction` / `transactionline` are unblocked.
+//   2. [DONE] "Log in using Access Tokens" (Full) added under the same
+//      role's Setup tab, alongside its existing OAuth2 permissions.
+//   3. [DONE] "UCS Spirit Inventory App (TBA)" Integration record,
+//      configured for Token-based Authentication only (OAuth2 left off —
+//      kept separate from the OAuth2 integration Claude's own connector
+//      uses). Consumer Key/Secret generated from it.
+//   4. [DONE] Access Token generated (Setup > Users/Roles > Access
+//      Tokens), tied to the employee + the role above + that integration
+//      record. Token ID/Secret generated from it.
+//
+// Superseded from the earlier standalone attempt (functions/api/inventory.js,
+// pre-rewrite): that version relied on `inventoryBalance` SuiteQL 401ing
+// under the OLD role and worked around it with a NetSuite-side RESTlet
+// (spiritpoles_inventory_restlet.js) plus a REST Records API /locations
+// fallback for UF blanks. Verified live under the NEW role that
+// `inventorybalance` is NOT actually restricted — it 401'd before purely
+// because the old role lacked the right permissions, not because the table
+// itself is off-limits. That whole RESTlet/locations-fallback layer (and
+// its NetSuite-side deployment dependency) is removed here in favor of
+// querying `inventorybalance` directly, which is confirmed to cover both
+// lot-tracked finished poles AND multi-location UF blanks correctly. The
+// `Q_ORDERS` line-filtering logic (isfullyshipped/isclosed/fulfillable) is
+// carried over from that version — it's more accurate than a status-code
+// guess and was already working once Find Transaction was granted.
 
 const CORS = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*',
-  'Cache-Control': 'no-store',
+  'content-type': 'application/json',
+  'access-control-allow-origin': '*',
+  // no-store: the frontend already does its own 6h localStorage caching
+  // and expects a manual "Refresh" click to hit real data — an HTTP-level
+  // cache here would silently defeat that.
+  'cache-control': 'no-store',
 };
 
-// ── OAuth 1.0a helpers ────────────────────────────────────────────────────────
+export async function onRequestGet(context) {
+  const { env } = context;
 
-function pct(str) {
-  return encodeURIComponent(String(str))
-    .replace(/!/g, '%21').replace(/'/g, '%27')
-    .replace(/\(/g, '%28').replace(/\)/g, '%29')
-    .replace(/\*/g, '%2A');
-}
-
-async function oauthHeader(method, baseUrl, env, extraParams = {}) {
-  const ts    = Math.floor(Date.now() / 1000).toString();
-  const nonce = crypto.randomUUID().replace(/-/g, '');
-
-  const p = {
-    ...extraParams,
-    oauth_consumer_key:     env.NS_CONSUMER_KEY,
-    oauth_nonce:            nonce,
-    oauth_signature_method: 'HMAC-SHA256',
-    oauth_timestamp:        ts,
-    oauth_token:            env.NS_TOKEN_ID,
-    oauth_version:          '1.0',
-  };
-
-  const normalized = Object.entries(p)
-    .sort(([a], [b]) => (pct(a) < pct(b) ? -1 : 1))
-    .map(([k, v]) => `${pct(k)}=${pct(v)}`)
-    .join('&');
-
-  const base   = `${method.toUpperCase()}&${pct(baseUrl)}&${pct(normalized)}`;
-  const sigKey = `${pct(env.NS_CONSUMER_SECRET)}&${pct(env.NS_TOKEN_SECRET)}`;
-
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw', enc.encode(sigKey),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
-  const raw = await crypto.subtle.sign('HMAC', key, enc.encode(base));
-  const sig = btoa(String.fromCharCode(...new Uint8Array(raw)));
-
-  return [
-    `OAuth realm="${env.NS_ACCOUNT_ID}"`,
-    `oauth_consumer_key="${env.NS_CONSUMER_KEY}"`,
-    `oauth_token="${env.NS_TOKEN_ID}"`,
-    `oauth_signature_method="HMAC-SHA256"`,
-    `oauth_timestamp="${ts}"`,
-    `oauth_nonce="${nonce}"`,
-    `oauth_version="1.0"`,
-    `oauth_signature="${sig}"`,
-  ].join(', ');
-}
-
-// ── SuiteQL (paginated) ───────────────────────────────────────────────────────
-
-async function suiteQLPage(q, env, offset, limit, retries = 3, timeoutMs = 20000) {
-  const base = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
-  const url  = `${base}?limit=${limit}&offset=${offset}`;
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const auth = await oauthHeader('POST', base, env, {
-      limit:  String(limit),
-      offset: String(offset),
-    });
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    let resp;
-    try {
-      resp = await fetch(url, {
-        method:  'POST',
-        headers: {
-          'Authorization': auth,
-          'Content-Type':  'application/json',
-          'prefer':        'transient',
-        },
-        body: JSON.stringify({ q }),
-        signal: ctrl.signal,
-      });
-    } catch (e) {
-      clearTimeout(timer);
-      if (e.name === 'AbortError') throw new Error(`SuiteQL timeout after ${timeoutMs}ms (offset=${offset})`);
-      throw e;
-    }
-    clearTimeout(timer);
-
-    if (resp.ok) return resp.json();
-
-    const txt = await resp.text();
-    // Do NOT retry 401 — repeated failed attempts lock the NetSuite token via Login Audit Trail.
-    throw new Error(`SuiteQL ${resp.status} (offset=${offset}): ${txt.substring(0, 500)}`);
-  }
-}
-
-async function suiteQLAll(q, env) {
-  const rows  = [];
-  let offset  = 0;
-  const limit = 1000;
-  for (let page = 0; page < 50; page++) {   // safety cap
-    let result;
-    try {
-      result = await suiteQLPage(q, env, offset, limit);
-    } catch (e) {
-      if (offset === 0) throw e;             // first page failure is fatal
-      console.warn(`suiteQLAll stopping early at offset=${offset}: ${e.message}`);
-      break;                                 // mid-pagination failure — use rows collected so far
-    }
-    const items = result.items || [];
-    rows.push(...items);
-    if (!result.hasMore || items.length === 0) break;
-    offset += limit;
-  }
-  return rows;
-}
-
-// ── SuiteQL queries ───────────────────────────────────────────────────────────
-
-// Q_ITEMS: model catalog + on-hand quantities from item table.
-// NOTE: item.quantityonhand returns 0 for UF items — UF On Hand comes from Q_UF_INV_BALANCE (inventoryBalance join).
-// Lot-tracked finished poles will have their onHand overridden later by lotOnHandSum (Q_FLEXES).
-const Q_ITEMS = `
-  SELECT
-    i.itemid      AS name,
-    i.displayname AS displayname,
-    NVL(i.quantityonhand,    0) AS onhand,
-    NVL(i.quantitycommitted,  0) AS committed,
-    NVL(i.quantityavailable, 0) AS available
-  FROM item i
-  WHERE i.isinactive = 'F'
-    AND i.itemid LIKE '%/%'
-  ORDER BY i.itemid
-`;
-
-// Q_FLEXES: individual lot numbers — flex is encoded in the lot number string
-// ("flex|model|date|time"  e.g. "37.0|370|24-06-03|9:49")
-// Also provides onHand counts for finished (lot-tracked) poles.
-const Q_FLEXES = `
-  SELECT
-    i.itemid            AS modelname,
-    i.displayname       AS displayname,
-    inv.inventorynumber AS lotnumber,
-    NVL(inv.quantityonhand,    0) AS lotonhand,
-    NVL(inv.quantityavailable, 0) AS lotavailable
-  FROM inventoryNumber inv
-  JOIN item i ON i.id = inv.item
-  WHERE inv.quantityonhand > 0
-    AND i.isinactive = 'F'
-  ORDER BY i.itemid, inv.inventorynumber
-`;
-
-// Q_ORDERS: open SO lines (item, SO number, open qty).
-const Q_ORDERS = `
-  SELECT
-    i.itemid                                                        AS name,
-    i.displayname                                                   AS displayname,
-    i.description                                                   AS description,
-    t.tranid                                                        AS sonumber,
-    ABS(NVL(tl.quantity, 0)) - NVL(tl.quantityshiprecv, 0)         AS openqty
-  FROM transaction t
-  JOIN transactionLine tl ON tl.transaction = t.id
-  JOIN item i              ON i.id = tl.item
-  WHERE t.type            = 'SalesOrd'
-    AND tl.isfullyshipped = 'F'
-    AND tl.isclosed       = 'F'
-    AND tl.fulfillable    = 'T'
-    AND tl.item           IS NOT NULL
-    AND i.isinactive      = 'F'
-    AND i.itemid          LIKE '%/%'
-    AND ABS(NVL(tl.quantity, 0)) - NVL(tl.quantityshiprecv, 0) > 0
-  ORDER BY i.itemid, t.tranid
-`;
-
-// Q_UF_ITEMS: internal IDs for UF blanks.
-// item.quantityonhand = 0 for multi-location items; per-location qty via REST Records API.
-// NOTE: i.type is not a valid SuiteQL column — causes 500. Item type inferred at fetch time.
-const Q_UF_ITEMS = `
-  SELECT i.id, i.itemid
-  FROM item i
-  WHERE i.itemid LIKE 'UF%'
-    AND i.isinactive = 'F'
-  ORDER BY i.itemid
-`;
-
-// Q_UF_BALANCE_ALT: SuiteQL-only fallback for UF On Hand using inventoryBalance.
-// Requires "Inventory Register" permission on the role — only used if available.
-const Q_UF_BALANCE_ALT = `
-  SELECT i.itemid, SUM(ib.quantityonhand) AS quantityonhand,
-         SUM(ib.quantityavailable) AS quantityavailable,
-         SUM(ib.quantitycommitted) AS quantitycommitted
-  FROM inventoryBalance ib
-  JOIN item i ON i.id = ib.item
-  WHERE i.itemid LIKE 'UF%'
-    AND i.isinactive = 'F'
-  GROUP BY i.itemid
-  ORDER BY i.itemid
-`;
-
-
-// ── Aggregation ───────────────────────────────────────────────────────────────
-
-function parseDisplay(displayname) {
-  // "370/40 | 12'1\" - 90lb"  →  { length: "12'1\"", weight: "90lb" }
-  if (!displayname || !displayname.includes(' | ')) return { length: '', weight: '' };
-  const rest    = displayname.split(' | ')[1] || '';
-  const dashIdx = rest.lastIndexOf(' - ');
-  if (dashIdx >= 0) {
-    return { length: rest.slice(0, dashIdx).trim(), weight: rest.slice(dashIdx + 3).trim() };
-  }
-  return { length: rest.trim(), weight: '' };
-}
-
-function toInt(v)   { const n = parseInt(v,  10); return isNaN(n) ? 0    : n; }
-function toFloat(v) { const n = parseFloat(v);    return isNaN(n) ? null : n; }
-
-function buildPayload(itemRows, balanceRows, flexRows, orderRows) {
-
-  // models — catalog from item table (UF quantities are 0 here; overridden below by balanceRows)
-  const models = {};
-  for (const row of itemRows) {
-    const name = (row.name || '').trim();
-    if (!name || !name.includes('/')) continue;
-    const { length, weight } = parseDisplay(row.displayname || '');
-    models[name] = {
-      length,
-      weight,
-      onHand:    toInt(row.onhand),
-      available: toInt(row.available),
-      committed: toInt(row.committed),
-      flexes:    [],
-    };
-  }
-
-  // Overlay UF on-hand quantities from SS 2471 (fetchUFBalance).
-  if (balanceRows && balanceRows.length > 0) {
-    console.log('[inventory] UF balanceRows count:', balanceRows.length);
-  }
-  for (const row of (balanceRows || [])) {
-    const name = (row.itemid || '').trim();
-    if (!name || !models[name]) continue;
-    const oh = toInt(row.quantityonhand  ?? 0);
-    const cm = toInt(row.quantitycommitted ?? 0);
-    const av = toInt(row.quantityavailable ?? 0);
-    // Always apply the overlay from SS 2471 — even if 0, it's more authoritative.
-    models[name].onHand    = oh;
-    models[name].committed = cm;
-    models[name].available = av;
-  }
-
-  // flexes (Q_FLEXES) — attach to parent model + derive on-hand from lot quantities
-  // lot number format: "37.0|370|24-06-03|9:49" — flex is first segment
-  // lotOnHandSum overrides the inventoryBalance value for flex-tracked poles.
-  const lotOnHandSum = {};  // modelName → sum of lot quantityonhand
-  for (const row of flexRows) {
-    const modelName = (row.modelname || '').trim();
-    if (!models[modelName]) continue;
-    const lot   = (row.lotnumber || '').trim();
-    const flex  = toFloat(lot.split('|')[0]);
-    if (flex === null) continue;
-    const avail = toInt(row.lotavailable) > 0;
-    models[modelName].flexes.push({ f: Math.round(flex * 10) / 10, a: avail });
-    lotOnHandSum[modelName] = (lotOnHandSum[modelName] || 0) + toInt(row.lotonhand);
-  }
-
-  // Override onHand for flex-tracked finished poles with the sum of lot quantities.
-  // Do NOT override UF items — their quantities came from SS 2471.
-  for (const [name, sum] of Object.entries(lotOnHandSum)) {
-    if (models[name] && !name.startsWith('UF')) models[name].onHand = sum;
-  }
-
-  // sort flexes smallest → largest within each model
-  for (const m of Object.values(models)) {
-    m.flexes.sort((a, b) => a.f - b.f);
-  }
-
-  // orders (Q_ORDERS) — group by item name
-  const orders = {};
-  for (const row of orderRows) {
-    const name    = (row.name || '').trim();
-    if (!name || !/^\d+S?\//.test(name)) continue;     // poles only
-    const openQty = Math.round(parseFloat(row.openqty) || 0);
-    if (openQty <= 0) continue;
-    const soNum = (row.sonumber || '').trim() || null;
-
-    if (!orders[name]) {
-      orders[name] = {
-        openQty:     0,
-        committed:   0,
-        available:   0,
-        onHand:      0,
-        display:     row.displayname || name,
-        description: row.description || '',
-        soLines:     [],
-      };
-    }
-    orders[name].openQty += openQty;
-    orders[name].soLines.push({ soNum, qty: openQty, flex: null, bo: false });
-
-    // Stub model for back-ordered items with no inventory entry.
-    if (!models[name]) {
-      const { length, weight } = parseDisplay(row.displayname || '');
-      models[name] = { length, weight, onHand: 0, available: 0, committed: 0, flexes: [] };
-    }
-  }
-
-  return {
-    models,
-    orders,
-    catalog:     {},
-    refreshedAt: new Date().toISOString(),
-  };
-}
-
-// ── RESTlet call (replaces Q_FLEXES + fetchUFBalance) ────────────────────────
-// Calls spiritpoles_inventory_restlet.js deployed in NetSuite.
-// Returns { flexes, ufBalance } — single authenticated request, no SuiteQL table restrictions.
-// Set NS_RESTLET_URL in Cloudflare env vars. If not set, flex/UF data is skipped gracefully.
-
-async function fetchRestlet(env) {
-  if (!env.NS_RESTLET_URL) return { flexes: [], ufBalance: [] };
-
-  // Parse base URL and query params separately — OAuth signature requires them split.
-  const urlObj  = new URL(env.NS_RESTLET_URL);
-  const baseUrl = urlObj.origin + urlObj.pathname;
-  const qParams = Object.fromEntries(urlObj.searchParams.entries());
-
-  const auth = await oauthHeader('GET', baseUrl, env, qParams);
-
-  const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 28000);
-  let resp;
-  try {
-    resp = await fetch(env.NS_RESTLET_URL, {
-      method:  'GET',
-      headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
-      signal:  ctrl.signal,
-    });
-  } catch (e) {
-    clearTimeout(timer);
-    if (e.name === 'AbortError') throw new Error('RESTlet timeout after 28s');
-    throw e;
-  }
-  clearTimeout(timer);
-
-  if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error(`RESTlet ${resp.status}: ${txt.substring(0, 300)}`);
-  }
-
-  // NetSuite may return the object directly or as a JSON-encoded string — handle both.
-  const raw = await resp.text();
-  try {
-    const parsed = JSON.parse(raw);
-    const data   = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
-    return {
-      flexes:    Array.isArray(data.flexes)    ? data.flexes    : [],
-      ufBalance: Array.isArray(data.ufBalance) ? data.ufBalance : [],
-    };
-  } catch (e) {
-    throw new Error(`RESTlet JSON parse failed: ${raw.substring(0, 100)}`);
-  }
-}
-
-// ── UF balance via REST Records API locations sublist ─────────────────────────
-// DEPRECATED — kept for reference only. Replaced by fetchRestlet().
-// item.quantityonhand = 0 for UF blanks (multi-location, non-lot-tracked).
-// inventoryBalance SuiteQL table returns 401 (table-level access restriction, unfixable via role).
-
-// Try /inventoryitem/{id}/locations first; if 400 (wrong record type), retry with /assemblyitem/.
-// 401 = CEO role missing "REST Web Services" setup permission — throw immediately (no retry).
-async function fetchItemLocations(id, env) {
-  let lastErr;
-  for (const recType of ['inventoryitem', 'assemblyitem']) {
-    const url  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/${recType}/${id}/locations`;
-    const auth = await oauthHeader('GET', url, env);
-    const resp = await fetch(url, {
-      method:  'GET',
-      headers: { 'Authorization': auth, 'Content-Type': 'application/json' },
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      let onhand = 0, available = 0, committed = 0;
-      for (const loc of (data.items || [])) {
-        onhand    += Number(loc.quantityOnHand)    || 0;
-        available += Number(loc.quantityAvailable) || 0;
-        committed += Number(loc.quantityCommitted) || 0;
-      }
-      return { onhand, available, committed };
-    }
-    const txt = await resp.text();
-    if (resp.status === 400) {
-      lastErr = new Error(`locations 400/${recType}: ${txt.substring(0, 100)}`);
-      continue; // wrong record type — try next
-    }
-    throw new Error(`locations ${resp.status}/${recType}: ${txt.substring(0, 200)}`);
-  }
-  throw lastErr || new Error('locations: exhausted record types');
-}
-
-// Run async tasks with limited concurrency to avoid overwhelming NetSuite auth.
-async function runBatched(items, fn, concurrency = 8) {
-  const results = [];
-  for (let i = 0; i < items.length; i += concurrency) {
-    const batch = items.slice(i, i + concurrency);
-    results.push(...await Promise.all(batch.map(fn)));
-  }
-  return results;
-}
-
-async function fetchUFBalance(env) {
-  // NOTE: inventoryBalance SuiteQL always 401s (table-level restriction) — DISABLED to prevent
-  // Login Audit Trail failures that lock the token. Skip straight to REST /locations fallback.
-  // TODO: Replace with RESTlet once deployed.
-
-  // Fallback: REST Records API /locations per item.
-  // CRITICAL: probe ONE item first — abort on 401 to prevent flooding Login Audit Trail → token lockout.
-  try {
-    const itemRows = await suiteQLAll(Q_UF_ITEMS, env);
-    if (!itemRows.length) { console.log('[inventory] Q_UF_ITEMS: no rows'); return []; }
-
-    // Probe with first item; if 401, abort entirely.
-    // (CEO role needs Setup → Permissions → "REST Web Services" = Full to use this endpoint.)
-    const probe = itemRows[0];
-    let probeQty;
-    try {
-      probeQty = await fetchItemLocations(probe.id, env);
-    } catch (e) {
-      console.warn('[inventory] REST locations probe failed — aborting UF fetch:', e.message.substring(0, 150));
-      return [];
-    }
-
-    // Probe succeeded; batch-fetch remaining items.
-    const batchResults = await runBatched(itemRows.slice(1), async row => {
-      const itemid = (row.itemid || '').trim();
-      const id     = row.id;
-      if (!itemid || !id) return null;
-      try {
-        const { onhand, available, committed } = await fetchItemLocations(id, env);
-        return { itemid, quantityonhand: onhand, quantityavailable: available, quantitycommitted: committed };
-      } catch (e) {
-        console.warn('[inventory] locations failed for', itemid, ':', e.message.substring(0, 80));
-        return { itemid, quantityonhand: 0, quantityavailable: 0, quantitycommitted: 0 };
-      }
-    });
-
-    const probeRow = {
-      itemid:            (probe.itemid || '').trim(),
-      quantityonhand:    probeQty.onhand,
-      quantityavailable: probeQty.available,
-      quantitycommitted: probeQty.committed,
-    };
-    const filtered = [probeRow, ...batchResults.filter(r => r && r.itemid)];
-    const nonzero  = filtered.filter(r => Number(r.quantityonhand) > 0).length;
-    console.log('[inventory] REST locations UF items=', filtered.length, 'nonzero=', nonzero);
-    return filtered;
-  } catch (e) {
-    console.warn('[inventory] fetchUFBalance failed:', e.message.substring(0, 300));
-    return [];
-  }
-}
-
-// ── Handler ───────────────────────────────────────────────────────────────────
-
-export async function onRequestGet({ env, request }) {
-  if (!env.NS_ACCOUNT_ID || !env.NS_CONSUMER_KEY || !env.NS_TOKEN_ID) {
+  if (!env.NETSUITE_ACCOUNT_ID || !env.NETSUITE_CONSUMER_KEY || !env.NETSUITE_TOKEN_ID) {
     return new Response(
-      JSON.stringify({ error: 'NetSuite credentials not configured in CF Pages environment.' }),
+      JSON.stringify({ error: 'NetSuite credentials not configured in Cloudflare Pages environment variables.' }),
       { status: 500, headers: CORS }
     );
   }
 
-  const url = new URL(request.url);
-
-  // ── debug=qoh — does item.quantityonhand have UF data in SuiteQL? ──────────
-  if (url.searchParams.get('debug') === 'qoh') {
-    const q = `
-      SELECT i.itemid, i.quantityonhand, i.quantityavailable, i.quantitycommitted
-      FROM item i WHERE i.itemid LIKE 'UF445%' AND i.isinactive = 'F' ORDER BY i.itemid
-    `;
-    const rows = await suiteQLAll(q, env).catch(e => ({ error: e.message }));
-    return new Response(JSON.stringify({ direct_qoh: rows }, null, 2), { status: 200, headers: CORS });
-  }
-
-  // ── debug=ss2471 — try saved search SS2471 directly via REST record API ────
-  if (url.searchParams.get('debug') === 'ss2471') {
-    const ssUrl = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/inventoryitem?savedSearchId=2471&limit=20`;
-    const auth  = await oauthHeader('GET', ssUrl, env);
-    const resp  = await fetch(ssUrl, { method: 'GET', headers: { 'Authorization': auth, 'Content-Type': 'application/json' } });
-    const body  = await resp.text();
-    return new Response(JSON.stringify({ status: resp.status, body: body.substring(0, 2000) }, null, 2), { status: 200, headers: CORS });
-  }
-
-  // ── debug=uf — inventoryBalance SuiteQL test (NO REST calls — avoid lockout cascade) ──
-  if (url.searchParams.get('debug') === 'uf') {
-    try {
-      const ibTest = await suiteQLAll(Q_UF_BALANCE_ALT, env)
-        .then(rows => ({ ok: true, count: rows.length, nonzero: rows.filter(r => Number(r.quantityonhand) > 0).length, sample: rows.slice(0, 5) }))
-        .catch(e => ({ ok: false, error: e.message.substring(0, 300) }));
-
-      return new Response(JSON.stringify({
-        inventoryBalance_test: ibTest,
-      }, null, 2), { status: 200, headers: CORS });
-    } catch (e) {
-      return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
-    }
-  }
-
-  let itemsWarning   = null;
-  let balanceWarning = null;
-  let flexWarning    = null;
-  let orderWarning   = null;
-
   try {
-    // ── Sequential fetches — avoids NetSuite concurrent-auth 401s ────────────
-    // NetSuite rejects concurrent TBA requests sharing the same OAuth timestamp.
-    // SuiteQL calls run first (sequential), RESTlet last (different endpoint, safe).
-    const itemRows = await suiteQLAll(Q_ITEMS, env).catch(e => {
-      itemsWarning = 'Q_ITEMS: ' + e.message.substring(0, 200);
-      console.warn('[inventory]', itemsWarning);
-      return [];
-    });
+    // Sequential, not parallel — NetSuite TBA rejects concurrent requests
+    // that share the same OAuth timestamp/nonce window closely enough,
+    // surfacing as intermittent 401s. Confirmed against this account
+    // during the standalone-backend build; not worth re-triggering.
+    const [models, catalog] = await buildModelsAndCatalog(env);
+    const orders = await buildOrders(env);
 
-    const orderRows = await suiteQLAll(Q_ORDERS, env).catch(e => {
-      orderWarning = 'Q_ORDERS: ' + e.message.substring(0, 200);
-      console.warn('[inventory]', orderWarning);
-      return [];
-    });
+    const ordersWarning = orders.__warning;
+    delete orders.__warning;
 
-    const restletData = await fetchRestlet(env).catch(e => {
-      flexWarning = 'RESTlet: ' + e.message.substring(0, 200);
-      console.warn('[inventory]', flexWarning);
-      return { flexes: [], ufBalance: [] };
-    });
+    // Fill in committed/available/onHand at the order level from the same
+    // model data, so the fields are consistent wherever the frontend reads
+    // them from either object.
+    for (const [itemid, o] of Object.entries(orders)) {
+      const m = models[itemid];
+      if (m) {
+        o.committed = m.committed;
+        o.available = m.available;
+        o.onHand = m.onHand;
+      }
+    }
 
-    const flexRows    = restletData.flexes    || [];
-    const balanceRows = restletData.ufBalance || [];
+    const payload = {
+      models,
+      orders,
+      catalog,
+      refreshedAt: new Date().toISOString(),
+    };
+    if (ordersWarning) payload.warning = ordersWarning;
 
-    const payload  = buildPayload(itemRows, balanceRows, flexRows, orderRows);
-    const warnings = [itemsWarning, flexWarning, orderWarning].filter(Boolean);
-    if (warnings.length) payload.warning = warnings.join(' | ');
     return new Response(JSON.stringify(payload), { status: 200, headers: CORS });
-
   } catch (err) {
-    console.error('[inventory] error:', err.message);
-    return new Response(JSON.stringify({ error: err.message }), { status: 502, headers: CORS });
+    return new Response(
+      JSON.stringify({ error: String((err && err.message) || err) }),
+      { status: 502, headers: CORS }
+    );
   }
 }
 
 export async function onRequestOptions() {
   return new Response(null, {
     headers: {
-      'Access-Control-Allow-Origin':  '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET, OPTIONS',
+      'access-control-allow-headers': 'Content-Type',
     },
   });
+}
+
+// ---------------------------------------------------------------------
+// Data assembly
+// ---------------------------------------------------------------------
+
+async function buildModelsAndCatalog(env) {
+  const models = {};
+  const catalog = {};
+
+  // Pole models/blanks all have a "/" in their item id, e.g. "430/68" or
+  // "UF430/68". This mirrors the frontend's own POLE_RE (/^\d+S?\//) plus
+  // the UF-prefixed blanks, without pulling every unrelated item in NetSuite.
+  const items = await suiteQLAll(env, `
+    SELECT id, itemid, displayname
+    FROM item
+    WHERE isinactive = 'F'
+      AND (itemid LIKE '%/%')
+  `);
+
+  const itemIdByInternalId = {};
+  for (const row of items) {
+    catalog[row.itemid] = row.displayname || row.itemid;
+    itemIdByInternalId[row.id] = row.itemid;
+    models[row.itemid] = { onHand: 0, available: 0, committed: 0, flexes: [] };
+  }
+
+  // Per-flex-number (per-inventory-number) balances, joined back to the
+  // item and to the inventory number's label (the "Flex #" string, e.g.
+  // "20.1|430|26-04-08|8:51"). `inventorybalance` is location-level, so an
+  // item can have multiple rows per location/flex combination.
+  const balances = await suiteQLAll(env, `
+    SELECT
+      ib.item AS item_internal_id,
+      ib.quantityonhand,
+      ib.quantityavailable,
+      ib.committedqtyperlocation,
+      ib.committedqtyperseriallotnumberlocation,
+      invnum.inventorynumber AS flex_label
+    FROM inventorybalance ib
+    LEFT JOIN inventorynumber invnum ON invnum.id = ib.inventorynumber
+  `);
+
+  // Track committed-per-location once per (item, location) pair so we
+  // don't double-count it across every flex row at that location.
+  const committedSeen = new Set();
+
+  for (const row of balances) {
+    const itemid = itemIdByInternalId[row.item_internal_id];
+    if (!itemid || !models[itemid]) continue; // not a pole model we're tracking
+    const m = models[itemid];
+
+    m.onHand += Number(row.quantityonhand) || 0;
+    m.available += Number(row.quantityavailable) || 0;
+
+    const commitKey = `${row.item_internal_id}`;
+    // committedqtyperlocation repeats on every row for the same
+    // item/location — only add it in the first time we see this item.
+    if (!committedSeen.has(commitKey)) {
+      committedSeen.add(commitKey);
+      m.committed += Number(row.committedqtyperlocation) || 0;
+    }
+
+    if (row.flex_label) {
+      m.flexes.push({
+        f: row.flex_label,
+        // "a" = available. A flex number specifically committed to a sales
+        // order (committedqtyperseriallotnumberlocation > 0) shows as
+        // unavailable even if the row's overall quantityavailable is > 0.
+        a: (Number(row.committedqtyperseriallotnumberlocation) || 0) === 0
+          && (Number(row.quantityavailable) || 0) > 0,
+      });
+    }
+  }
+
+  return [models, catalog];
+}
+
+async function buildOrders(env) {
+  const orders = {};
+
+  // Line-status filtering (isfullyshipped / isclosed / fulfillable) rather
+  // than a t.status code guess — carried over from the earlier standalone
+  // attempt's inventory.js, where it was already correct once the "Find
+  // Transaction" permission was granted. openqty nets out already-shipped
+  // quantity via quantityshiprecv, so it reflects what's truly still
+  // pending, not just "any status that sounds open."
+  let lines;
+  try {
+    lines = await suiteQLAll(env, `
+      SELECT
+        i.itemid,
+        i.displayname,
+        t.tranid AS so_num,
+        ABS(NVL(tl.quantity, 0)) - NVL(tl.quantityshiprecv, 0) AS openqty,
+        NVL(tl.quantitybackordered, 0) AS backordered
+      FROM transactionline tl
+      JOIN transaction t ON t.id = tl.transaction
+      JOIN item i ON i.id = tl.item
+      WHERE t.type = 'SalesOrd'
+        AND tl.isfullyshipped = 'F'
+        AND tl.isclosed = 'F'
+        AND tl.fulfillable = 'T'
+        AND tl.item IS NOT NULL
+        AND i.isinactive = 'F'
+        AND i.itemid LIKE '%/%'
+    `);
+  } catch (err) {
+    // Surfaces as a top-level `warning` in the payload rather than failing
+    // the whole request — the Available/Need-to-Make tabs still work off
+    // `models` alone if this query breaks for some reason.
+    orders.__warning = `orders query failed: ${String((err && err.message) || err)}`;
+    return orders;
+  }
+
+  for (const row of lines) {
+    const itemid = row.itemid;
+    if (!itemid) continue;
+    const openQty = Math.round(parseFloat(row.openqty) || 0);
+    if (openQty <= 0) continue; // fully netted out — nothing actually pending
+
+    if (!orders[itemid]) {
+      orders[itemid] = {
+        openQty: 0,
+        committed: 0,
+        available: 0,
+        onHand: 0,
+        display: row.displayname || itemid,
+        description: '',
+        soLines: [],
+      };
+    }
+    const o = orders[itemid];
+    const bo = Number(row.backordered) || 0;
+    o.openQty += openQty;
+    o.soLines.push({
+      soNum: row.so_num,
+      flex: null, // flex-number-to-SO-line assignment needs a separate
+                  // inventory detail lookup; left blank until that's wired up
+      qty: openQty,
+      bo: bo > 0,
+    });
+  }
+
+  return orders;
+}
+
+// ---------------------------------------------------------------------
+// SuiteQL helper (handles pagination automatically)
+// ---------------------------------------------------------------------
+
+async function suiteQLAll(env, sql) {
+  const pageSize = 1000;
+  let pageIndex = 0;
+  let all = [];
+  for (;;) {
+    const page = await suiteQLPage(env, sql, pageIndex, pageSize);
+    all = all.concat(page.items);
+    if (pageIndex + 1 >= page.totalPages || page.items.length === 0) break;
+    pageIndex += 1;
+  }
+  return all;
+}
+
+async function suiteQLPage(env, sql, pageIndex, pageSize) {
+  const accountId = env.NETSUITE_ACCOUNT_ID;
+  const host = accountId.toLowerCase().replace(/_/g, '-');
+  const url =
+    `https://${host}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql` +
+    `?limit=${pageSize}&offset=${pageIndex * pageSize}`;
+
+  const authHeader = await buildOAuth1Header(env, 'POST', url);
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'prefer': 'transient',
+      authorization: authHeader,
+    },
+    body: JSON.stringify({ q: sql }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`SuiteQL request failed (${resp.status}): ${text}`);
+  }
+
+  const json = await resp.json();
+  const totalResults = json.totalResults ?? (json.items || []).length;
+  const totalPages = Math.max(1, Math.ceil(totalResults / pageSize));
+  return { items: json.items || [], totalPages };
+}
+
+// ---------------------------------------------------------------------
+// NetSuite Token-Based Authentication (OAuth 1.0a, HMAC-SHA256)
+// ---------------------------------------------------------------------
+
+async function buildOAuth1Header(env, method, url) {
+  const accountId = env.NETSUITE_ACCOUNT_ID;
+  const oauthParams = {
+    oauth_consumer_key: env.NETSUITE_CONSUMER_KEY,
+    oauth_token: env.NETSUITE_TOKEN_ID,
+    oauth_signature_method: 'HMAC-SHA256',
+    oauth_timestamp: String(Math.floor(Date.now() / 1000)),
+    oauth_nonce: cryptoRandomNonce(),
+    oauth_version: '1.0',
+  };
+
+  const { baseUrl, queryParams } = splitUrl(url);
+  const allParams = { ...oauthParams, ...queryParams };
+
+  const baseString = buildSignatureBaseString(method, baseUrl, allParams);
+  const signingKey =
+    `${percentEncode(env.NETSUITE_CONSUMER_SECRET)}&${percentEncode(env.NETSUITE_TOKEN_SECRET)}`;
+  const signature = await hmacSha256Base64(signingKey, baseString);
+
+  const headerParams = {
+    ...oauthParams,
+    oauth_signature: signature,
+    realm: accountId.toUpperCase(),
+  };
+
+  const headerStr = Object.entries(headerParams)
+    .map(([k, v]) => `${percentEncode(k)}="${percentEncode(v)}"`)
+    .join(', ');
+
+  return `OAuth ${headerStr}`;
+}
+
+function splitUrl(url) {
+  const u = new URL(url);
+  const queryParams = {};
+  for (const [k, v] of u.searchParams.entries()) queryParams[k] = v;
+  u.search = '';
+  return { baseUrl: u.toString(), queryParams };
+}
+
+function buildSignatureBaseString(method, baseUrl, params) {
+  const encodedParams = Object.keys(params)
+    .sort()
+    .map((k) => `${percentEncode(k)}=${percentEncode(params[k])}`)
+    .join('&');
+  return [
+    method.toUpperCase(),
+    percentEncode(baseUrl),
+    percentEncode(encodedParams),
+  ].join('&');
+}
+
+function percentEncode(str) {
+  return encodeURIComponent(str).replace(
+    /[!'()*]/g,
+    (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()
+  );
+}
+
+function cryptoRandomNonce() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function hmacSha256Base64(key, message) {
+  const enc = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(key),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(message));
+  return base64FromArrayBuffer(sig);
+}
+
+function base64FromArrayBuffer(buf) {
+  let binary = '';
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }

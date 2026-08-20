@@ -18,28 +18,28 @@ function pct(str) {
 async function oauthHeader(method, baseUrl, env, extraParams = {}) {
   const ts    = Math.floor(Date.now() / 1000).toString();
   const nonce = crypto.randomUUID().replace(/-/g,'');
-  const p = { ...extraParams, oauth_consumer_key: env.NS_CONSUMER_KEY, oauth_nonce: nonce,
+  const p = { ...extraParams, oauth_consumer_key: env.NETSUITE_CONSUMER_KEY, oauth_nonce: nonce,
     oauth_signature_method: 'HMAC-SHA256', oauth_timestamp: ts,
-    oauth_token: env.NS_TOKEN_ID, oauth_version: '1.0' };
+    oauth_token: env.NETSUITE_TOKEN_ID, oauth_version: '1.0' };
   const normalized = Object.entries(p).sort(([a],[b]) => pct(a)<pct(b)?-1:1)
     .map(([k,v]) => `${pct(k)}=${pct(v)}`).join('&');
   const base   = `${method.toUpperCase()}&${pct(baseUrl)}&${pct(normalized)}`;
-  const sigKey = `${pct(env.NS_CONSUMER_SECRET)}&${pct(env.NS_TOKEN_SECRET)}`;
+  const sigKey = `${pct(env.NETSUITE_CONSUMER_SECRET)}&${pct(env.NETSUITE_TOKEN_SECRET)}`;
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', enc.encode(sigKey),
     { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
   const raw = await crypto.subtle.sign('HMAC', key, enc.encode(base));
   const sig = btoa(String.fromCharCode(...new Uint8Array(raw)));
-  return [`OAuth realm="${env.NS_ACCOUNT_ID}"`,
-    `oauth_consumer_key="${env.NS_CONSUMER_KEY}"`,
-    `oauth_token="${env.NS_TOKEN_ID}"`,
+  return [`OAuth realm="${env.NETSUITE_ACCOUNT_ID}"`,
+    `oauth_consumer_key="${env.NETSUITE_CONSUMER_KEY}"`,
+    `oauth_token="${env.NETSUITE_TOKEN_ID}"`,
     `oauth_signature_method="HMAC-SHA256"`,
     `oauth_timestamp="${ts}"`, `oauth_nonce="${nonce}"`,
     `oauth_version="1.0"`, `oauth_signature="${sig}"`].join(', ');
 }
 
 async function suiteQLOnce(q, env) {
-  const base = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
+  const base = `https://${env.NETSUITE_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
   const url  = `${base}?limit=100&offset=0`;
   const auth = await oauthHeader('POST', base, env, { limit:'100', offset:'0' });
   const resp = await fetch(url, {
@@ -55,7 +55,7 @@ async function suiteQLOnce(q, env) {
 async function testLocations(id, env) {
   const results = [];
   for (const recType of ['inventoryitem','assemblyitem']) {
-    const url  = `https://${env.NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/${recType}/${id}/locations`;
+    const url  = `https://${env.NETSUITE_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/${recType}/${id}/locations`;
     const auth = await oauthHeader('GET', url, env);
     const resp = await fetch(url, { method:'GET', headers:{ 'Authorization':auth, 'Content-Type':'application/json' } });
     const txt  = await resp.text();
@@ -66,7 +66,7 @@ async function testLocations(id, env) {
 }
 
 export async function onRequestGet({ env, request }) {
-  if (!env.NS_ACCOUNT_ID) {
+  if (!env.NETSUITE_ACCOUNT_ID) {
     return new Response(JSON.stringify({ error:'NS env vars missing' }), { status:500, headers:CORS });
   }
 
