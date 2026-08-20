@@ -7,6 +7,15 @@
 // Goal: figure out if we can rebuild the inventory app's data feed using
 // only REST Record API list/expand calls, bypassing SuiteQL entirely.
 // Safe to delete once we've learned what we need.
+//
+// ROUND 4: uses a SEPARATE, test-only Access Token (TEST_NETSUITE_TOKEN_ID /
+// TEST_NETSUITE_TOKEN_SECRET) issued under the "Versapay Integration Role" —
+// a role with a real, working REST Web Services + Log in using Access Tokens
+// grant on this account — instead of our own role. Same Integration record
+// (same NETSUITE_ACCOUNT_ID / NETSUITE_CONSUMER_KEY / NETSUITE_CONSUMER_SECRET),
+// only the token+role differs. Deliberately does NOT touch the production
+// NETSUITE_TOKEN_ID/SECRET so the live single-record GET calls used by
+// so/[soNumber].js and if/[ifNumber].js keep working during this test.
 
 const CORS = {
   'content-type': 'application/json',
@@ -48,9 +57,14 @@ function splitUrl(url) {
 }
 
 async function buildOAuth1Header(env, method, url) {
+  // Uses the TEST token (Versapay Integration Role) — NOT the production
+  // NETSUITE_TOKEN_ID/SECRET — so this diagnostic can't affect the live
+  // single-record GET calls other endpoints depend on.
+  const tokenId = env.TEST_NETSUITE_TOKEN_ID;
+  const tokenSecret = env.TEST_NETSUITE_TOKEN_SECRET;
   const oauthParams = {
     oauth_consumer_key: env.NETSUITE_CONSUMER_KEY,
-    oauth_token: env.NETSUITE_TOKEN_ID,
+    oauth_token: tokenId,
     oauth_signature_method: 'HMAC-SHA256',
     oauth_timestamp: String(Math.floor(Date.now() / 1000)),
     oauth_nonce: cryptoRandomNonce(),
@@ -64,7 +78,7 @@ async function buildOAuth1Header(env, method, url) {
     .map(([k, v]) => `${k}=${v}`)
     .join('&');
   const baseString = [method.toUpperCase(), percentEncode(baseUrl), percentEncode(encodedParams)].join('&');
-  const signingKey = `${percentEncode(env.NETSUITE_CONSUMER_SECRET)}&${percentEncode(env.NETSUITE_TOKEN_SECRET)}`;
+  const signingKey = `${percentEncode(env.NETSUITE_CONSUMER_SECRET)}&${percentEncode(tokenSecret)}`;
   const signature = await hmacSha256Base64(signingKey, baseString);
   const headerParams = { ...oauthParams, oauth_signature: signature, realm: env.NETSUITE_ACCOUNT_ID };
   return 'OAuth ' + Object.entries(headerParams).map(([k, v]) => `${percentEncode(k)}="${percentEncode(v)}"`).join(', ');
@@ -92,63 +106,45 @@ async function tryFetch(env, label, url, method, body) {
 export async function onRequestGet({ env }) {
   const acct = env.NETSUITE_ACCOUNT_ID;
   const host = `https://${acct}.suitetalk.api.netsuite.com`;
+
+  if (!env.TEST_NETSUITE_TOKEN_ID || !env.TEST_NETSUITE_TOKEN_SECRET) {
+    return new Response(JSON.stringify({
+      error: 'TEST_NETSUITE_TOKEN_ID / TEST_NETSUITE_TOKEN_SECRET not set. Add them as ' +
+        'Cloudflare Pages Secrets (Production) with the Versapay-Integration-Role access ' +
+        "token's values, then redeploy.",
+    }), { status: 500, headers: CORS });
+  }
+
   const results = [];
 
-  // ROUND 1 FINDINGS (kept as comments for reference, not re-tested):
-  //  - Collection LIST endpoints (?limit=, ?q=) fail with the SAME
-  //    "does not have permission" error as SuiteQL — for BOTH
-  //    inventorynumber (no explicit permission granted) AND salesorder
-  //    (which DOES have View permission granted on the role). This means
-  //    LIST/SEARCH-style REST calls are blocked account-wide, same as
-  //    SuiteQL — not just a missing role permission.
-  //  - expandSubResources is invalid on collection endpoints (only valid
-  //    on a single-record GET by ID) — that was a test-writing mistake,
-  //    not a real signal.
+  // ROUNDS 1-3 findings (bare list, q= filter, single-record GET) are
+  // covered in prior commits of this file — see git history. Every
+  // collection LIST/SEARCH failed with "does not have permission" under
+  // our own role, CEO, and Production Manager Power User; single-record
+  // GET by known ID always succeeded.
   //
-  // ROUND 2: test single-record GET BY KNOWN INTERNAL ID — the one
-  // pattern used by so/[soNumber].js and if/[ifNumber].js's REST calls,
-  // which has NEVER actually been proven to work under the new role
-  // (earlier "success" was a 404 on an invalid generic type name, not a
-  // real record). IDs below pulled via the working Claude-connected
-  // NetSuite tool: item 235/25 = internal id 2260, SO33963 = internal id
-  // 198361.
+  // ROUND 4: same two tests (single-record GET + bare list), but signed
+  // with a token issued under the "Versapay Integration Role" — a role
+  // with a genuinely working REST Web Services grant on this account —
+  // instead of any of our own roles. If salesorder_bare_list succeeds
+  // here, the block is role-specific after all. If it still fails, the
+  // restriction is tied to something else entirely (the Integration
+  // record, or truly account-wide for TBA).
 
   results.push(await tryFetch(
-    env, 'inventoryitem_get_by_id',
-    `${host}/services/rest/record/v1/inventoryitem/2260`,
-    'GET'
-  ));
-
-  results.push(await tryFetch(
-    env, 'inventoryitem_get_by_id_expand',
-    `${host}/services/rest/record/v1/inventoryitem/2260?expandSubResources=true`,
-    'GET'
-  ));
-
-  results.push(await tryFetch(
-    env, 'salesorder_get_by_id',
+    env, 'salesorder_get_by_id__versapay_role',
     `${host}/services/rest/record/v1/salesorder/198361`,
     'GET'
   ));
 
   results.push(await tryFetch(
-    env, 'salesorder_get_by_id_expand',
-    `${host}/services/rest/record/v1/salesorder/198361?expandSubResources=true`,
-    'GET'
-  ));
-
-  // ROUND 3: is it specifically the `q=` filter parameter that's blocked,
-  // or is ANY collection list blocked even bare/unfiltered? If bare
-  // pagination works, we can enumerate everything and filter client-side
-  // in the Worker instead of needing search/query at all.
-  results.push(await tryFetch(
-    env, 'salesorder_bare_list',
+    env, 'salesorder_bare_list__versapay_role',
     `${host}/services/rest/record/v1/salesorder?limit=3`,
     'GET'
   ));
 
   results.push(await tryFetch(
-    env, 'inventoryitem_bare_list',
+    env, 'inventoryitem_bare_list__versapay_role',
     `${host}/services/rest/record/v1/inventoryitem?limit=3`,
     'GET'
   ));
