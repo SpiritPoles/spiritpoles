@@ -64,49 +64,63 @@ async function importM2MPrivateKey(env) {
   );
 }
 
-// Builds the client_assertion JWT per NetSuite's "The Request Token
-// Structure" spec: header {typ, alg: PS256, kid: <Certificate ID>},
-// payload {iss: <Client ID>, scope: [...], aud: <token endpoint>, exp, iat}.
-async function buildM2MAssertion(env, tokenUrl) {
+async function sha256Hex(str) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Builds the assertion + posts it, returning the full diagnostic detail
+// (decoded header/payload, key fingerprint, raw response) rather than just
+// the access token, so a failure can be triaged without touching the key.
+async function attemptM2MToken(env, scopeValue, label) {
+  const acct = env.NETSUITE_ACCOUNT_ID;
+  const tokenUrl = `https://${acct}.suitetalk.api.netsuite.com/services/rest/auth/oauth2/v1/token`;
   const now = Math.floor(Date.now() / 1000);
   const header = { typ: 'JWT', alg: 'PS256', kid: env.NETSUITE_M2M_CERT_ID };
   const payload = {
     iss: env.NETSUITE_M2M_CLIENT_ID,
-    scope: ['rest_webservices'],
+    scope: scopeValue,
     aud: tokenUrl,
-    exp: now + 3300, // 55 min — must be < 60 min past iat per spec
+    exp: now + 3300,
     iat: now,
   };
   const encHeader = base64urlFromString(JSON.stringify(header));
   const encPayload = base64urlFromString(JSON.stringify(payload));
   const signingInput = `${encHeader}.${encPayload}`;
-  const key = await importM2MPrivateKey(env);
-  const sig = await crypto.subtle.sign(
-    { name: 'RSA-PSS', saltLength: 32 },
-    key,
-    new TextEncoder().encode(signingInput)
-  );
-  return `${signingInput}.${base64urlFromBytes(new Uint8Array(sig))}`;
-}
 
-async function getM2MAccessToken(env) {
-  const acct = env.NETSUITE_ACCOUNT_ID;
-  const tokenUrl = `https://${acct}.suitetalk.api.netsuite.com/services/rest/auth/oauth2/v1/token`;
-  const assertion = await buildM2MAssertion(env, tokenUrl);
+  let jwt;
+  try {
+    const key = await importM2MPrivateKey(env);
+    const sig = await crypto.subtle.sign(
+      { name: 'RSA-PSS', saltLength: 32 },
+      key,
+      new TextEncoder().encode(signingInput)
+    );
+    jwt = `${signingInput}.${base64urlFromBytes(new Uint8Array(sig))}`;
+  } catch (err) {
+    return { label, status: 'SIGNING_EXCEPTION', header, payload, body: String((err && err.message) || err) };
+  }
+
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
-    client_assertion: assertion,
+    client_assertion: jwt,
   });
-  const resp = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-  });
-  const text = await resp.text();
-  if (!resp.ok) throw new Error(`${resp.status} ${text.substring(0, 800)}`);
-  const json = JSON.parse(text);
-  return json.access_token;
+  try {
+    const resp = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    const text = await resp.text();
+    let accessToken = null;
+    if (resp.ok) {
+      try { accessToken = JSON.parse(text).access_token; } catch {}
+    }
+    return { label, status: resp.status, header, payload, body: text.substring(0, 800), accessToken };
+  } catch (err) {
+    return { label, status: 'FETCH_EXCEPTION', header, payload, body: String((err && err.message) || err) };
+  }
 }
 
 async function tryFetch(label, url, method, accessToken, body) {
@@ -139,12 +153,32 @@ export async function onRequestGet({ env }) {
   }
 
   const results = [];
-  let accessToken;
+
+  // Key fingerprint, so a bad paste into the Cloudflare secret can be spotted
+  // without ever printing the private key itself.
   try {
-    accessToken = await getM2MAccessToken(env);
-    results.push({ label: 'token_request', status: 'OK', body: `access token acquired (len ${accessToken.length})` });
+    const fp = await sha256Hex(env.NETSUITE_M2M_PRIVATE_KEY.trim());
+    results.push({ label: 'private_key_fingerprint_sha256', status: 'INFO', body: fp });
   } catch (err) {
-    results.push({ label: 'token_request', status: 'ERROR', body: String((err && err.message) || err) });
+    results.push({ label: 'private_key_fingerprint_sha256', status: 'ERROR', body: String((err && err.message) || err) });
+  }
+
+  // NetSuite's prose docs say scope is a comma-separated string; its JSON
+  // example shows an array. Try both — a format mismatch could plausibly
+  // produce a generic 500 server_error with no other detail.
+  const scopeAttempts = [
+    { label: 'token_request__scope_array', scopeValue: ['rest_webservices'] },
+    { label: 'token_request__scope_string', scopeValue: 'rest_webservices' },
+  ];
+
+  let accessToken = null;
+  for (const attempt of scopeAttempts) {
+    const result = await attemptM2MToken(env, attempt.scopeValue, attempt.label);
+    results.push(result);
+    if (result.accessToken && !accessToken) accessToken = result.accessToken;
+  }
+
+  if (!accessToken) {
     return new Response(JSON.stringify({ account: acct, results }, null, 2), { status: 200, headers: CORS });
   }
 
