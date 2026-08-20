@@ -149,6 +149,27 @@ export async function onRequestGet({ env }) {
     'GET'
   ));
 
+  // ROUND 5: TEST_NETSUITE_TOKEN_ID/SECRET now point at the reissued
+  // production-role token (Perform Search added, fresh token = confirmed
+  // fixed for bare list). Two open questions left:
+  //  (a) Does the `q=` filter work now too, not just bare/unfiltered list?
+  //      This is what we need to fetch only OPEN sales orders instead of
+  //      paging through all ~3000.
+  //  (b) Is SuiteQL still blocked even for this now-working token/role, or
+  //      did fixing search fix SuiteQL too?
+  results.push(await tryFetch(
+    env, 'salesorder_q_filter__fixed_role',
+    `${host}/services/rest/record/v1/salesorder?limit=3&q=mainline IS "T" AND status IS "SalesOrd:B"`,
+    'GET'
+  ));
+
+  results.push(await tryFetch(
+    env, 'suiteql_dual__fixed_role',
+    `${host}/services/rest/query/v1/suiteql?limit=1&offset=0`,
+    'POST',
+    { q: 'SELECT 1 AS one FROM DUAL' }
+  ));
+
   return new Response(JSON.stringify({ account: acct, results }, null, 2), { status: 200, headers: CORS });
 }
 
