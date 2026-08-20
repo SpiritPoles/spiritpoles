@@ -94,35 +94,46 @@ export async function onRequestGet({ env }) {
   const host = `https://${acct}.suitetalk.api.netsuite.com`;
   const results = [];
 
-  // 1. Does a plain list of inventoryitem work, and what shape does
-  //    expandSubResources give us for per-location quantities?
+  // ROUND 1 FINDINGS (kept as comments for reference, not re-tested):
+  //  - Collection LIST endpoints (?limit=, ?q=) fail with the SAME
+  //    "does not have permission" error as SuiteQL — for BOTH
+  //    inventorynumber (no explicit permission granted) AND salesorder
+  //    (which DOES have View permission granted on the role). This means
+  //    LIST/SEARCH-style REST calls are blocked account-wide, same as
+  //    SuiteQL — not just a missing role permission.
+  //  - expandSubResources is invalid on collection endpoints (only valid
+  //    on a single-record GET by ID) — that was a test-writing mistake,
+  //    not a real signal.
+  //
+  // ROUND 2: test single-record GET BY KNOWN INTERNAL ID — the one
+  // pattern used by so/[soNumber].js and if/[ifNumber].js's REST calls,
+  // which has NEVER actually been proven to work under the new role
+  // (earlier "success" was a 404 on an invalid generic type name, not a
+  // real record). IDs below pulled via the working Claude-connected
+  // NetSuite tool: item 235/25 = internal id 2260, SO33963 = internal id
+  // 198361.
+
   results.push(await tryFetch(
-    env, 'inventoryitem_list_expand',
-    `${host}/services/rest/record/v1/inventoryitem?limit=2&expandSubResources=true`,
+    env, 'inventoryitem_get_by_id',
+    `${host}/services/rest/record/v1/inventoryitem/2260`,
     'GET'
   ));
 
-  // 2. Does the "inventorynumber" (serial/lot/flex #) record type exist as
-  //    a top-level REST resource at all?
   results.push(await tryFetch(
-    env, 'inventorynumber_list',
-    `${host}/services/rest/record/v1/inventorynumber?limit=2`,
+    env, 'inventoryitem_get_by_id_expand',
+    `${host}/services/rest/record/v1/inventoryitem/2260?expandSubResources=true`,
     'GET'
   ));
 
-  // 3. Does the REST Record API's simple query language (q=) work for
-  //    salesorder, independent of the blocked SuiteQL endpoint?
   results.push(await tryFetch(
-    env, 'salesorder_q_filter',
-    `${host}/services/rest/record/v1/salesorder?limit=2&q=status IS "SalesOrd:B"`,
+    env, 'salesorder_get_by_id',
+    `${host}/services/rest/record/v1/salesorder/198361`,
     'GET'
   ));
 
-  // 4. Does a list-level expandSubResources inline the "item" sublist
-  //    (line items) for salesorder, or only expand simple sub-objects?
   results.push(await tryFetch(
-    env, 'salesorder_list_expand',
-    `${host}/services/rest/record/v1/salesorder?limit=1&expandSubResources=true`,
+    env, 'salesorder_get_by_id_expand',
+    `${host}/services/rest/record/v1/salesorder/198361?expandSubResources=true`,
     'GET'
   ));
 
