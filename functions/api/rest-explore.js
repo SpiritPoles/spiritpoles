@@ -137,6 +137,22 @@ export async function onRequestGet({ env }) {
     'GET'
   ));
 
+  // ROUND 3: is it specifically the `q=` filter parameter that's blocked,
+  // or is ANY collection list blocked even bare/unfiltered? If bare
+  // pagination works, we can enumerate everything and filter client-side
+  // in the Worker instead of needing search/query at all.
+  results.push(await tryFetch(
+    env, 'salesorder_bare_list',
+    `${host}/services/rest/record/v1/salesorder?limit=3`,
+    'GET'
+  ));
+
+  results.push(await tryFetch(
+    env, 'inventoryitem_bare_list',
+    `${host}/services/rest/record/v1/inventoryitem?limit=3`,
+    'GET'
+  ));
+
   return new Response(JSON.stringify({ account: acct, results }, null, 2), { status: 200, headers: CORS });
 }
 
