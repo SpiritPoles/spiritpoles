@@ -495,10 +495,10 @@ body.light .piece-col-hdr{border-bottom-color:rgba(0,0,0,0.06)}
           <select id="p2-forwarder" onchange="onP2ForwarderChange(this)">
             <option value="">— Select Forwarder —</option>
             <option>AIT</option>
-            <option>Maersk / Pilot</option>
+            <option>Maersk/Pilot</option>
             <option>DSV</option>
-            <option>Global Shipping Services</option>
-            <option>Dynasty / Erixmar</option>
+            <option>GSS (GLOBAL)</option>
+            <option>Dynasty</option>
             <option>SAIA</option>
             <option value="other">Other (enter email below)</option>
           </select>
@@ -620,18 +620,21 @@ const SHIPPER = {
   contact: 'Austin Tilley',
 };
 
+// Replaced 2026-08-21 per Chris — new contact directory. Each forwarder's
+// first-listed contact is the "to" address; remaining contacts for that same
+// company are CC'd (INTERNAL_CC below is unchanged and still added on top).
 const FREIGHT_FORWARDERS = [
-  { name:'AIT', to:'orders@ait.com', cc:[], active:true,
+  { name:'AIT', to:'RNOOPS@aitworldwide.com', cc:['rnointl@aitworldwide.com'], active:true,
     sli:{ name:'AIT Worldwide Logistics, Inc.', addr:'701 N. Rohlwing Rd., Itasca, IL 60143', phone:'', iata:'' } },
-  { name:'Maersk / Pilot', to:'pilotchi@pilotdelivers.com', cc:['pilotsfo@pilotdelivers.com'], active:true,
+  { name:'Maersk/Pilot', to:'smfintl_PLT@maersk.com', cc:['kathryn.manjarrez@maersk.com','johanna.solomon@maersk.com'], active:true,
     sli:{ name:'Pilot Air Freight, LLC (Agent for Maersk)', addr:'701 Airfreight Dr., Wood Dale, IL 60191', phone:'', iata:'' } },
-  { name:'DSV', to:'dsv.chicago@dsv.com', cc:[], active:true,
+  { name:'DSV', to:'nella.tayag@dsv.com', cc:['mehjabeen.subedar@dsv.com','ExpAir.SFO@us.dsv.com'], active:true,
     sli:{ name:'DSV Air & Sea, Inc.', addr:'', phone:'', iata:'' } },
-  { name:'Global Shipping Services', to:'quotes@globalshippingservices.com', cc:[], active:true,
+  { name:'GSS (GLOBAL)', to:'tania-milchorena@glship.com', cc:['jessica-johnson@glship.com','chris-baillie@glship.com','gssil@glship.com'], active:true,
     sli:{ name:'Global Shipping Services', addr:'141 Arena St. #C, El Segundo, CA 90245', phone:'', iata:'' } },
-  { name:'Dynasty / Erixmar', to:'dynasty@erixmar.com', cc:['erixmar@erixmar.com'], active:true,
+  { name:'Dynasty', to:'airexp@dynasty-lax.com', cc:['bennie.leung@erixmar.com','airimporthk@erixmar.com','y.cheung@erixmar.com'], active:true,
     sli:{ name:'Dynasty Shipping Inc.', addr:'643 Hindry Ave., Inglewood, CA 90301', phone:'310-645-2838', iata:'' } },
-  { name:'SAIA', to:'quotes@saia.com', cc:[], active:true,
+  { name:'SAIA', to:'global@saialogistics.com', cc:['slagace@saia.com'], active:true,
     sli:{ name:'SAIA Inc.', addr:'', phone:'', iata:'' } },
 ];
 const INTERNAL_CC = ['stevechappell@ucsspirit.com', 'chrischappell@ucsspirit.com'];
