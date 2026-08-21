@@ -63,7 +63,11 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
 
 // ── SuiteQL helper ─────────────────────────────────────────────────────────────
 
-async function suiteQL(q, env, retries = 3) {
+// retries bumped 3→4 and backoff 600→800ms/step (2026-08-21): NetSuite TBA has shown
+// intermittent 401 INVALID_LOGIN on otherwise-valid requests — same token/role, no config
+// change — that self-resolves within a few seconds. More retries with a longer spread
+// gives it more chances to clear before surfacing an error to the user.
+async function suiteQL(q, env, retries = 4) {
   const url = `https://${env.NETSUITE_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -82,7 +86,7 @@ async function suiteQL(q, env, retries = 3) {
 
     const txt = await resp.text();
     if (resp.status === 401 && attempt < retries) {
-      const wait = 600 * (attempt + 1);
+      const wait = 800 * (attempt + 1);
       console.warn(`NS 401 on attempt ${attempt + 1} — retrying in ${wait}ms`);
       await new Promise(r => setTimeout(r, wait));
       continue;
@@ -96,7 +100,8 @@ async function suiteQL(q, env, retries = 3) {
 // base string alongside the oauth_* params. We split the URL, parse query
 // params, pass them to oauthHeader as extraParams, then fetch the full URL.
 
-async function nsGet(fullUrl, env, retries = 2) {
+// retries bumped 2→3 and backoff 600→800ms/step (2026-08-21) — see suiteQL() comment above.
+async function nsGet(fullUrl, env, retries = 3) {
   const qIdx    = fullUrl.indexOf('?');
   const baseUrl = qIdx >= 0 ? fullUrl.slice(0, qIdx) : fullUrl;
   const qs      = qIdx >= 0 ? fullUrl.slice(qIdx + 1) : '';
@@ -123,7 +128,7 @@ async function nsGet(fullUrl, env, retries = 2) {
 
     const txt = await resp.text();
     if (resp.status === 401 && attempt < retries) {
-      await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
       continue;
     }
     throw new Error(`NS REST ${resp.status}: ${txt.substring(0, 400)}`);

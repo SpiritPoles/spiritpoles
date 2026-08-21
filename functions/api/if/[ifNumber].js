@@ -62,7 +62,11 @@ async function oauthHeader(method, baseUrl, env, extraParams = {}) {
 
 // ── SuiteQL helper — verbatim copy from [soNumber].js ─────────────────────────
 
-async function suiteQL(q, env, retries = 3) {
+// retries bumped 3→4 and backoff 600→800ms/step (2026-08-21): NetSuite TBA has shown
+// intermittent 401 INVALID_LOGIN on otherwise-valid requests — same token/role, no config
+// change — that self-resolves within a few seconds. More retries with a longer spread
+// gives it more chances to clear before surfacing an error to the user.
+async function suiteQL(q, env, retries = 4) {
   const url = `https://${env.NETSUITE_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -81,7 +85,7 @@ async function suiteQL(q, env, retries = 3) {
 
     const txt = await resp.text();
     if (resp.status === 401 && attempt < retries) {
-      const wait = 600 * (attempt + 1);
+      const wait = 800 * (attempt + 1);
       console.warn(`NS 401 on attempt ${attempt + 1} — retrying in ${wait}ms`);
       await new Promise(r => setTimeout(r, wait));
       continue;
@@ -92,8 +96,9 @@ async function suiteQL(q, env, retries = 3) {
 
 // ── REST Record API GET helper — verbatim copy from [soNumber].js ─────────────
 // Query-string params are included in the OAuth signature base string.
+// retries bumped 2→3 and backoff 600→800ms/step (2026-08-21) — see suiteQL() comment above.
 
-async function nsGet(fullUrl, env, retries = 2) {
+async function nsGet(fullUrl, env, retries = 3) {
   const qIdx    = fullUrl.indexOf('?');
   const baseUrl = qIdx >= 0 ? fullUrl.slice(0, qIdx) : fullUrl;
   const qs      = qIdx >= 0 ? fullUrl.slice(qIdx + 1) : '';
@@ -119,7 +124,7 @@ async function nsGet(fullUrl, env, retries = 2) {
 
     const txt = await resp.text();
     if (resp.status === 401 && attempt < retries) {
-      await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
       continue;
     }
     throw new Error(`NS REST ${resp.status}: ${txt.substring(0, 400)}`);
@@ -185,7 +190,10 @@ export async function onRequestGet({ params, env }) {
       for (const c of candidates) {
         try {
           // ?fields=createdFrom returns ~100 bytes instead of the full IF record
-          const rec = await nsGet(`${restBase}/${c.id}?fields=createdFrom`, env, 1);
+          // retries 1→2 (2026-08-21): this call is wrapped in try/catch below and a
+          // transient 401 here silently drops a candidate rather than surfacing an
+          // error, so it needs a real chance to recover before we give up on it.
+          const rec = await nsGet(`${restBase}/${c.id}?fields=createdFrom`, env, 2);
           if (String(rec.createdFrom?.id || '') === soIdStr) {
             ifRows.push({ id: c.id, tranid: c.tranid, trandate: c.trandate });
           }
@@ -247,9 +255,11 @@ export async function onRequestGet({ params, env }) {
     let soNumber = resolvedFromSO || '';
     if (!soNumber) {
       try {
+        // retries 1→2 (2026-08-21): non-fatal try/catch below means a transient 401
+        // here would silently leave so_number blank rather than erroring visibly.
         const ifRestRec = await nsGet(
           `https://${env.NETSUITE_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/itemfulfillment/${ifRec.id}?fields=createdFrom`,
-          env, 1
+          env, 2
         );
         // refName is e.g. "Sales Order #SO33870"
         const refName = ifRestRec.createdFrom?.refName || '';
